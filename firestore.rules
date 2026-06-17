@@ -1,0 +1,16 @@
+// firestore.rules
+// Firebase Console > Firestore > 규칙 탭에 붙여넣으세요
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // leads 컬렉션
+    match /leads/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    // adSpend 컬렉션
+    match /adSpend/{docId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

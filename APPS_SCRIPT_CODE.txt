@@ -1,0 +1,77 @@
+const SHEETS = {
+  leads: 'DASHBOARD_LEADS',
+  adSpend: 'AD_SPEND',
+  firstRaw: 'FIRST_DB_RAW',
+  secondRaw: 'SECOND_DB_RAW'
+};
+
+function doGet(e) {
+  const type = e.parameter.type;
+  if (type === 'leads') return getSheetData(SHEETS.leads);
+  if (type === 'adSpend') return getSheetData(SHEETS.adSpend);
+  if (type === 'firstRaw') return getSheetData(SHEETS.firstRaw);
+  if (type === 'secondRaw') return getSheetData(SHEETS.secondRaw);
+  return json({ error: 'Invalid type' });
+}
+
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents);
+    const type = body.type;
+    const rows = body.rows || [];
+
+    if (type === 'leads') return appendRows(SHEETS.leads, rows);
+    if (type === 'adSpend') return appendRows(SHEETS.adSpend, rows);
+    if (type === 'firstRaw') return appendRows(SHEETS.firstRaw, rows);
+    if (type === 'secondRaw') return appendRows(SHEETS.secondRaw, rows);
+
+    return json({ error: 'Invalid type' });
+  } catch (err) {
+    return json({ error: String(err) });
+  }
+}
+
+function getSheetData(sheetName) {
+  const sheet = SpreadsheetApp.getActive().getSheetByName(sheetName);
+  if (!sheet) return json({ error: 'Sheet not found: ' + sheetName });
+  const values = sheet.getDataRange().getValues();
+  if (!values || values.length <= 1) return json([]);
+  const headers = values.shift();
+
+  const result = values
+    .filter(row => row.some(cell => cell !== ''))
+    .map(row => {
+      const obj = {};
+      headers.forEach((h, i) => obj[h] = row[i]);
+      return obj;
+    });
+
+  return json(result);
+}
+
+function appendRows(sheetName, rows) {
+  const sheet = SpreadsheetApp.getActive().getSheetByName(sheetName);
+  if (!sheet) return json({ error: 'Sheet not found: ' + sheetName });
+  if (!rows || rows.length === 0) return json({ success: true, count: 0 });
+
+  let lastCol = sheet.getLastColumn();
+  let headers = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0].filter(String) : [];
+
+  // 업로드 데이터에 새 컬럼이 있으면 시트 헤더를 자동 확장
+  const incomingKeys = [];
+  rows.forEach(row => Object.keys(row).forEach(k => { if (incomingKeys.indexOf(k) === -1) incomingKeys.push(k); }));
+  incomingKeys.forEach(k => { if (headers.indexOf(k) === -1) headers.push(k); });
+
+  if (headers.length === 0) return json({ error: 'No headers found' });
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+  const values = rows.map(row => headers.map(h => row[h] === undefined || row[h] === null ? '' : row[h]));
+  sheet.getRange(sheet.getLastRow() + 1, 1, values.length, headers.length).setValues(values);
+  return json({ success: true, count: values.length });
+}
+
+function json(data) {
+  return ContentService
+    .createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}
