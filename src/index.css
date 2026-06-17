@@ -1,0 +1,43 @@
+/* src/index.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Inter', 'Pretendard', system-ui, -apple-system, sans-serif;
+    background: #f1f5f9;
+    color: #1e293b;
+    margin: 0;
+  }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-xl border border-slate-100 shadow-sm;
+  }
+  .stat-card {
+    @apply card p-5 flex flex-col gap-2;
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700
+           text-white text-sm font-medium rounded-lg transition-colors duration-150;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50
+           text-slate-700 text-sm font-medium rounded-lg border border-slate-200 transition-colors duration-150;
+  }
+  .tab-btn {
+    @apply px-3 py-1.5 text-xs font-medium rounded-md transition-colors duration-150;
+  }
+  .tab-btn.active {
+    @apply bg-blue-600 text-white;
+  }
+  .tab-btn:not(.active) {
+    @apply text-slate-500 hover:text-slate-700 hover:bg-slate-100;
+  }
+}
