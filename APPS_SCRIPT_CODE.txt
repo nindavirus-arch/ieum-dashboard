@@ -2,7 +2,8 @@ const SHEETS = {
   leads: 'DASHBOARD_LEADS',
   adSpend: 'AD_SPEND',
   firstRaw: 'FIRST_DB_RAW',
-  secondRaw: 'SECOND_DB_RAW'
+  secondRaw: 'SECOND_DB_RAW',
+  mapping: 'CHANNEL_MAPPING'
 };
 
 function doGet(e) {
@@ -11,6 +12,7 @@ function doGet(e) {
   if (type === 'adSpend') return getSheetData(SHEETS.adSpend);
   if (type === 'firstRaw') return getSheetData(SHEETS.firstRaw);
   if (type === 'secondRaw') return getSheetData(SHEETS.secondRaw);
+  if (type === 'mapping') return getSheetData(SHEETS.mapping);
   return json({ error: 'Invalid type' });
 }
 
@@ -20,10 +22,11 @@ function doPost(e) {
     const type = body.type;
     const rows = body.rows || [];
 
-    if (type === 'leads') return appendRows(SHEETS.leads, rows);
-    if (type === 'adSpend') return appendRows(SHEETS.adSpend, rows);
-    if (type === 'firstRaw') return appendRows(SHEETS.firstRaw, rows);
-    if (type === 'secondRaw') return appendRows(SHEETS.secondRaw, rows);
+    if (type === 'leads') return appendRowsUnique(SHEETS.leads, rows, 'leads');
+    if (type === 'adSpend') return appendRowsUnique(SHEETS.adSpend, rows, 'adSpend');
+    if (type === 'firstRaw') return appendRowsUnique(SHEETS.firstRaw, rows, 'firstRaw');
+    if (type === 'secondRaw') return appendRowsUnique(SHEETS.secondRaw, rows, 'secondRaw');
+    if (type === 'updateLead') return updateLeadRow(body);
 
     return json({ error: 'Invalid type' });
   } catch (err) {
@@ -34,7 +37,7 @@ function doPost(e) {
 function getSheetData(sheetName) {
   const sheet = SpreadsheetApp.getActive().getSheetByName(sheetName);
   if (!sheet) return json({ error: 'Sheet not found: ' + sheetName });
-  const values = sheet.getDataRange().getValues();
+  const values = sheet.getDataRange().getDisplayValues();
   if (!values || values.length <= 1) return json([]);
   const headers = values.shift();
 
@@ -49,13 +52,13 @@ function getSheetData(sheetName) {
   return json(result);
 }
 
-function appendRows(sheetName, rows) {
+function appendRowsUnique(sheetName, rows, type) {
   const sheet = SpreadsheetApp.getActive().getSheetByName(sheetName);
   if (!sheet) return json({ error: 'Sheet not found: ' + sheetName });
-  if (!rows || rows.length === 0) return json({ success: true, count: 0 });
+  if (!rows || rows.length === 0) return json({ success: true, count: 0, skipped: 0 });
 
   let lastCol = sheet.getLastColumn();
-  let headers = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0].filter(String) : [];
+  let headers = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0].filter(String) : [];
 
   // 업로드 데이터에 새 컬럼이 있으면 시트 헤더를 자동 확장
   const incomingKeys = [];
@@ -65,9 +68,117 @@ function appendRows(sheetName, rows) {
   if (headers.length === 0) return json({ error: 'No headers found' });
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
 
-  const values = rows.map(row => headers.map(h => row[h] === undefined || row[h] === null ? '' : row[h]));
+  const existing = buildExistingKeySet(sheet, headers, type);
+  const toAppend = [];
+  const seenIncoming = {};
+
+  rows.forEach(row => {
+    const key = makeUniqueKey(row, type);
+    if (!key) return;
+    if (existing[key] || seenIncoming[key]) return;
+    seenIncoming[key] = true;
+    toAppend.push(row);
+  });
+
+  if (toAppend.length === 0) return json({ success: true, count: 0, skipped: rows.length });
+
+  const values = toAppend.map(row => headers.map(h => row[h] === undefined || row[h] === null ? '' : row[h]));
   sheet.getRange(sheet.getLastRow() + 1, 1, values.length, headers.length).setValues(values);
-  return json({ success: true, count: values.length });
+  return json({ success: true, count: values.length, skipped: rows.length - values.length });
+}
+
+
+function updateLeadRow(body) {
+  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEETS.leads);
+  if (!sheet) return json({ error: 'Sheet not found: ' + SHEETS.leads });
+
+  const phone = normalizePhone(body.phone || '');
+  const stage = String(body.stage || '').toLowerCase();
+  const patch = body.patch || {};
+  const targetDate = String(body.date || '').slice(0, 10);
+  if (!phone || !stage) return json({ error: 'phone/stage required' });
+
+  let lastCol = sheet.getLastColumn();
+  let headers = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0].filter(String) : [];
+  Object.keys(patch).forEach(k => { if (headers.indexOf(k) === -1) headers.push(k); });
+  if (headers.indexOf('changeHistory') === -1) headers.push('changeHistory');
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+  const values = sheet.getDataRange().getDisplayValues();
+  if (!values || values.length <= 1) return json({ error: 'No leads data' });
+  const h = values[0];
+  const phoneIdx = h.indexOf('phone');
+  const stageIdx = h.indexOf('stage') >= 0 ? h.indexOf('stage') : h.indexOf('dbTier');
+  const dateIdx = h.indexOf('date');
+  if (phoneIdx < 0 || stageIdx < 0) return json({ error: 'phone/stage column not found' });
+
+  for (let r = 1; r < values.length; r++) {
+    const rowPhone = normalizePhone(values[r][phoneIdx]);
+    const rowStage = String(values[r][stageIdx] || '').toLowerCase();
+    const rowDate = dateIdx >= 0 ? String(values[r][dateIdx] || '').slice(0, 10) : '';
+    if (rowPhone === phone && rowStage === stage && (!targetDate || rowDate === targetDate)) {
+      const now = new Date().toISOString();
+      const operator = patch.operator || patch.updatedBy || '';
+      const historyIdx = headers.indexOf('changeHistory');
+      const oldHistory = historyIdx >= 0 ? String(values[r][historyIdx] || '') : '';
+      const changedKeys = Object.keys(patch).filter(k => k !== 'updatedAt' && patch[k] !== undefined && patch[k] !== null).join(', ');
+      const historyLine = '[' + now.replace('T',' ').slice(0,16) + '] ' + (operator || '작업자미상') + ' 수정: ' + changedKeys;
+      patch.updatedAt = now;
+      patch.changeHistory = oldHistory ? oldHistory + '\n' + historyLine : historyLine;
+
+      Object.keys(patch).forEach(k => {
+        const col = h.indexOf(k) >= 0 ? h.indexOf(k) : headers.indexOf(k);
+        sheet.getRange(r + 1, col + 1).setValue(patch[k]);
+      });
+      return json({ success: true, updated: 1 });
+    }
+  }
+  return json({ success: false, updated: 0, error: 'matching lead not found' });
+}
+
+function buildExistingKeySet(sheet, headers, type) {
+  const set = {};
+  const values = sheet.getDataRange().getDisplayValues();
+  if (!values || values.length <= 1) return set;
+  values.shift();
+  values.forEach(row => {
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = row[i]);
+    const key = makeUniqueKey(obj, type);
+    if (key) set[key] = true;
+  });
+  return set;
+}
+
+function normalizePhone(v) {
+  let phone = String(v || '').replace(/[^0-9]/g, '');
+  if (phone.length === 10 && phone.indexOf('10') === 0) phone = '0' + phone;
+  return phone;
+}
+
+function makeUniqueKey(row, type) {
+  if (type === 'leads') {
+    const phone = normalizePhone(row.phone || row._parsed_phone || row['연락처'] || row['휴대폰번호'] || row['휴대폰 번호']);
+    const stage = String(row.stage || row.dbTier || row._parsed_stage || '').toLowerCase();
+    const date = String(row.date || row._parsed_date || row['등록일시'] || row['등록 일시'] || row['접수일시'] || '').slice(0, 10);
+    return phone && stage && date ? phone + '_' + stage + '_' + date : (phone && stage ? phone + '_' + stage : '');
+  }
+
+  if (type === 'firstRaw' || type === 'secondRaw') {
+    const phone = normalizePhone(row._parsed_phone || row.phone || row['연락처'] || row['휴대폰번호'] || row['휴대폰 번호']);
+    const stage = String(row._parsed_stage || row.stage || row.dbTier || (type === 'secondRaw' ? 'second' : 'first')).toLowerCase();
+    const date = String(row._parsed_date || row.date || row['등록일시'] || row['등록 일시'] || row['접수일시'] || '').slice(0, 10);
+    return phone && stage ? type + '_' + phone + '_' + stage + '_' + date : '';
+  }
+
+  if (type === 'adSpend') {
+    const date = String(row.date || row['날짜'] || '').slice(0, 10);
+    const channel = String(row.channel || row['매체'] || '').toLowerCase();
+    const campaign = String(row.campaign || row['캠페인'] || '').toLowerCase();
+    return date && channel ? date + '_' + channel + '_' + campaign : '';
+  }
+
+  return '';
 }
 
 function json(data) {

@@ -1,0 +1,36 @@
+창호마스터 이음 대시보드 수정본 - 적용 내역
+
+반영 내역
+1. 재인입 기준 수정
+- 같은 연락처가 같은 DB단계로 다른 날짜에 다시 들어오면 재인입 처리
+- first -> 다른 날짜 first = 1차 재인입
+- second -> 다른 날짜 second = 2차 재인입
+- 같은 날짜/같은 단계/같은 연락처는 중복 제외
+
+2. 2차DB 외부창 견적 승계
+- 2차DB에 견적 params가 없을 경우 같은 연락처의 1차DB 견적정보 자동 승계
+- DB관리에서 1차DB/2차DB 모두 외부창 견적 토글 노출
+
+3. 등록일시 원본 표시
+- 업로드 시간이 아니라 원본 엑셀의 등록일시/등록 일시/접수일시 기준 표시
+
+4. 외부창 견적 표시 정리
+- params 전체 링크 미노출
+- 6개 브랜드명 + 가격만 표시
+- 견적 데이터 있을 때만 토글 노출
+
+5. 패키지 정리
+- node_modules, dist 제외
+- GitHub/Vercel 업로드용 전체 소스 포함
+
+적용 순서
+1. 기존 프로젝트 폴더에 이 ZIP 내용 전체 덮어쓰기
+2. dataService.ts의 SHEET_API_URL 확인
+3. APPS_SCRIPT_CODE.txt 내용으로 Apps Script 전체 교체
+4. Apps Script 새 버전 배포
+5. npm install
+6. npm run dev
+
+주의
+- node_modules는 포함하지 않았습니다. npm install로 다시 설치하세요.
+- GitHub에는 이 ZIP 안의 파일 전체를 업로드하면 됩니다.

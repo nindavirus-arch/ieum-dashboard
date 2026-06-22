@@ -2,14 +2,18 @@
 // Google Sheets 연동형 데이터 서비스
 // - 1차DB 파일(파일명: 컨설팅UTM 포함) 업로드 → FIRST_DB_RAW + DASHBOARD_LEADS 저장
 // - 2차DB 파일(파일명: 컨설팅리스트 포함) 업로드 → SECOND_DB_RAW + DASHBOARD_LEADS 저장
-// - 대시보드는 DASHBOARD_LEADS / AD_SPEND 시트를 읽어서 집계
+// - 중복 방지는 프론트 + Apps Script 양쪽에서 처리
+// - 채널 판별은 utm_source/source/유입경로 우선, params는 매체 판별에 사용하지 않음
 
 import type { LeadRecord, AdSpend, DBTier, Channel, SourceKind } from '../types'
-import { normalizeDate } from './excelParser'
+import { normalizeDate, normalizePhone, normalizeChannel, inferChannelStrict, inferSubChannel } from './excelParser'
 
 // TODO: Apps Script 배포 후 웹앱 URL을 여기에 붙여넣으세요.
 // 예: const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec'
-const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzS7hN_k_C7zQDZivI4QeeECmrkYuHQftwex9Crt-gSaCFV6PDS0u4UsnNwbeaZ7KEp/exec'
+const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzbjYEl7YE7ghlc11OYiijmSdKx0AqNIlh1QoaC1iPzfWABB5F1vS7WSKZ3WQeFMuFs0g/exec'
+
+type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping'
+export type MappingRow = { raw: string; channel: Channel; subChannel: string }
 
 function makeId(prefix = 'id') {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
@@ -22,9 +26,21 @@ function inRange(date: string, startDate?: string, endDate?: string) {
 }
 
 function tierRank(tier: DBTier) {
-  if (tier === 'second') return 3
-  if (tier === 'first') return 2
+  if (tier === 'second' || tier === 'second_reentry') return 3
+  if (tier === 'first' || tier === 'first_reentry') return 2
   return 1
+}
+
+function baseTier(tier: DBTier): DBTier {
+  if (tier === 'first_reentry') return 'first'
+  if (tier === 'second_reentry') return 'second'
+  return tier
+}
+
+function reentryTier(tier: DBTier): DBTier {
+  if (tier === 'first') return 'first_reentry'
+  if (tier === 'second') return 'second_reentry'
+  return tier
 }
 
 function isWeakChannel(ch?: Channel) {
@@ -39,48 +55,123 @@ function chooseAttribution(prev: LeadRecord, next: LeadRecord): Channel {
   return next.channel || prev.channel || 'etc'
 }
 
-function normalizeLead(row: any, index = 0): LeadRecord {
-  const uploadedAt = String(row.uploadedAt ?? row.uploaded_at ?? new Date().toISOString())
-  const stage = String(row.stage ?? row.dbTier ?? row.DB등급 ?? row.등급 ?? 'retarget') as DBTier
+function chooseSubChannel(prev: LeadRecord, next: LeadRecord, chosenChannel: Channel): string {
+  if (next.dbTier === 'second' && isWeakChannel(next.channel) && prev.subChannel) return prev.subChannel
+  if (next.subChannel && next.channel === chosenChannel) return next.subChannel
+  if (prev.subChannel && prev.channel === chosenChannel) return prev.subChannel
+  return inferSubChannel({ channel: chosenChannel, source: next.utm_source, sourceRaw: next.source_raw, medium: next.utm_medium, campaign: next.utm_campaign, content: next.utm_content, term: next.utm_term })
+}
+
+function normKey(v: unknown) {
+  return String(v ?? '').toLowerCase().replace(/[\s_\-\/()\[\].]/g, '')
+}
+
+function normalizeMappingRow(row: any): MappingRow | null {
+  const raw = String(row['원본값'] ?? row.raw ?? row.source ?? row.keyword ?? '').trim()
+  if (!raw) return null
+  const channel = normalizeChannel(row['최종매체'] ?? row.channel ?? row.finalChannel ?? '')
+  const subChannel = String(row['상세매체'] ?? row.subChannel ?? row.detail ?? '').trim()
+  return { raw, channel, subChannel }
+}
+
+function applyChannelMapping(input: {
+  channel?: Channel
+  subChannel?: string
+  utm_source?: unknown
+  source_raw?: unknown
+  utm_medium?: unknown
+  utm_campaign?: unknown
+  utm_content?: unknown
+  utm_term?: unknown
+}, mappings: MappingRow[]): { channel: Channel; subChannel: string } {
+  const candidates = [input.utm_source, input.source_raw, input.utm_medium, input.utm_campaign, input.utm_content, input.utm_term]
+    .map(v => String(v ?? '').trim())
+    .filter(Boolean)
+
+  for (const c of candidates) {
+    const ck = normKey(c)
+    const found = mappings.find(m => {
+      const mk = normKey(m.raw)
+      return mk && (ck === mk || ck.includes(mk))
+    })
+    if (found) {
+      const channel = found.channel !== 'etc' ? found.channel : (input.channel || 'etc')
+      const subChannel = found.subChannel || input.subChannel || inferSubChannel({ channel, source: input.utm_source, sourceRaw: input.source_raw, medium: input.utm_medium, campaign: input.utm_campaign, content: input.utm_content, term: input.utm_term })
+      return { channel, subChannel }
+    }
+  }
+
+  const channel = inferChannelStrict({ source: input.utm_source, sourceRaw: input.source_raw, medium: input.utm_medium, campaign: input.utm_campaign, content: input.utm_content, term: input.utm_term })
+  const finalChannel = channel !== 'etc' ? channel : (input.channel || 'etc')
+  return {
+    channel: finalChannel,
+    subChannel: input.subChannel || inferSubChannel({ channel: finalChannel, source: input.utm_source, sourceRaw: input.source_raw, medium: input.utm_medium, campaign: input.utm_campaign, content: input.utm_content, term: input.utm_term }),
+  }
+}
+
+function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRecord {
+  const uploadedAt = String(row.uploadedAt ?? row.uploaded_at ?? row._uploadedAt ?? new Date().toISOString())
+  const stage = String(row.stage ?? row.dbTier ?? row.DB등급 ?? row.등급 ?? row._parsed_stage ?? 'retarget') as DBTier
+  const phone = normalizePhone(row.phone ?? row.연락처 ?? row.휴대폰번호 ?? row['휴대폰 번호'] ?? row._parsed_phone ?? '')
+
+  const utm_source = String(row.utm_source ?? row.utmSource ?? row.source ?? row.소스 ?? '')
+  const utm_medium = String(row.utm_medium ?? row.utmMedium ?? row.medium ?? row.미디엄 ?? '')
+  const utm_campaign = String(row.utm_campaign ?? row.utmCampaign ?? row.campaign ?? row.캠페인 ?? '')
+  const utm_content = String(row.utm_content ?? row.utmContent ?? row.content ?? row.콘텐츠 ?? '')
+  const utm_term = String(row.utm_term ?? row.utmTerm ?? row.term ?? row.키워드 ?? '')
+  const source_raw = String(row.source_raw ?? row.sourceRaw ?? row.유입경로 ?? row['유입 경로'] ?? row.source ?? '')
+  const baseChannel = normalizeChannel(row.channel ?? row.최종매체 ?? row.매체 ?? row._parsed_channel ?? '')
+  const mapped = applyChannelMapping({ channel: baseChannel, subChannel: String(row.subChannel ?? row.상세매체 ?? ''), utm_source, source_raw, utm_medium, utm_campaign, utm_content, utm_term }, mappings)
 
   return {
-    id: String(row.id ?? row.phone ?? row.연락처 ?? makeId('lead')),
-    date: normalizeDate(row.date ?? row.날짜 ?? row.등록일 ?? row.등록일시 ?? row.신청일, new Date(uploadedAt)),
-    phone: String(row.phone ?? row.연락처 ?? row.휴대폰번호 ?? row['휴대폰 번호'] ?? '').replace(/[^0-9]/g, ''),
+    id: String(row.id ?? phone ?? makeId('lead')),
+    date: normalizeDate(row.date ?? row.날짜 ?? row.등록일 ?? row.등록일시 ?? row.신청일 ?? row._parsed_date, new Date(uploadedAt)),
+    phone,
     rawPhone: String(row.rawPhone ?? row.연락처 ?? row.휴대폰번호 ?? row['휴대폰 번호'] ?? ''),
-    name: String(row.name ?? row.이름 ?? row.성명 ?? row.고객명 ?? ''),
+    name: String(row.name ?? row.이름 ?? row.성명 ?? row.고객명 ?? row._parsed_name ?? ''),
     dbTier: stage,
-    channel: String(row.channel ?? row.최종매체 ?? row.매체 ?? row.유입경로 ?? row['유입 경로'] ?? 'etc').toLowerCase() as Channel,
-    region: String(row.region ?? row.시도 ?? row.지역 ?? ''),
-    district: String(row.district ?? row.시군구 ?? ''),
-    utm_source: String(row.utm_source ?? row.utmSource ?? ''),
-    utm_medium: String(row.utm_medium ?? row.utmMedium ?? ''),
-    utm_campaign: String(row.utm_campaign ?? row.utmCampaign ?? ''),
-    utm_content: String(row.utm_content ?? row.utmContent ?? ''),
-    utm_term: String(row.utm_term ?? row.utmTerm ?? ''),
-    source_raw: String(row.source_raw ?? row.sourceRaw ?? row.유입경로 ?? row['유입 경로'] ?? ''),
+    channel: mapped.channel,
+    subChannel: mapped.subChannel,
+    region: String(row.region ?? row.시도 ?? row['시/도'] ?? row.지역 ?? row._parsed_region ?? ''),
+    district: String(row.district ?? row.시군구 ?? row['시/군/구'] ?? row._parsed_district ?? ''),
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_content,
+    utm_term,
+    source_raw,
     params: String(row.params ?? ''),
     address: String(row.address ?? row.주소 ?? ''),
     building: String(row.building ?? row.건물명 ?? row.아파트명 ?? ''),
     brand: String(row.brand ?? row.브랜드 ?? ''),
     pyeong: String(row.pyeong ?? row.평형 ?? row.평수 ?? ''),
     source_file: String(row.source_file ?? row.sourceFile ?? ''),
+    registeredAt: String(row.registeredAt ?? row['등록일시'] ?? row['등록 일시'] ?? row.접수일시 ?? row.uploadedAt ?? uploadedAt),
+    consultationResult: String(row.consultationResult ?? row['상담결과'] ?? row['상담 결과'] ?? ''),
+    memo: String(row.memo ?? row['메모'] ?? row['특이사항'] ?? row['메모(특이사항)'] ?? ''),
+    operator: String(row.operator ?? row['작업자'] ?? row['영업담당자'] ?? row['영업 담당자'] ?? row['담당자'] ?? row['접수자'] ?? row.registrant ?? ''),
     status: String(row.status ?? row.상태 ?? 'valid') as any,
     sourceKind: String(row.sourceKind ?? row.source_kind ?? '') as SourceKind,
     uploadedAt,
   } as LeadRecord
 }
 
-function normalizeSpend(row: any, index = 0): AdSpend {
+function normalizeSpend(row: any, index = 0, mappings: MappingRow[] = []): AdSpend {
+  const utm_source = row.channel ?? row.매체 ?? row.최종매체 ?? row.source ?? ''
+  const campaign = String(row.campaign ?? row.캠페인 ?? '')
+  const baseChannel = normalizeChannel(utm_source)
+  const mapped = applyChannelMapping({ channel: baseChannel, subChannel: String(row.subChannel ?? row.상세매체 ?? ''), utm_source, utm_campaign: campaign }, mappings)
   return {
     id: String(row.id ?? makeId('spend')),
     date: normalizeDate(row.date ?? row.날짜 ?? row.등록일, new Date()),
-    channel: String(row.channel ?? row.매체 ?? row.최종매체 ?? 'etc').toLowerCase() as Channel,
+    channel: mapped.channel,
+    subChannel: mapped.subChannel,
+    campaign,
     amount: Number(String(row.amount ?? row.cost ?? row.광고비 ?? row.비용 ?? 0).replace(/[^0-9]/g, '')),
   } as AdSpend
 }
 
-async function getSheetRows(type: 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw') {
+async function getSheetRows(type: SheetType) {
   if (SHEET_API_URL.includes('여기에_')) throw new Error('dataService.ts의 SHEET_API_URL에 Apps Script 웹앱 URL을 입력하세요.')
   const res = await fetch(`${SHEET_API_URL}?type=${type}`)
   if (!res.ok) throw new Error('Google Sheets 데이터를 불러오지 못했습니다.')
@@ -89,7 +180,7 @@ async function getSheetRows(type: 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw'
   return Array.isArray(data) ? data : []
 }
 
-async function postSheetRows(type: 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw', rows: any[]) {
+async function postSheetRows(type: Exclude<SheetType, 'mapping'>, rows: any[]) {
   if (SHEET_API_URL.includes('여기에_')) throw new Error('dataService.ts의 SHEET_API_URL에 Apps Script 웹앱 URL을 입력하세요.')
   if (!rows.length) return { success: true, count: 0 }
 
@@ -106,6 +197,15 @@ async function postSheetRows(type: 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw
   return data
 }
 
+export async function fetchMappings(): Promise<MappingRow[]> {
+  try {
+    const rows = await getSheetRows('mapping')
+    return rows.map(normalizeMappingRow).filter(Boolean) as MappingRow[]
+  } catch {
+    return []
+  }
+}
+
 function rawRowsFromLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]) {
   return leads.map((lead) => {
     const raw = (lead as any).rawData && typeof (lead as any).rawData === 'object' ? (lead as any).rawData : {}
@@ -115,6 +215,7 @@ function rawRowsFromLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]) {
       _parsed_phone: lead.phone,
       _parsed_name: lead.name,
       _parsed_channel: lead.channel,
+      _parsed_subChannel: (lead as any).subChannel || '',
       _parsed_stage: lead.dbTier,
       _parsed_region: lead.region,
       _parsed_district: lead.district,
@@ -131,31 +232,194 @@ function dashboardRowsFromLeads(leads: LeadRecord[]) {
     stage: r.dbTier,
     dbTier: r.dbTier,
     channel: r.channel,
+    subChannel: r.subChannel || '',
     region: r.region,
     district: r.district,
-    utm_source: (r as any).utm_source || r.channel,
-    utm_medium: (r as any).utm_medium || '',
-    utm_campaign: (r as any).utm_campaign || '',
-    utm_content: (r as any).utm_content || '',
-    utm_term: (r as any).utm_term || '',
-    source_raw: (r as any).source_raw || '',
-    params: (r as any).params || '',
-    address: (r as any).address || '',
-    building: (r as any).building || '',
-    brand: (r as any).brand || '',
-    pyeong: (r as any).pyeong || '',
+    utm_source: r.utm_source || r.channel,
+    utm_medium: r.utm_medium || '',
+    utm_campaign: r.utm_campaign || '',
+    utm_content: r.utm_content || '',
+    utm_term: r.utm_term || '',
+    source_raw: r.source_raw || '',
+    params: r.params || '',
+    address: r.address || '',
+    building: r.building || '',
+    brand: r.brand || '',
+    pyeong: r.pyeong || '',
     source_file: r.sourceKind === 'second_raw' ? 'second_db' : 'first_db',
+    registeredAt: (r as any).registeredAt || r.uploadedAt || r.date,
+    consultationResult: (r as any).consultationResult || '',
+    memo: (r as any).memo || '',
+    operator: (r as any).operator || '',
     status: r.status || 'valid',
     uploadedAt: r.uploadedAt,
   }))
 }
 
+function upgradeLead(prev: LeadRecord, normalizedLead: LeadRecord, now: string): LeadRecord {
+  const channel = chooseAttribution(prev, normalizedLead)
+  const subChannel = chooseSubChannel(prev, normalizedLead, channel)
+
+  // 중요: 2차DB(컨설팅리스트)는 보통 params/주소/견적값이 없음.
+  // 같은 연락처의 1차DB가 가지고 있던 외부창 견적/주소 데이터는 2차DB에도 승계해야
+  // DB관리 페이지에서 1차/2차 공통으로 외부창 견적을 볼 수 있음.
+  return {
+    ...prev,
+    ...normalizedLead,
+    id: prev.id,
+    channel,
+    subChannel,
+    region: normalizedLead.region || prev.region,
+    district: normalizedLead.district || prev.district,
+    address: (normalizedLead as any).address || (prev as any).address || '',
+    building: (normalizedLead as any).building || (prev as any).building || '',
+    params: (normalizedLead as any).params || (prev as any).params || '',
+    brand: (normalizedLead as any).brand || (prev as any).brand || '',
+    pyeong: (normalizedLead as any).pyeong || (prev as any).pyeong || '',
+    utm_source: (normalizedLead as any).utm_source || (prev as any).utm_source || '',
+    utm_medium: (normalizedLead as any).utm_medium || (prev as any).utm_medium || '',
+    utm_campaign: (normalizedLead as any).utm_campaign || (prev as any).utm_campaign || '',
+    utm_content: (normalizedLead as any).utm_content || (prev as any).utm_content || '',
+    utm_term: (normalizedLead as any).utm_term || (prev as any).utm_term || '',
+    source_raw: (normalizedLead as any).source_raw || (prev as any).source_raw || '',
+    registeredAt: (normalizedLead as any).registeredAt || (prev as any).registeredAt || normalizedLead.date,
+    uploadedAt: now,
+  }
+}
+
+
+export async function updateLeadAttribution(params: {
+  phone: string
+  stage: DBTier
+  date?: string
+  channel: Channel
+  subChannel?: string
+  sourceRaw?: string
+  consultationResult?: string
+  memo?: string
+  operator?: string
+  status?: string
+}) {
+  if (SHEET_API_URL.includes('여기에_')) throw new Error('dataService.ts의 SHEET_API_URL에 Apps Script 웹앱 URL을 입력하세요.')
+  const body = {
+    type: 'updateLead',
+    phone: normalizePhone(params.phone),
+    stage: params.stage,
+    date: params.date || '',
+    patch: {
+      channel: params.channel,
+      subChannel: params.subChannel || '',
+      source_raw: params.sourceRaw || '',
+      consultationResult: params.consultationResult || '',
+      memo: params.memo || '',
+      operator: params.operator || '',
+      status: params.status || '',
+      updatedAt: new Date().toISOString(),
+    },
+  }
+  const res = await fetch(SHEET_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error('Google Sheets 수정 실패')
+  const data = await res.json()
+  if (data?.error) throw new Error(data.error)
+  window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
+  return data
+}
+
+export async function createManualLead(params: {
+  date: string
+  name: string
+  phone: string
+  dbTier: DBTier
+  channel: Channel
+  subChannel?: string
+  region?: string
+  district?: string
+  address?: string
+  consultationResult?: string
+  memo?: string
+  operator?: string
+  registrant?: string
+}) {
+  const now = new Date().toISOString()
+  const lead: LeadRecord = {
+    id: makeId('manual'),
+    date: normalizeDate(params.date, new Date()),
+    phone: normalizePhone(params.phone),
+    rawPhone: params.phone,
+    name: params.name,
+    dbTier: params.dbTier,
+    status: params.dbTier,
+    channel: params.channel,
+    subChannel: params.subChannel || '',
+    region: params.region || '',
+    district: params.district || '',
+    address: params.address || '',
+    source_raw: params.subChannel || '수기등록',
+    consultationResult: params.consultationResult || '',
+    memo: params.memo || '',
+    operator: params.operator || params.registrant || '',
+    source_file: 'manual',
+    sourceKind: 'unknown',
+    uploadedAt: now,
+  } as LeadRecord
+  const row = {
+    date: lead.date,
+    phone: lead.phone,
+    name: lead.name,
+    stage: lead.dbTier,
+    dbTier: lead.dbTier,
+    channel: lead.channel,
+    subChannel: lead.subChannel || '',
+    region: lead.region,
+    district: lead.district,
+    utm_source: lead.channel,
+    utm_medium: '',
+    utm_campaign: '',
+    utm_content: '',
+    utm_term: '',
+    source_raw: lead.source_raw,
+    params: '',
+    address: lead.address || '',
+    building: '',
+    brand: '',
+    pyeong: '',
+    source_file: 'manual',
+    registeredAt: now,
+    consultationResult: params.consultationResult || '',
+    status: 'valid',
+    memo: params.memo || '',
+    operator: params.operator || params.registrant || '',
+    registrant: params.registrant || '',
+    uploadedAt: now,
+  }
+  await postSheetRows('leads', [row])
+  window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
+  return 1
+}
+
 // ─── Leads ──────────────────────────────────────────────
 export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]) {
+  const mappings = await fetchMappings()
   // 기존 DASHBOARD_LEADS를 기준으로 중복/승격 판단
-  const existing = (await getSheetRows('leads')).map(normalizeLead)
-  const byPhone = new Map<string, LeadRecord>()
-  existing.forEach((r: LeadRecord) => { if (r.phone) byPhone.set(r.phone, r) })
+  const existing = (await getSheetRows('leads')).map((r, i) => normalizeLead(r, i, mappings))
+  const byPhoneStageDate = new Map<string, LeadRecord>()
+  const stageSeenByPhone = new Map<string, Set<string>>()
+  const bestByPhone = new Map<string, LeadRecord>()
+
+  existing.forEach((r: LeadRecord) => {
+    if (!r.phone) return
+    const b = baseTier(r.dbTier)
+    byPhoneStageDate.set(`${r.phone}_${r.dbTier}_${r.date}`, r)
+    byPhoneStageDate.set(`${r.phone}_${b}_${r.date}`, r)
+    if (!stageSeenByPhone.has(r.phone)) stageSeenByPhone.set(r.phone, new Set())
+    stageSeenByPhone.get(r.phone)!.add(b)
+    const prevBest = bestByPhone.get(r.phone)
+    if (!prevBest || tierRank(r.dbTier) > tierRank(prevBest.dbTier)) bestByPhone.set(r.phone, r)
+  })
 
   const now = new Date().toISOString()
   const dashboardToAppend: LeadRecord[] = []
@@ -169,46 +433,54 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
     if (lead.sourceKind === 'second_raw') secondRaw.push(lead)
     else firstRaw.push(lead)
 
+    const mapped = applyChannelMapping({
+      channel: lead.channel,
+      subChannel: (lead as any).subChannel,
+      utm_source: (lead as any).utm_source,
+      source_raw: (lead as any).source_raw,
+      utm_medium: (lead as any).utm_medium,
+      utm_campaign: (lead as any).utm_campaign,
+      utm_content: (lead as any).utm_content,
+      utm_term: (lead as any).utm_term,
+    }, mappings)
+
     const normalizedLead: LeadRecord = {
       ...lead,
       id: makeId('lead'),
       date: normalizeDate(lead.date, new Date(now)),
+      phone: normalizePhone(lead.phone),
+      channel: mapped.channel,
+      subChannel: mapped.subChannel,
       uploadedAt: now,
     } as LeadRecord
 
-    const prev = byPhone.get(lead.phone)
+    const bTier = baseTier(normalizedLead.dbTier)
+    const sameDayKey = `${normalizedLead.phone}_${bTier}_${normalizedLead.date}`
+    if (byPhoneStageDate.has(sameDayKey)) return
 
-    if (!prev) {
-      byPhone.set(lead.phone, normalizedLead)
-      dashboardToAppend.push(normalizedLead)
-      changed++
-      return
+    const prevBest = bestByPhone.get(normalizedLead.phone)
+    const hasSameStageBefore = stageSeenByPhone.get(normalizedLead.phone)?.has(bTier)
+    if (hasSameStageBefore && (bTier === 'first' || bTier === 'second')) {
+      normalizedLead.dbTier = reentryTier(bTier)
     }
 
-    const shouldUpgrade = tierRank(normalizedLead.dbTier) > tierRank(prev.dbTier)
+    const finalLead = prevBest ? upgradeLead(prevBest, normalizedLead, now) : normalizedLead
 
-    if (shouldUpgrade) {
-      const upgraded: LeadRecord = {
-        ...prev,
-        ...normalizedLead,
-        id: prev.id,
-        // 2차DB가 홈페이지/direct인 경우 1차DB 매체를 승계
-        channel: chooseAttribution(prev, normalizedLead),
-        region: normalizedLead.region || prev.region,
-        district: normalizedLead.district || prev.district,
-        uploadedAt: now,
-      }
-      byPhone.set(lead.phone, upgraded)
-      dashboardToAppend.push(upgraded)
-      changed++
-    }
+    byPhoneStageDate.set(`${finalLead.phone}_${finalLead.dbTier}_${finalLead.date}`, finalLead)
+    byPhoneStageDate.set(`${finalLead.phone}_${baseTier(finalLead.dbTier)}_${finalLead.date}`, finalLead)
+    if (!stageSeenByPhone.has(finalLead.phone)) stageSeenByPhone.set(finalLead.phone, new Set())
+    stageSeenByPhone.get(finalLead.phone)!.add(baseTier(finalLead.dbTier))
+    const currentBest = bestByPhone.get(finalLead.phone)
+    if (!currentBest || tierRank(finalLead.dbTier) > tierRank(currentBest.dbTier)) bestByPhone.set(finalLead.phone, finalLead)
+    dashboardToAppend.push(finalLead)
+    changed++
   })
 
-  // 1차/2차 원본 RAW 누적 저장
+  // 1차/2차 원본 RAW 누적 저장. RAW도 Apps Script에서 중복 차단함.
   if (firstRaw.length) await postSheetRows('firstRaw', rawRowsFromLeads(firstRaw))
   if (secondRaw.length) await postSheetRows('secondRaw', rawRowsFromLeads(secondRaw))
 
-  // 대시보드용 정제 데이터 저장
+  // 대시보드용 정제 데이터 저장. phone + stage 기준 신규만 저장.
   if (dashboardToAppend.length) await postSheetRows('leads', dashboardRowsFromLeads(dashboardToAppend))
 
   window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
@@ -216,8 +488,9 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
 }
 
 export async function fetchLeads(startDate?: string, endDate?: string): Promise<LeadRecord[]> {
+  const mappings = await fetchMappings()
   return (await getSheetRows('leads'))
-    .map(normalizeLead)
+    .map((row, i) => normalizeLead(row, i, mappings))
     .filter((r: LeadRecord) => r.phone)
     .filter((r: LeadRecord) => r.status !== 'invalid' && r.status !== 'test' && r.status !== 'duplicate')
     .filter((r: LeadRecord) => inRange(r.date, startDate, endDate))
@@ -226,12 +499,14 @@ export async function fetchLeads(startDate?: string, endDate?: string): Promise<
 
 // ─── Ad Spend ────────────────────────────────────────────
 export async function uploadAdSpend(records: Omit<AdSpend, 'id'>[]) {
+  const mappings = await fetchMappings()
   const rows = records.map((r) => {
-    const spend = normalizeSpend(r)
+    const spend = normalizeSpend(r, 0, mappings)
     return {
       date: spend.date,
       channel: spend.channel,
-      campaign: (r as any).campaign || '',
+      subChannel: spend.subChannel || '',
+      campaign: spend.campaign || '',
       amount: spend.amount,
     }
   })
@@ -241,8 +516,9 @@ export async function uploadAdSpend(records: Omit<AdSpend, 'id'>[]) {
 }
 
 export async function fetchAdSpend(startDate?: string, endDate?: string): Promise<AdSpend[]> {
+  const mappings = await fetchMappings()
   return (await getSheetRows('adSpend'))
-    .map(normalizeSpend)
+    .map((row, i) => normalizeSpend(row, i, mappings))
     .filter((r: AdSpend) => inRange(r.date, startDate, endDate))
     .sort((a: AdSpend, b: AdSpend) => b.date.localeCompare(a.date))
 }

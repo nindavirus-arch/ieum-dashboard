@@ -3,8 +3,11 @@ import * as XLSX from 'xlsx'
 import type { LeadRecord, AdSpend, Channel, DBTier, DBStatus, SourceKind } from '../types'
 
 // ── 공통 유틸 ──────────────────────────────────────────────
-function normalizePhone(raw: unknown): string {
-  return String(raw ?? '').replace(/[^0-9]/g, '')
+export function normalizePhone(raw: unknown): string {
+  let phone = String(raw ?? '').replace(/[^0-9]/g, '')
+  // 엑셀/구글시트가 010의 앞 0을 날리는 경우 보정: 1095432120 → 01095432120
+  if (phone.length === 10 && phone.startsWith('10')) phone = `0${phone}`
+  return phone
 }
 
 function isValidPhone(phone: string): boolean {
@@ -108,12 +111,57 @@ export function normalizeChannel(raw: unknown): Channel {
   if (CHANNEL_MAP[key]) return CHANNEL_MAP[key]
 
   if (original.includes('youtube') || original.includes('youtu') || original.includes('유튜브')) return 'youtube'
-  if (original.includes('instagram') || original.includes('insta') || original.includes('facebook') || original.includes('meta') || original.includes('fb') || original.includes('ig') || original.includes('인스타') || original.includes('메타') || original.includes('페이스북')) return 'meta'
   if (original.includes('naver') || original.includes('네이버') || original.includes('gfa') || original.includes('파워링크') || original.includes('브랜드검색')) return 'naver'
   if (original.includes('google') || original.includes('구글') || original.includes('gdn') || original.includes('demand') || original.includes('discovery') || original.includes('디맨드') || original.includes('디스커버리')) return 'google'
+  if (original.includes('instagram') || original.includes('insta') || original.includes('facebook') || original.includes('meta') || original.includes('fb') || original.includes('ig') || original.includes('인스타') || original.includes('메타') || original.includes('페이스북')) return 'meta'
   if (original.includes('blog') || original.includes('블로그') || original.includes('revu') || original.includes('레뷰') || original.includes('viral') || original.includes('카페') || original.includes('당근')) return 'viral'
   if (original.includes('홈페이지') || original.includes('공식홈') || original.includes('direct') || original.includes('homepage') || original.includes('website')) return 'direct'
   return 'etc'
+}
+
+export function inferChannelStrict(fields: { source?: unknown; sourceRaw?: unknown; medium?: unknown; campaign?: unknown; content?: unknown; term?: unknown }): Channel {
+  // 절대 params는 매체 판별에 사용하지 않음.
+  const source = String(fields.source ?? '').trim()
+  if (source) {
+    const sourceChannel = normalizeChannel(source)
+    if (sourceChannel !== 'etc') return sourceChannel
+  }
+
+  const sourceRaw = String(fields.sourceRaw ?? '').trim()
+  if (sourceRaw) {
+    const routeChannel = normalizeChannel(sourceRaw)
+    if (routeChannel !== 'etc') return routeChannel
+  }
+
+  const fallback = [fields.medium, fields.campaign, fields.content, fields.term].filter(Boolean).join(' ')
+  return normalizeChannel(fallback)
+}
+
+export function inferSubChannel(fields: { channel: Channel; source?: unknown; sourceRaw?: unknown; medium?: unknown; campaign?: unknown; content?: unknown; term?: unknown }): string {
+  const text = decodeMaybe([fields.source, fields.sourceRaw, fields.medium, fields.campaign, fields.content, fields.term].filter(Boolean).join(' ')).toLowerCase()
+  const k = normalizeKey(text)
+  if (fields.channel === 'naver') {
+    if (k.includes('gfa')) return '네이버 GFA'
+    if (text.includes('브랜드검색') || k.includes('brand')) return '네이버 브랜드검색'
+    return '네이버 SA'
+  }
+  if (fields.channel === 'google') {
+    if (k.includes('demand') || text.includes('디맨드')) return '구글 디맨드젠'
+    if (k.includes('gdn') || text.includes('디스커버리') || k.includes('discovery')) return '구글 디스커버리/GDN'
+    if (k.includes('youtube') || text.includes('유튜브')) return '구글 유튜브'
+    return '구글 검색광고'
+  }
+  if (fields.channel === 'meta') return '메타'
+  if (fields.channel === 'youtube') return '유튜브'
+  if (fields.channel === 'viral') {
+    if (text.includes('블로그') || k.includes('blog')) return '블로그'
+    if (text.includes('레뷰') || k.includes('revu')) return '레뷰'
+    if (text.includes('카페')) return '카페'
+    if (text.includes('당근')) return '당근'
+    return '바이럴'
+  }
+  if (fields.channel === 'direct') return '홈페이지 직접유입'
+  return '기타'
 }
 
 function normalizeRegion(raw: unknown): string {
@@ -190,6 +238,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
           const name = String(getCell(row, ['이름', '성명', '고객명', 'name', 'customer_name']) ?? '').trim()
           const rawDate = getCell(row, ['날짜', 'date', 'Date', '등록일', '등록일시', '등록 일시', '신청일', '신청일시', '접수일', '접수일시', '생성일', 'createdAt', 'created_at', 'uploadedAt'])
           const date = normalizeDate(rawDate, fallbackDate)
+          const registeredAt = String(rawDate ?? '').trim() || date
 
           if (!isValidPhone(phone)) { invalidCount++; return }
           const lowerName = name.toLowerCase()
@@ -208,24 +257,24 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
 
           let dbTier: DBTier = 'first'
           let status: DBStatus = 'first'
-          let channel: Channel = 'etc'
 
-          const source = getCell(row, ['source', 'utm_source', 'UTM소스', 'UTM Source', '유입경로', '유입 경로', '채널', '매체'])
-          const medium = getCell(row, ['medium', 'utm_medium', 'UTM미디엄', 'UTM Medium'])
-          const campaign = getCell(row, ['campaign', 'utm_campaign', 'UTM캠페인', 'UTM Campaign'])
-          const content = getCell(row, ['content', 'utm_content', 'UTM콘텐츠', 'UTM Content'])
+          const source = getCell(row, ['source', 'utm_source', 'UTM소스', 'UTM Source', '소스'])
+          const medium = getCell(row, ['medium', 'utm_medium', 'UTM미디엄', 'UTM Medium', '미디엄'])
+          const campaign = getCell(row, ['campaign', 'utm_campaign', 'UTM캠페인', 'UTM Campaign', '캠페인'])
+          const content = getCell(row, ['content', 'utm_content', 'UTM콘텐츠', 'UTM Content', '콘텐츠'])
           const term = getCell(row, ['term', 'utm_term', 'UTM텀', 'UTM Term', '키워드'])
           const params = decodeMaybe(getCell(row, ['params', '파라미터', 'url', 'URL', '링크']))
-          const route = getCell(row, ['유입 경로', '유입경로', '채널', '매체', 'source', 'utm_source'])
+          const route = getCell(row, ['유입 경로', '유입경로', '채널', '매체'])
           const brand = String(getCell(row, ['브랜드', '시공 브랜드', '시공브랜드', 'brand']) ?? '').trim()
           const pyeong = String(getCell(row, ['평형', '평수', '거주평형', 'area', 'flatSize', 'flatSizePh']) ?? '').trim()
+
+          const channel = inferChannelStrict({ source, sourceRaw: route, medium, campaign, content, term })
+          const subChannel = inferSubChannel({ channel, source, sourceRaw: route, medium, campaign, content, term })
 
           if (sourceKind === 'second_raw') {
             dbTier = 'second'
             status = 'second'
-            channel = normalizeChannel(route || `${source} ${medium} ${campaign} ${content} ${term}`)
           } else {
-            channel = normalizeChannel(`${source} ${medium} ${campaign} ${content} ${term} ${params} ${route}`)
             const hasAddress = Boolean(address || building)
             const hasEstimate = hasEstimateParams(row)
             if (hasAddress || hasEstimate) {
@@ -238,7 +287,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
           }
 
           valid.push({
-            date, name, phone, rawPhone: String(rawPhone ?? ''), region, district, channel, dbTier, status, sourceKind, rawData: row,
+            date, name, phone, rawPhone: String(rawPhone ?? ''), region, district, channel, subChannel, dbTier, status, sourceKind, rawData: row,
             utm_source: String(source ?? ''),
             utm_medium: String(medium ?? ''),
             utm_campaign: String(campaign ?? ''),
@@ -250,6 +299,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
             building,
             brand,
             pyeong,
+            registeredAt,
           } as any)
         })
 
@@ -286,9 +336,10 @@ export function parseAdSpendExcel(file: File): Promise<ParsedAdSpendResult> {
           const date = normalizeDate(rawDate, fallbackDate)
           const channelRaw = getCell(row, ['채널', '매체', '유입채널', '광고매체', '광고 매체', 'utm_source', 'utm_medium', 'utm_campaign', 'channel', 'source'])
           const channel = normalizeChannel(channelRaw || Object.values(row).join(' '))
+          const subChannel = inferSubChannel({ channel, source: channelRaw, campaign: getCell(row, ['캠페인', 'campaign']) })
           const amountRaw = getCell(row, ['광고비', '금액', '비용', 'Cost', 'cost', 'amount', 'spend'])
           const amount = Number(String(amountRaw ?? '0').replace(/[^0-9]/g, ''))
-          if (date && amount > 0) records.push({ date, channel, amount })
+          if (date && amount > 0) records.push({ date, channel, subChannel, amount })
         })
         resolve({ records })
       } catch (err) { reject(err) }

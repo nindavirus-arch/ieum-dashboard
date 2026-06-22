@@ -2,7 +2,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Radio, Upload, BadgeDollarSign,
-  MapPin, GitMerge, ChevronRight, Megaphone
+  MapPin, GitMerge, ChevronRight, Megaphone, Users
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -11,6 +11,7 @@ const NAV = [
   { to: '/channels',      icon: Radio,              label: '매체별 성과' },
   { to: '/funnel',        icon: GitMerge,           label: '퍼널 분석' },
   { to: '/region',        icon: MapPin,             label: '지역별 통계' },
+  { to: '/db-manage',     icon: Users,              label: 'DB관리' },
   { to: '/upload-db',     icon: Upload,             label: 'DB 업로드' },
   { to: '/upload-spend',  icon: BadgeDollarSign,    label: '광고비 업로드' },
 ]

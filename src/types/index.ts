@@ -1,8 +1,8 @@
 // src/types/index.ts
 
 export type Channel = 'naver' | 'google' | 'meta' | 'youtube' | 'viral' | 'direct' | 'etc'
-export type DBTier = 'retarget' | 'first' | 'second'
-export type DBStatus = 'retarget' | 'first' | 'second' | 'invalid' | 'test' | 'duplicate'
+export type DBTier = 'retarget' | 'first' | 'second' | 'first_reentry' | 'second_reentry'
+export type DBStatus = 'retarget' | 'first' | 'second' | 'first_reentry' | 'second_reentry' | 'invalid' | 'test' | 'duplicate' | 'valid'
 export type SourceKind = 'first_raw' | 'second_raw' | 'unknown'
 export type ViewMode = 'daily' | 'monthly' | 'yearly'
 
@@ -14,6 +14,7 @@ export interface LeadRecord {
   region: string        // 시도
   district: string      // 시군구
   channel: Channel
+  subChannel?: string   // 네이버 SA / 네이버 GFA / 구글 검색광고 등 상세 유입매체
   dbTier: DBTier
   status: DBStatus
   rawPhone?: string
@@ -21,12 +22,33 @@ export interface LeadRecord {
   originPath?: string
   rawData?: Record<string, unknown>
   uploadedAt: string
+  utm_source?: string
+  utm_medium?: string
+  utm_campaign?: string
+  utm_content?: string
+  utm_term?: string
+  source_raw?: string
+  params?: string
+  address?: string
+  building?: string
+  brand?: string
+  pyeong?: string
+  source_file?: string
+  registeredAt?: string
+  consultationResult?: string
+  memo?: string
+  operator?: string
+  changeHistory?: string
+  updatedAt?: string
 }
+
 
 export interface AdSpend {
   id: string
   date: string          // YYYY-MM-DD
   channel: Channel
+  subChannel?: string
+  campaign?: string
   amount: number        // 원 단위
 }
 

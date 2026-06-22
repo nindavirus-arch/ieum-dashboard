@@ -4,6 +4,7 @@ import Layout from './components/Layout'
 import DashboardPage from './pages/DashboardPage'
 import ChannelsPage from './pages/ChannelsPage'
 import UploadDBPage from './pages/UploadDBPage'
+import DBManagePage from './pages/DBManagePage'
 import UploadAdSpendPage from './pages/UploadAdSpendPage'
 import RegionPage from './pages/RegionPage'
 import FunnelPage from './pages/FunnelPage'
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/upload-db" element={<UploadDBPage />} />
         <Route path="/upload-spend" element={<UploadAdSpendPage />} />
         <Route path="/region" element={<RegionPage />} />
+        <Route path="/db-manage" element={<DBManagePage />} />
         <Route path="/funnel" element={<FunnelPage />} />
       </Routes>
     </Layout>

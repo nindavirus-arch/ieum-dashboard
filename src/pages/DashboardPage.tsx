@@ -1,7 +1,7 @@
 // src/pages/DashboardPage.tsx
 import { useEffect, useMemo, useState } from 'react'
 import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, parseISO } from 'date-fns'
-import { Users, DollarSign, TrendingDown, CalendarDays, RefreshCw } from 'lucide-react'
+import { Users, DollarSign, TrendingDown, CalendarDays, RefreshCw, ChevronDown } from 'lucide-react'
 import { fetchLeads, fetchAdSpend } from '../lib/dataService'
 import type { LeadRecord, AdSpend, ViewMode } from '../types'
 import TimeSeriesChart from '../components/dashboard/TimeSeriesChart'
@@ -73,6 +73,7 @@ export default function DashboardPage() {
   const [leads, setLeads] = useState<LeadRecord[]>([])
   const [spends, setSpends] = useState<AdSpend[]>([])
   const [loading, setLoading] = useState(true)
+  const [expandedChannel, setExpandedChannel] = useState<string | null>(null)
 
   const range = useMemo(() => rangeByMode(viewMode, selectedDate), [viewMode, selectedDate])
 
@@ -98,18 +99,42 @@ export default function DashboardPage() {
   const avgCPL = totalDB > 0 ? Math.round(periodSpend / totalDB) : 0
 
   const channelStats = CHANNELS.map(ch => {
-    const db = activeLeads.filter(l => l.channel === ch).length
+    const chLeads = activeLeads.filter(l => l.channel === ch)
+    const db = chLeads.length
     const spend = activeSpends.filter(s => s.channel === ch).reduce((a, b) => a + b.amount, 0)
     const cpl = db > 0 ? Math.round(spend / db) : 0
-    return { ch, label: CHANNEL_LABELS[ch], db, spend, cpl, color: CHANNEL_COLORS[ch] }
+    const detailMap = new Map<string, number>()
+    chLeads.forEach(l => {
+      const label = l.subChannel || '미분류'
+      detailMap.set(label, (detailMap.get(label) || 0) + 1)
+    })
+    const details = Array.from(detailMap.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count)
+    return { ch, label: CHANNEL_LABELS[ch], db, spend, cpl, color: CHANNEL_COLORS[ch], details }
   })
   const maxDB = Math.max(...channelStats.map(c => c.db), 1)
 
+  const firstDB = activeLeads.filter(l => l.dbTier === 'first').length
+  const secondDB = activeLeads.filter(l => l.dbTier === 'second').length
+  const firstReentryDB = activeLeads.filter(l => l.dbTier === 'first_reentry').length
+  const secondReentryDB = activeLeads.filter(l => l.dbTier === 'second_reentry').length
+  const firstTotalDB = firstDB + firstReentryDB
+  const secondTotalDB = secondDB + secondReentryDB
+  const conversionRate = firstTotalDB > 0 ? Math.round((secondTotalDB / firstTotalDB) * 100) : 0
+
+  const periodLabel = viewMode === 'daily'
+    ? (range.activeStart === today ? '오늘 DB' : '선택일 DB')
+    : viewMode === 'monthly'
+      ? (selectedDate.slice(0, 7) === today.slice(0, 7) ? '이번달 DB' : '선택월 DB')
+      : (selectedDate.slice(0, 4) === today.slice(0, 4) ? '올해 DB' : '선택연 DB')
+
   const STAT_CARDS = [
-    { label: range.cardLabel, value: totalDB, unit: '건', icon: CalendarDays, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: viewMode === 'daily' ? '선택월 DB' : viewMode === 'monthly' ? '선택연 누적 DB' : '선택연 DB', value: validLeads.length, unit: '건', icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { label: viewMode === 'daily' ? '선택일 광고비' : viewMode === 'monthly' ? '선택월 광고비' : '선택연 광고비', value: fmtKRW(periodSpend), unit: '원', icon: DollarSign, color: 'text-violet-600', bg: 'bg-violet-50' },
+    { label: periodLabel, value: totalDB, unit: '건', icon: CalendarDays, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: '누적 DB', value: validLeads.length, unit: '건', icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { label: viewMode === 'daily' ? '선택일 광고비' : viewMode === 'monthly' ? '이번달 광고비' : '선택연 광고비', value: fmtKRW(periodSpend), unit: '원', icon: DollarSign, color: 'text-violet-600', bg: 'bg-violet-50' },
     { label: '평균 CPL', value: fmtKRW(avgCPL), unit: '원', icon: TrendingDown, color: 'text-orange-600', bg: 'bg-orange-50' },
+    { label: '1→2 전환율', value: conversionRate, unit: '%', icon: TrendingDown, color: 'text-cyan-600', bg: 'bg-cyan-50' },
   ]
 
   const inputValue = viewMode === 'daily'
@@ -158,7 +183,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {STAT_CARDS.map(({ label, value, unit, icon: Icon, color, bg }) => (
           <div key={label} className="stat-card">
             <div className="flex items-center justify-between">
@@ -175,8 +200,8 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div className="col-span-2 card p-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 card p-5">
           <p className="text-sm font-semibold text-slate-700 mb-4">
             {viewMode === 'daily' ? '일자별 DB 추이' : viewMode === 'monthly' ? '월별 DB 추이' : '연도별 DB 추이'}
           </p>
@@ -185,17 +210,42 @@ export default function DashboardPage() {
 
         <div className="card p-5 space-y-3">
           <p className="text-sm font-semibold text-slate-700">유입채널 현황</p>
-          {channelStats.map(({ ch, label, db, spend, color }) => (
-            <ChannelBar key={ch} label={label} db={db} spend={spend} maxDB={maxDB} color={color} />
+          {channelStats.map(({ ch, label, db, spend, color, details }) => (
+            <div key={ch} className="space-y-1">
+              <button
+                type="button"
+                onClick={() => setExpandedChannel(expandedChannel === ch ? null : ch)}
+                className="w-full text-left"
+              >
+                <div className="flex items-center gap-1">
+                  <div className="flex-1">
+                    <ChannelBar label={label} db={db} spend={spend} maxDB={maxDB} color={color} />
+                  </div>
+                  <ChevronDown size={13} className={clsx('text-slate-400 transition-transform', expandedChannel === ch && 'rotate-180')} />
+                </div>
+              </button>
+              {expandedChannel === ch && details.length > 0 && (
+                <div className="ml-5 mr-1 mb-2 rounded-lg bg-slate-50 border border-slate-100 p-2 space-y-1">
+                  {details.map(d => (
+                    <div key={d.label} className="flex items-center justify-between text-xs">
+                      <span className="text-slate-500">{d.label}</span>
+                      <span className="font-semibold text-slate-700">{d.count.toLocaleString()}건</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {[
           { label: '리타겟 DB', tier: 'retarget', color: 'bg-violet-500', light: 'bg-violet-50 text-violet-700' },
           { label: '1차 DB', tier: 'first', color: 'bg-blue-500', light: 'bg-blue-50 text-blue-700' },
           { label: '2차 DB', tier: 'second', color: 'bg-emerald-500', light: 'bg-emerald-50 text-emerald-700' },
+          { label: '1차 재인입', tier: 'first_reentry', color: 'bg-sky-500', light: 'bg-sky-50 text-sky-700' },
+          { label: '2차 재인입', tier: 'second_reentry', color: 'bg-teal-500', light: 'bg-teal-50 text-teal-700' },
         ].map(({ label, tier, color, light }) => {
           const count = activeLeads.filter(l => l.dbTier === tier).length
           const pct = totalDB > 0 ? Math.round((count / totalDB) * 100) : 0

@@ -42,12 +42,16 @@ export default function FunnelPage() {
   const retarget = filtered.filter(l => l.dbTier === 'retarget').length
   const first = filtered.filter(l => l.dbTier === 'first').length
   const second = filtered.filter(l => l.dbTier === 'second').length
-  const total = retarget + first + second
+  const firstReentry = filtered.filter(l => l.dbTier === 'first_reentry').length
+  const secondReentry = filtered.filter(l => l.dbTier === 'second_reentry').length
+  const firstTotal = first + firstReentry
+  const secondTotal = second + secondReentry
+  const total = retarget + firstTotal + secondTotal
 
   const funnelSteps = [
     { label: '리타겟 DB', count: retarget, color: '#7c3aed', light: 'bg-violet-50 border-violet-200 text-violet-700' },
-    { label: '1차 DB', count: first, color: '#2563eb', light: 'bg-blue-50 border-blue-200 text-blue-700' },
-    { label: '2차 DB', count: second, color: '#059669', light: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+    { label: '1차 DB', count: firstTotal, color: '#2563eb', light: 'bg-blue-50 border-blue-200 text-blue-700' },
+    { label: '2차 DB', count: secondTotal, color: '#059669', light: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
   ]
 
   // Channel funnel data
@@ -55,17 +59,19 @@ export default function FunnelPage() {
     name: CHANNEL_LABELS[ch],
     ch,
     retarget: leads.filter(l => l.channel === ch && l.dbTier === 'retarget').length,
-    first: leads.filter(l => l.channel === ch && l.dbTier === 'first').length,
-    second: leads.filter(l => l.channel === ch && l.dbTier === 'second').length,
+    first: leads.filter(l => l.channel === ch && (l.dbTier === 'first' || l.dbTier === 'first_reentry')).length,
+    second: leads.filter(l => l.channel === ch && (l.dbTier === 'second' || l.dbTier === 'second_reentry')).length,
+    firstReentry: leads.filter(l => l.channel === ch && l.dbTier === 'first_reentry').length,
+    secondReentry: leads.filter(l => l.channel === ch && l.dbTier === 'second_reentry').length,
   }))
 
   // Conversion rates
-  const r2f = retarget > 0 ? ((first / retarget) * 100).toFixed(1) : '0.0'
-  const f2s = first > 0 ? ((second / first) * 100).toFixed(1) : '0.0'
-  const r2s = retarget > 0 ? ((second / retarget) * 100).toFixed(1) : '0.0'
+  const r2f = retarget > 0 ? ((firstTotal / retarget) * 100).toFixed(1) : '0.0'
+  const f2s = firstTotal > 0 ? ((secondTotal / firstTotal) * 100).toFixed(1) : '0.0'
+  const r2s = retarget > 0 ? ((secondTotal / retarget) * 100).toFixed(1) : '0.0'
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold text-slate-800">퍼널 분석</h1>
@@ -86,9 +92,9 @@ export default function FunnelPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Funnel visual */}
-        <div className="col-span-1 card p-6 flex flex-col items-center gap-2">
+        <div className="card p-6 flex flex-col items-center gap-2">
           <p className="text-xs font-semibold text-slate-600 self-start mb-2">전환 퍼널</p>
           {funnelSteps.map(({ label, count, color, light }, i) => {
             const pct = total > 0 ? Math.round(count / total * 100) : 0
@@ -127,7 +133,7 @@ export default function FunnelPage() {
         </div>
 
         {/* Channel bar chart */}
-        <div className="col-span-2 card p-5">
+        <div className="lg:col-span-2 card p-5">
           <p className="text-xs font-semibold text-slate-600 mb-4">매체별 DB 등급 분포</p>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={channelFunnelData} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
@@ -166,7 +172,7 @@ export default function FunnelPage() {
         <div className="px-4 py-3 border-b border-slate-100">
           <p className="text-xs font-semibold text-slate-700">매체별 퍼널 상세</p>
         </div>
-        <table className="w-full text-sm">
+        <div className="overflow-auto"><table className="w-full text-sm min-w-[760px]">
           <thead>
             <tr className="bg-slate-50 text-slate-500">
               <th className="text-left px-4 py-2.5 text-xs font-medium">매체</th>
@@ -204,7 +210,7 @@ export default function FunnelPage() {
               )
             })}
           </tbody>
-        </table>
+        </table></div>
       </div>
     </div>
   )
