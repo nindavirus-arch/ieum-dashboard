@@ -178,7 +178,7 @@ function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRe
     registeredAt: String(row.registeredAt ?? row['등록일시'] ?? row['등록 일시'] ?? row.접수일시 ?? row.uploadedAt ?? uploadedAt),
     consultationResult: String(row.consultationResult ?? row['상담결과'] ?? row['상담 결과'] ?? ''),
     memo: String(row.memo ?? row['메모'] ?? row['특이사항'] ?? row['메모(특이사항)'] ?? ''),
-    operator: String(row.operator ?? row['작업자'] ?? row['처리자'] ?? row['상담원'] ?? row['상담담당자'] ?? row['상담 담당자'] ?? row['영업담당자'] ?? row['영업 담당자'] ?? row['담당자'] ?? row['접수자'] ?? row['등록자'] ?? row.registrant ?? row.manager ?? row.owner ?? ''),
+    operator: String(row.operator ?? row['접수자'] ?? row['작업자'] ?? row['처리자'] ?? row['상담원'] ?? row['상담담당자'] ?? row['상담 담당자'] ?? row['담당자'] ?? row['등록자'] ?? row['영업담당자'] ?? row['영업 담당자'] ?? row.registrant ?? row.manager ?? row.owner ?? ''),
     status: String(row.status ?? row.상태 ?? 'valid') as any,
     sourceKind: String(row.sourceKind ?? row.source_kind ?? '') as SourceKind,
     uploadedAt,
@@ -485,18 +485,19 @@ function enrichRegisteredAtFromRaw(lead: LeadRecord, lookup: Map<string, string>
 }
 
 function pickOperatorFromRaw(row: any): string {
+  // 컨설팅리스트 원본 기준: 작업자는 '영업담당자'가 아니라 '접수자'가 맞음.
   return String(
     row.operator ??
+    row['접수자'] ??
     row['작업자'] ??
     row['처리자'] ??
     row['상담원'] ??
     row['상담담당자'] ??
     row['상담 담당자'] ??
+    row['담당자'] ??
+    row['등록자'] ??
     row['영업담당자'] ??
     row['영업 담당자'] ??
-    row['담당자'] ??
-    row['접수자'] ??
-    row['등록자'] ??
     row.manager ??
     row.owner ??
     ''
@@ -624,6 +625,90 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
 }
 
 
+function rawLeadSortValue(lead: LeadRecord): string {
+  return String((lead as any).registeredAt || lead.date || '')
+}
+
+function buildLeadRowsFromRaw(firstRawRows: any[], secondRawRows: any[], mappings: MappingRow[]): LeadRecord[] {
+  const firstLeads = firstRawRows
+    .map((row, i) => normalizeLead({
+      ...row,
+      stage: row._parsed_stage || row.stage || row.dbTier || 'first',
+      dbTier: row._parsed_stage || row.stage || row.dbTier || 'first',
+      source_file: 'first_db',
+      sourceKind: 'first_raw',
+    }, i, mappings))
+    .filter((r: LeadRecord) => r.phone)
+    .sort((a: LeadRecord, b: LeadRecord) => rawLeadSortValue(a).localeCompare(rawLeadSortValue(b)))
+
+  const firstByPhone = new Map<string, LeadRecord>()
+  firstLeads.forEach((lead: LeadRecord) => {
+    if (!firstByPhone.has(lead.phone)) firstByPhone.set(lead.phone, lead)
+  })
+
+  const secondLeads = secondRawRows
+    .map((row, i) => normalizeLead({
+      ...row,
+      stage: row._parsed_stage || row.stage || row.dbTier || 'second',
+      dbTier: row._parsed_stage || row.stage || row.dbTier || 'second',
+      source_file: 'second_db',
+      sourceKind: 'second_raw',
+    }, i, mappings))
+    .filter((r: LeadRecord) => r.phone)
+    .map((lead: LeadRecord) => {
+      const first = firstByPhone.get(lead.phone)
+      if (!first) return lead
+      return {
+        ...lead,
+        params: (lead as any).params || (first as any).params || '',
+        address: (lead as any).address || (first as any).address || '',
+        building: (lead as any).building || (first as any).building || '',
+        brand: (lead as any).brand || (first as any).brand || '',
+        pyeong: (lead as any).pyeong || (first as any).pyeong || '',
+      } as LeadRecord
+    })
+
+  const combined = [...firstLeads, ...secondLeads]
+    .sort((a: LeadRecord, b: LeadRecord) => rawLeadSortValue(a).localeCompare(rawLeadSortValue(b)))
+
+  // 중복 기준은 같은 연락처 + 같은 DB단계 + 같은 날짜만 제외.
+  // 같은 연락처 + 같은 DB단계 + 다른 날짜는 재인입으로 반드시 살림.
+  const seen = new Set<string>()
+  const out: LeadRecord[] = []
+  combined.forEach((lead: LeadRecord) => {
+    const base = baseTier(lead.dbTier)
+    const key = `${lead.phone}_${base}_${lead.date}`
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push({ ...lead, dbTier: base } as LeadRecord)
+  })
+  return out
+}
+
+function mergeDashboardEdits(rawLeads: LeadRecord[], dashboardLeads: LeadRecord[]): LeadRecord[] {
+  const editMap = new Map<string, LeadRecord>()
+  dashboardLeads.forEach((lead: LeadRecord) => {
+    const key = `${lead.phone}_${baseTier(lead.dbTier)}_${lead.date}`
+    editMap.set(key, lead)
+  })
+
+  return rawLeads.map((lead: LeadRecord) => {
+    const key = `${lead.phone}_${baseTier(lead.dbTier)}_${lead.date}`
+    const edited = editMap.get(key)
+    if (!edited) return lead
+    return {
+      ...lead,
+      // 상담원이 화면에서 수정한 값은 유지
+      consultationResult: (edited as any).consultationResult || (lead as any).consultationResult || '',
+      memo: (edited as any).memo || (lead as any).memo || '',
+      status: (edited as any).status || (lead as any).status || 'valid',
+      // 작업자는 원본 접수자 기준이 우선. 단, 수기/수정으로 직접 입력된 경우만 유지 가능
+      operator: (lead as any).operator || (edited as any).operator || '',
+      changeHistory: (edited as any).changeHistory || (lead as any).changeHistory || '',
+    } as LeadRecord
+  })
+}
+
 function applyReentryClassification(leads: LeadRecord[]): LeadRecord[] {
   const asc = [...leads].sort((a, b) => {
     const ar = String((a as any).registeredAt || a.date || '')
@@ -660,15 +745,22 @@ export async function fetchLeads(startDate?: string, endDate?: string): Promise<
   ])
   const rawMetaLookup = buildRawMetaLookup(firstRawRows, secondRawRows)
 
-  const normalizedAll = leadRows
+  const dashboardLeads = leadRows
     .map((row, i) => normalizeLead(row, i, mappings))
     .map((r: LeadRecord) => enrichMetaFromRaw(r, rawMetaLookup))
     .filter((r: LeadRecord) => r.phone)
+
+  // 핵심: 재인입은 DASHBOARD_LEADS가 아니라 RAW 기준으로 다시 만든다.
+  // 기존 업로드/Apps Script에서 같은 번호를 중복 처리해 재인입 후보가 빠져도 RAW에 남아 있으면 화면에서 복구된다.
+  const rawBuiltLeads = buildLeadRowsFromRaw(firstRawRows, secondRawRows, mappings)
+  const sourceLeads = rawBuiltLeads.length > 0
+    ? mergeDashboardEdits(rawBuiltLeads, dashboardLeads)
+    : dashboardLeads
+
+  const normalizedAll = sourceLeads
+    .filter((r: LeadRecord) => r.phone)
     .filter((r: LeadRecord) => r.status !== 'invalid' && r.status !== 'test' && r.status !== 'duplicate')
 
-  // 조회/집계 단계에서 재인입을 한번 더 보정한다.
-  // 기준: 같은 연락처 + 같은 DB단계(first/second)가 다른 날짜에 다시 들어오면 재인입.
-  // 기존 DASHBOARD_LEADS에 dbTier가 first/second로 저장돼 있어도 화면에서는 재인입으로 잡힌다.
   const classifiedAll = applyReentryClassification(normalizedAll)
 
   return classifiedAll
