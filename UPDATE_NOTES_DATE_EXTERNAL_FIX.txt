@@ -1,0 +1,26 @@
+업데이트 반영내역
+
+1. 18일 날짜 집계 오류 수정
+- 대시보드/DB관리/일자별 그래프에서 날짜 비교 시 Date 객체 변환을 피하고 YYYY-MM-DD 문자열 기준으로 비교하도록 수정
+- DashboardPage.tsx, DBManagePage.tsx, TimeSeriesChart.tsx, dataService.ts 모두 날짜 비교 보강
+- 월별은 잡히는데 일별/오늘이 0건으로 뜨는 문제 대응
+
+2. 외부 유입채널 반영 유지
+- TU-알바리치 / TU-유튜브 / TU-당근
+- 휴그린-당근 / 휴그린-메일
+- 인바운드-인입콜
+- 온라인 광고비/CPL 계산은 네이버/구글/메타/유튜브/바이럴 기준 유지
+
+3. CHANNEL_MAPPING 연동 유지
+- CHANNEL_MAPPING 시트에 원본값/최종매체/상세매체 추가 시 다음 업로드부터 반영
+
+적용 방법
+1. 이 ZIP을 압축 해제
+2. GitHub 로컬 폴더(문서/GitHub/ieum-dashboard)에 파일 덮어쓰기
+3. npm run dev로 로컬 테스트
+4. GitHub Desktop에서 Commit → Push
+5. Vercel Deployments에서 Ready 확인
+
+주의
+- APPS_SCRIPT_CODE.txt는 포함되어 있지만 이번 핵심 수정은 프론트 날짜 비교 로직입니다.
+- Apps Script를 이미 최신 getDisplayValues 버전으로 배포했다면 재배포는 필수는 아닙니다.

@@ -1,0 +1,16 @@
+반영내역
+1. 재인입 화면 집계 보정
+- 같은 연락처 + 같은 DB단계(first/second)가 다른 날짜에 재유입되면 조회 단계에서 1차 재인입/2차 재인입으로 보정
+- 기존 DASHBOARD_LEADS를 삭제/재업로드하지 않아도 화면 집계에 반영
+
+2. 상담결과 옵션 추가
+- 중복 추가
+
+적용방법
+1. src/lib/dataService.ts 교체
+2. src/pages/DBManagePage.tsx 교체
+3. npm run dev 테스트
+4. GitHub Desktop Commit → Push
+
+Apps Script 변경 없음
+RAW 삭제/재업로드 필요 없음

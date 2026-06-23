@@ -6,15 +6,17 @@ import clsx from 'clsx'
 import { createManualLead, fetchLeads, fetchMappings, updateLeadAttribution, type MappingRow } from '../lib/dataService'
 import type { Channel, DBTier, LeadRecord } from '../types'
 
-const CHANNELS: Channel[] = ['naver', 'google', 'meta', 'youtube', 'viral', 'direct', 'etc']
+const CHANNELS: Channel[] = ['naver', 'google', 'meta', 'youtube', 'viral', 'direct', 'tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'inbound_call', 'etc']
 const CHANNEL_LABELS: Record<Channel, string> = {
-  naver: '네이버', google: '구글', meta: '메타', youtube: '유튜브', viral: '바이럴', direct: '직접유입', etc: '기타'
+  naver: '네이버', google: '구글', meta: '메타', youtube: '유튜브', viral: '바이럴', direct: '직접유입',
+  tu_albarich: 'TU-알바리치', tu_youtube: 'TU-유튜브', tu_danggeun: 'TU-당근',
+  hugreen_danggeun: '휴그린-당근', hugreen_mail: '휴그린-메일', inbound_call: '인바운드-인입콜', etc: '기타'
 }
 const STAGES: DBTier[] = ['retarget', 'first', 'second', 'first_reentry', 'second_reentry']
 const STAGE_LABELS: Record<DBTier, string> = {
   retarget: '리타겟DB', first: '1차DB', second: '2차DB', first_reentry: '1차 재인입', second_reentry: '2차 재인입'
 }
-const CONSULT_RESULTS = ['단순문의', '방문배정', '부분시공', '견적중', '부재중']
+const CONSULT_RESULTS = ['단순문의', '방문배정', '부분시공', '견적중', '부재중', '중복']
 
 const BRAND_KEYS = [
   { label: 'KCC', keys: ['kcc', 'KCC'] },
@@ -108,6 +110,23 @@ function shortAddress(row: LeadRecord) {
   return addr || building || '-'
 }
 
+function mediaLabel(row: LeadRecord) {
+  if (row.channel === 'tu_albarich' || row.channel === 'tu_youtube' || row.channel === 'tu_danggeun') return 'TU'
+  if (row.channel === 'hugreen_danggeun' || row.channel === 'hugreen_mail') return '휴그린'
+  if (row.channel === 'inbound_call') return '인바운드'
+  return CHANNEL_LABELS[row.channel]
+}
+
+function detailLabel(row: LeadRecord) {
+  if (row.channel === 'tu_albarich') return '알바리치'
+  if (row.channel === 'tu_youtube') return '유튜브'
+  if (row.channel === 'tu_danggeun') return '당근'
+  if (row.channel === 'hugreen_danggeun') return '당근'
+  if (row.channel === 'hugreen_mail') return '메일'
+  if (row.channel === 'inbound_call') return '인입콜'
+  return row.subChannel || '-'
+}
+
 function QuotePanel({ rows }: { rows: QuoteRow[] }) {
   if (!rows.length) return null
   return <div className="mt-2 overflow-hidden rounded-lg border border-slate-100 bg-slate-50 max-w-[360px]">
@@ -132,6 +151,7 @@ export default function DBManagePage() {
   const [selectedMonth, setSelectedMonth] = useState(thisMonth())
   const [selectedYear, setSelectedYear] = useState(thisYear())
   const [channel, setChannel] = useState<'all' | Channel>('all')
+  const [operatorFilter, setOperatorFilter] = useState('all')
   const [keyword, setKeyword] = useState('')
   const [editing, setEditing] = useState<LeadRecord | null>(null)
   const [manualOpen, setManualOpen] = useState(false)
@@ -156,9 +176,12 @@ export default function DBManagePage() {
     return uniq([...fromMap, ...base])
   }, [mappings])
 
+  const operatorOptions = useMemo(() => uniq(leads.map(l => String((l as any).operator || '').trim())).sort(), [leads])
+
   const filtered = leads
     .filter(l => stage === 'all' ? true : l.dbTier === stage)
     .filter(l => channel === 'all' ? true : l.channel === channel)
+    .filter(l => operatorFilter === 'all' ? true : String((l as any).operator || '').trim() === operatorFilter)
     .filter(l => {
       const q = keyword.replace(/[^0-9a-zA-Z가-힣]/g, '').toLowerCase()
       if (!q) return true
@@ -174,7 +197,7 @@ export default function DBManagePage() {
 
   return <div className="p-4 md:p-6 space-y-5">
     <div className="flex flex-col md:flex-row md:items-start justify-between gap-4"><div><h1 className="text-lg font-bold text-slate-800">DB관리</h1><p className="text-xs text-slate-500 mt-0.5">DB 리스트 조회, 상담결과/유입경로 수정, 인바운드 수기등록을 관리합니다.</p></div><div className="flex gap-2"><button onClick={() => setManualOpen(true)} className="btn-primary"><Plus size={14}/> 수기등록</button><button onClick={load} className="btn-secondary"><RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침</button></div></div>
-    <div className="card p-4 space-y-4"><div className="flex flex-wrap items-center gap-2">{[['all','전체',counts.all], ...STAGES.map(s => [s, STAGE_LABELS[s], counts[s]])].map(([v,label,count]) => <button key={String(v)} onClick={() => setStage(v as any)} className={clsx('tab-btn', stage === v && 'active')}>{label} <span className="opacity-70">{Number(count).toLocaleString()}</span></button>)}</div><div className="grid grid-cols-1 md:grid-cols-12 gap-3"><select value={period} onChange={e => setPeriod(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="today">오늘</option><option value="7d">최근 7일</option><option value="day">일자 선택</option><option value="month">월별</option><option value="year">연별</option><option value="all">전체</option></select>{period === 'day' && <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'month' && <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'year' && <input type="number" min="2024" max="2030" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}<select value={channel} onChange={e => setChannel(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 매체</option>{CHANNELS.map(c => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</select><div className="md:col-span-4 relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="이름/연락처/지역/상담결과/메모 검색" className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-sm" /></div><div className="md:col-span-2 flex items-center md:justify-end text-xs text-slate-500">{range.label} · {filtered.length.toLocaleString()}건</div></div></div>
+    <div className="card p-4 space-y-4"><div className="flex flex-wrap items-center gap-2">{[['all','전체',counts.all], ...STAGES.map(s => [s, STAGE_LABELS[s], counts[s]])].map(([v,label,count]) => <button key={String(v)} onClick={() => setStage(v as any)} className={clsx('tab-btn', stage === v && 'active')}>{label} <span className="opacity-70">{Number(count).toLocaleString()}</span></button>)}</div><div className="grid grid-cols-1 md:grid-cols-12 gap-3"><select value={period} onChange={e => setPeriod(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="today">오늘</option><option value="7d">최근 7일</option><option value="day">일자 선택</option><option value="month">월별</option><option value="year">연별</option><option value="all">전체</option></select>{period === 'day' && <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'month' && <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'year' && <input type="number" min="2024" max="2030" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}<select value={channel} onChange={e => setChannel(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 매체</option>{CHANNELS.map(c => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</select><select value={operatorFilter} onChange={e => setOperatorFilter(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 작업자</option>{operatorOptions.map(o => <option key={o} value={o}>{o}</option>)}</select><div className="md:col-span-3 relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="이름/연락처/지역/상담결과/메모 검색" className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-sm" /></div><div className="md:col-span-1 flex items-center md:justify-end text-xs text-slate-500">{range.label} · {filtered.length.toLocaleString()}건</div></div></div>
 
     <div className="space-y-3 md:hidden">
       {filtered.map((l, idx) => {
@@ -184,7 +207,7 @@ export default function DBManagePage() {
         return <div key={key} className="card p-4 space-y-3">
           <div className="flex items-start justify-between gap-3"><div><div className="text-xs text-slate-400">{fmtDateTime(l)}</div><div className="font-semibold text-slate-800 mt-1">{l.name || '-'}</div><div className="text-sm text-slate-500">{l.phone || '-'}</div></div><span className={clsx('px-2 py-0.5 rounded-md border text-xs font-medium whitespace-nowrap', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span></div>
           {(l as any).memo && <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-800"><b>메모</b> {(l as any).memo}</div>}
-          <div className="grid grid-cols-2 gap-2 text-xs text-slate-600"><div><b>지역</b><br/>{l.region} {l.district}</div><div><b>상담결과</b><br/>{(l as any).consultationResult || '-'}</div><div className="col-span-2"><b>주소</b><br/>{shortAddress(l)}</div><div><b>매체</b><br/>{CHANNEL_LABELS[l.channel]}</div><div><b>상세매체</b><br/>{l.subChannel || '-'}</div><div><b>작업자</b><br/>{(l as any).operator || '-'}</div><div><b>상태</b><br/>{l.status || 'valid'}</div></div>
+          <div className="grid grid-cols-2 gap-2 text-xs text-slate-600"><div><b>지역</b><br/>{l.region} {l.district}</div><div><b>상담결과</b><br/>{(l as any).consultationResult || '-'}</div><div className="col-span-2"><b>주소</b><br/>{shortAddress(l)}</div><div><b>매체</b><br/>{mediaLabel(l)}</div><div><b>상세매체</b><br/>{detailLabel(l)}</div><div><b>작업자</b><br/>{(l as any).operator || '-'}</div><div><b>상태</b><br/>{l.status || 'valid'}</div></div>
           {quotes.length > 0 && <div><button onClick={() => setOpenQuote(openQuote === key ? '' : key)} className="inline-flex items-center gap-1 text-blue-600 text-sm font-medium"><ChevronDown size={14} className={clsx(openQuote === key && 'rotate-180')} /> 외부창 견적</button>{openQuote === key && <QuotePanel rows={quotes} />}</div>}
           {history && <div><button onClick={() => setOpenHistory(openHistory === key ? '' : key)} className="inline-flex items-center gap-1 text-slate-500 text-sm font-medium"><History size={13}/> 수정이력</button>{openHistory === key && <pre className="mt-2 p-2 rounded-lg bg-slate-50 text-slate-500 whitespace-pre-wrap text-xs">{history}</pre>}</div>}
           <button onClick={() => setEditing(l)} className="w-full inline-flex justify-center items-center gap-1 px-3 py-2 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-600 text-sm"><Pencil size={13}/> 수정</button>
@@ -193,7 +216,7 @@ export default function DBManagePage() {
       {!filtered.length && <div className="card p-8 text-center text-slate-400 text-sm">조회된 DB가 없습니다.</div>}
     </div>
 
-    <div className="card overflow-hidden hidden md:block"><div className="overflow-auto max-h-[680px]"><table className="w-full text-xs"><thead className="sticky top-0 bg-slate-50 z-10 border-b border-slate-100"><tr className="text-slate-500">{['등록일시','DB유형','고객정보','지역','주소','상담결과','작업자','매체','상세매체','유입경로 원본','상태','수정'].map(h => <th key={h} className="text-left px-3 py-2 font-semibold whitespace-nowrap">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-50">{filtered.map((l, idx) => { const key = `${l.phone}_${l.dbTier}_${l.date}_${idx}`; const quotes = quoteRows(l); const history = String((l as any).changeHistory || ''); return <tr key={key} className="align-top hover:bg-slate-50/70"><td className="px-3 py-3 text-slate-600 whitespace-nowrap">{fmtDateTime(l)}</td><td className="px-3 py-3 whitespace-nowrap"><span className={clsx('px-2 py-0.5 rounded-md border font-medium', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span></td><td className="px-3 py-3 min-w-[220px]"><div className="font-semibold text-slate-700">{l.name || '-'}</div><div className="text-slate-500 mt-0.5">{l.phone || '-'}</div>{(l as any).memo && <div className="mt-2 rounded-lg bg-amber-50 border border-amber-100 px-2 py-1.5 text-[11px] text-amber-800 whitespace-normal"><b>메모</b> {(l as any).memo}</div>}{quotes.length > 0 && <div className="mt-2"><button onClick={() => setOpenQuote(openQuote === key ? '' : key)} className="inline-flex items-center gap-1 text-blue-600 font-medium"><ChevronDown size={13} className={clsx(openQuote === key && 'rotate-180')} /> 외부창 견적</button>{openQuote === key && <QuotePanel rows={quotes} />}</div>}{history && <div className="mt-2"><button onClick={() => setOpenHistory(openHistory === key ? '' : key)} className="inline-flex items-center gap-1 text-slate-500 font-medium"><History size={12}/> 수정이력</button>{openHistory === key && <pre className="mt-2 p-2 rounded-lg bg-slate-50 text-slate-500 whitespace-pre-wrap max-w-[520px]">{history}</pre>}</div>}</td><td className="px-3 py-3 text-slate-600 whitespace-nowrap">{l.region} {l.district}</td><td className="px-3 py-3 text-slate-500 max-w-[240px] whitespace-normal">{shortAddress(l)}</td><td className="px-3 py-3 text-slate-700 whitespace-nowrap">{(l as any).consultationResult || '-'}</td><td className="px-3 py-3 text-slate-600 whitespace-nowrap">{(l as any).operator || '-'}</td><td className="px-3 py-3 text-slate-700 whitespace-nowrap">{CHANNEL_LABELS[l.channel]}</td><td className="px-3 py-3 text-slate-600 whitespace-nowrap">{l.subChannel || '-'}</td><td className="px-3 py-3 text-slate-500 max-w-[180px] truncate" title={(l as any).source_raw}>{(l as any).source_raw || '-'}</td><td className="px-3 py-3 text-slate-500 whitespace-nowrap">{l.status || 'valid'}</td><td className="px-3 py-3 whitespace-nowrap"><button onClick={() => setEditing(l)} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-600"><Pencil size={12}/> 수정</button></td></tr> })}{!filtered.length && <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-400">조회된 DB가 없습니다.</td></tr>}</tbody></table></div></div>
+    <div className="card overflow-hidden hidden md:block"><div className="overflow-auto max-h-[680px]"><table className="w-full text-xs"><thead className="sticky top-0 bg-slate-50 z-10 border-b border-slate-100"><tr className="text-slate-500">{['등록일시','DB유형','고객정보','지역','주소','상담결과','작업자','매체','상세매체','유입경로 원본','상태','수정'].map(h => <th key={h} className="text-left px-3 py-2 font-semibold whitespace-nowrap">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-50">{filtered.map((l, idx) => { const key = `${l.phone}_${l.dbTier}_${l.date}_${idx}`; const quotes = quoteRows(l); const history = String((l as any).changeHistory || ''); return <tr key={key} className="align-top hover:bg-slate-50/70"><td className="px-3 py-3 text-slate-600 whitespace-nowrap">{fmtDateTime(l)}</td><td className="px-3 py-3 whitespace-nowrap"><span className={clsx('px-2 py-0.5 rounded-md border font-medium', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span></td><td className="px-3 py-3 min-w-[220px]"><div className="font-semibold text-slate-700">{l.name || '-'}</div><div className="text-slate-500 mt-0.5">{l.phone || '-'}</div>{(l as any).memo && <div className="mt-2 rounded-lg bg-amber-50 border border-amber-100 px-2 py-1.5 text-[11px] text-amber-800 whitespace-normal"><b>메모</b> {(l as any).memo}</div>}{quotes.length > 0 && <div className="mt-2"><button onClick={() => setOpenQuote(openQuote === key ? '' : key)} className="inline-flex items-center gap-1 text-blue-600 font-medium"><ChevronDown size={13} className={clsx(openQuote === key && 'rotate-180')} /> 외부창 견적</button>{openQuote === key && <QuotePanel rows={quotes} />}</div>}{history && <div className="mt-2"><button onClick={() => setOpenHistory(openHistory === key ? '' : key)} className="inline-flex items-center gap-1 text-slate-500 font-medium"><History size={12}/> 수정이력</button>{openHistory === key && <pre className="mt-2 p-2 rounded-lg bg-slate-50 text-slate-500 whitespace-pre-wrap max-w-[520px]">{history}</pre>}</div>}</td><td className="px-3 py-3 text-slate-600 whitespace-nowrap">{l.region} {l.district}</td><td className="px-3 py-3 text-slate-500 max-w-[240px] whitespace-normal">{shortAddress(l)}</td><td className="px-3 py-3 text-slate-700 whitespace-nowrap">{(l as any).consultationResult || '-'}</td><td className="px-3 py-3 text-slate-600 whitespace-nowrap">{(l as any).operator || '-'}</td><td className="px-3 py-3 text-slate-700 whitespace-nowrap">{mediaLabel(l)}</td><td className="px-3 py-3 text-slate-600 whitespace-nowrap">{detailLabel(l)}</td><td className="px-3 py-3 text-slate-500 max-w-[180px] truncate" title={(l as any).source_raw}>{(l as any).source_raw || '-'}</td><td className="px-3 py-3 text-slate-500 whitespace-nowrap">{l.status || 'valid'}</td><td className="px-3 py-3 whitespace-nowrap"><button onClick={() => setEditing(l)} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-600"><Pencil size={12}/> 수정</button></td></tr> })}{!filtered.length && <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-400">조회된 DB가 없습니다.</td></tr>}</tbody></table></div></div>
     {editing && <EditModal row={editing} subChannelOptions={subChannelOptions} onClose={() => setEditing(null)} onSave={saveEdit} saving={saving} />}
     {manualOpen && <ManualModal subChannelOptions={subChannelOptions} onClose={() => setManualOpen(false)} onSave={saveManual} saving={saving} />}
   </div>

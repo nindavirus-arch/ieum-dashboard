@@ -56,10 +56,11 @@ function chooseAttribution(prev: LeadRecord, next: LeadRecord): Channel {
 }
 
 function chooseSubChannel(prev: LeadRecord, next: LeadRecord, chosenChannel: Channel): string {
-  if (next.dbTier === 'second' && isWeakChannel(next.channel) && prev.subChannel) return prev.subChannel
-  if (next.subChannel && next.channel === chosenChannel) return next.subChannel
-  if (prev.subChannel && prev.channel === chosenChannel) return prev.subChannel
-  return inferSubChannel({ channel: chosenChannel, source: next.utm_source, sourceRaw: next.source_raw, medium: next.utm_medium, campaign: next.utm_campaign, content: next.utm_content, term: next.utm_term })
+  let candidate = ''
+  if (next.dbTier === 'second' && isWeakChannel(next.channel) && prev.subChannel) candidate = prev.subChannel
+  else if (next.subChannel && next.channel === chosenChannel) candidate = next.subChannel
+  else if (prev.subChannel && prev.channel === chosenChannel) candidate = prev.subChannel
+  return sanitizeSubChannelForChannel(chosenChannel, candidate, { source: next.utm_source, sourceRaw: next.source_raw, medium: next.utm_medium, campaign: next.utm_campaign, content: next.utm_content, term: next.utm_term })
 }
 
 function normKey(v: unknown) {
@@ -109,6 +110,33 @@ function applyChannelMapping(input: {
   }
 }
 
+
+function subChannelImpliesChannel(label?: string): Channel | '' {
+  const t = String(label || '').toLowerCase().replace(/[\s_\-\/()\[\].]/g, '')
+  if (!t) return ''
+  if (t.includes('네이버') || t.includes('naver') || t.includes('gfa') || t.includes('브랜드검색')) return 'naver'
+  if (t.includes('구글') || t.includes('google') || t.includes('디맨드') || t.includes('demand') || t.includes('gdn')) return 'google'
+  if (t.includes('메타') || t.includes('인스타') || t.includes('facebook') || t.includes('meta')) return 'meta'
+  if (t.includes('유튜브') || t.includes('youtube')) return 'youtube'
+  if (t.includes('바이럴') || t.includes('블로그') || t.includes('레뷰') || t.includes('카페')) return 'viral'
+  if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('direct')) return 'direct'
+  if (t.includes('tu알바리치') || t === 'tu') return 'tu_albarich'
+  if (t.includes('tu유튜브') || t.includes('tu유투브')) return 'tu_youtube'
+  if (t.includes('tu당근')) return 'tu_danggeun'
+  if (t.includes('휴그린당근')) return 'hugreen_danggeun'
+  if (t.includes('휴그린메일') || t.includes('휴그린본사')) return 'hugreen_mail'
+  if (t.includes('인바운드') || t.includes('인입콜')) return 'inbound_call'
+  return ''
+}
+
+function sanitizeSubChannelForChannel(channel: Channel, subChannel: string, context: { source?: unknown; sourceRaw?: unknown; medium?: unknown; campaign?: unknown; content?: unknown; term?: unknown }) {
+  const implied = subChannelImpliesChannel(subChannel)
+  if (implied && implied !== channel) {
+    return inferSubChannel({ channel, source: context.source, sourceRaw: context.sourceRaw, medium: context.medium, campaign: context.campaign, content: context.content, term: context.term })
+  }
+  return subChannel || inferSubChannel({ channel, source: context.source, sourceRaw: context.sourceRaw, medium: context.medium, campaign: context.campaign, content: context.content, term: context.term })
+}
+
 function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRecord {
   const uploadedAt = String(row.uploadedAt ?? row.uploaded_at ?? row._uploadedAt ?? new Date().toISOString())
   const stage = String(row.stage ?? row.dbTier ?? row.DB등급 ?? row.등급 ?? row._parsed_stage ?? 'retarget') as DBTier
@@ -122,6 +150,7 @@ function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRe
   const source_raw = String(row.source_raw ?? row.sourceRaw ?? row.유입경로 ?? row['유입 경로'] ?? row.source ?? '')
   const baseChannel = normalizeChannel(row.channel ?? row.최종매체 ?? row.매체 ?? row._parsed_channel ?? '')
   const mapped = applyChannelMapping({ channel: baseChannel, subChannel: String(row.subChannel ?? row.상세매체 ?? ''), utm_source, source_raw, utm_medium, utm_campaign, utm_content, utm_term }, mappings)
+  const safeSubChannel = sanitizeSubChannelForChannel(mapped.channel, mapped.subChannel, { source: utm_source, sourceRaw: source_raw, medium: utm_medium, campaign: utm_campaign, content: utm_content, term: utm_term })
 
   return {
     id: String(row.id ?? phone ?? makeId('lead')),
@@ -131,7 +160,7 @@ function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRe
     name: String(row.name ?? row.이름 ?? row.성명 ?? row.고객명 ?? row._parsed_name ?? ''),
     dbTier: stage,
     channel: mapped.channel,
-    subChannel: mapped.subChannel,
+    subChannel: safeSubChannel,
     region: String(row.region ?? row.시도 ?? row['시/도'] ?? row.지역 ?? row._parsed_region ?? ''),
     district: String(row.district ?? row.시군구 ?? row['시/군/구'] ?? row._parsed_district ?? ''),
     utm_source,
@@ -149,7 +178,7 @@ function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRe
     registeredAt: String(row.registeredAt ?? row['등록일시'] ?? row['등록 일시'] ?? row.접수일시 ?? row.uploadedAt ?? uploadedAt),
     consultationResult: String(row.consultationResult ?? row['상담결과'] ?? row['상담 결과'] ?? ''),
     memo: String(row.memo ?? row['메모'] ?? row['특이사항'] ?? row['메모(특이사항)'] ?? ''),
-    operator: String(row.operator ?? row['작업자'] ?? row['영업담당자'] ?? row['영업 담당자'] ?? row['담당자'] ?? row['접수자'] ?? row.registrant ?? ''),
+    operator: String(row.operator ?? row['작업자'] ?? row['처리자'] ?? row['상담원'] ?? row['상담담당자'] ?? row['상담 담당자'] ?? row['영업담당자'] ?? row['영업 담당자'] ?? row['담당자'] ?? row['접수자'] ?? row['등록자'] ?? row.registrant ?? row.manager ?? row.owner ?? ''),
     status: String(row.status ?? row.상태 ?? 'valid') as any,
     sourceKind: String(row.sourceKind ?? row.source_kind ?? '') as SourceKind,
     uploadedAt,
@@ -401,6 +430,113 @@ export async function createManualLead(params: {
   return 1
 }
 
+
+function cleanRegisteredAtValue(v: unknown): string {
+  const s = String(v ?? '').trim()
+  if (!s) return ''
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return ''
+  return s
+}
+
+function pickRegisteredAtFromRaw(row: any): string {
+  return cleanRegisteredAtValue(
+    row.registeredAt ??
+    row['등록일시'] ??
+    row['등록 일시'] ??
+    row['접수일시'] ??
+    row['접수 일시'] ??
+    row['신청일시'] ??
+    row['신청 일시'] ??
+    row['등록일'] ??
+    row['접수일'] ??
+    row.date ??
+    row._parsed_date
+  )
+}
+
+function buildRegisteredAtLookup(firstRawRows: any[], secondRawRows: any[]) {
+  const lookup = new Map<string, string>()
+
+  const add = (row: any) => {
+    const phone = normalizePhone(row._parsed_phone ?? row.phone ?? row.연락처 ?? row.휴대폰번호 ?? row['휴대폰 번호'] ?? '')
+    const date = normalizeDate(row._parsed_date ?? row.date ?? row.날짜 ?? row.등록일 ?? row.등록일시 ?? row['등록 일시'] ?? row.접수일시, new Date())
+    const registeredAt = pickRegisteredAtFromRaw(row)
+
+    if (!phone || !registeredAt) return
+
+    lookup.set(`${phone}_${date}`, registeredAt)
+    lookup.set(phone, registeredAt)
+  }
+
+  firstRawRows.forEach(add)
+  secondRawRows.forEach(add)
+
+  return lookup
+}
+
+function enrichRegisteredAtFromRaw(lead: LeadRecord, lookup: Map<string, string>): LeadRecord {
+  const current = cleanRegisteredAtValue((lead as any).registeredAt)
+  const fromRaw = lookup.get(`${lead.phone}_${lead.date}`) || lookup.get(lead.phone) || ''
+
+  return {
+    ...lead,
+    registeredAt: current || fromRaw || lead.date,
+  } as LeadRecord
+}
+
+function pickOperatorFromRaw(row: any): string {
+  return String(
+    row.operator ??
+    row['작업자'] ??
+    row['처리자'] ??
+    row['상담원'] ??
+    row['상담담당자'] ??
+    row['상담 담당자'] ??
+    row['영업담당자'] ??
+    row['영업 담당자'] ??
+    row['담당자'] ??
+    row['접수자'] ??
+    row['등록자'] ??
+    row.manager ??
+    row.owner ??
+    ''
+  ).trim()
+}
+
+function buildRawMetaLookup(firstRawRows: any[], secondRawRows: any[]) {
+  const lookup = new Map<string, { registeredAt?: string; operator?: string; consultationResult?: string; memo?: string }>()
+
+  const add = (row: any) => {
+    const phone = normalizePhone(row._parsed_phone ?? row.phone ?? row.연락처 ?? row.휴대폰번호 ?? row['휴대폰 번호'] ?? '')
+    const date = normalizeDate(row._parsed_date ?? row.date ?? row.날짜 ?? row.등록일 ?? row.등록일시 ?? row['등록 일시'] ?? row.접수일시, new Date())
+    if (!phone) return
+    const meta = {
+      registeredAt: pickRegisteredAtFromRaw(row),
+      operator: pickOperatorFromRaw(row),
+      consultationResult: String(row.consultationResult ?? row['상담결과'] ?? row['상담 결과'] ?? row['상담상태'] ?? row['상담 상태'] ?? row['결과'] ?? '').trim(),
+      memo: String(row.memo ?? row['메모'] ?? row['특이사항'] ?? row['메모(특이사항)'] ?? row['비고'] ?? row['상담메모'] ?? '').trim(),
+    }
+    const byDateKey = `${phone}_${date}`
+    lookup.set(byDateKey, { ...(lookup.get(byDateKey) || {}), ...Object.fromEntries(Object.entries(meta).filter(([,v]) => Boolean(v))) })
+    lookup.set(phone, { ...(lookup.get(phone) || {}), ...Object.fromEntries(Object.entries(meta).filter(([,v]) => Boolean(v))) })
+  }
+
+  firstRawRows.forEach(add)
+  secondRawRows.forEach(add)
+  return lookup
+}
+
+function enrichMetaFromRaw(lead: LeadRecord, lookup: Map<string, { registeredAt?: string; operator?: string; consultationResult?: string; memo?: string }>): LeadRecord {
+  const meta = lookup.get(`${lead.phone}_${lead.date}`) || lookup.get(lead.phone) || {}
+  return {
+    ...lead,
+    registeredAt: cleanRegisteredAtValue((lead as any).registeredAt) || meta.registeredAt || lead.date,
+    operator: (lead as any).operator || meta.operator || '',
+    consultationResult: (lead as any).consultationResult || meta.consultationResult || '',
+    memo: (lead as any).memo || meta.memo || '',
+  } as LeadRecord
+}
+
 // ─── Leads ──────────────────────────────────────────────
 export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]) {
   const mappings = await fetchMappings()
@@ -450,7 +586,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
       date: normalizeDate(lead.date, new Date(now)),
       phone: normalizePhone(lead.phone),
       channel: mapped.channel,
-      subChannel: mapped.subChannel,
+      subChannel: sanitizeSubChannelForChannel(mapped.channel, mapped.subChannel, { source: (lead as any).utm_source, sourceRaw: (lead as any).source_raw, medium: (lead as any).utm_medium, campaign: (lead as any).utm_campaign, content: (lead as any).utm_content, term: (lead as any).utm_term }),
       uploadedAt: now,
     } as LeadRecord
 
@@ -487,14 +623,57 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
   return changed
 }
 
+
+function applyReentryClassification(leads: LeadRecord[]): LeadRecord[] {
+  const asc = [...leads].sort((a, b) => {
+    const ar = String((a as any).registeredAt || a.date || '')
+    const br = String((b as any).registeredAt || b.date || '')
+    return ar.localeCompare(br)
+  })
+
+  const seenDatesByPhoneStage = new Map<string, Set<string>>()
+
+  return asc.map((lead) => {
+    const base = baseTier(lead.dbTier)
+    if (base !== 'first' && base !== 'second') return lead
+
+    const key = `${lead.phone}_${base}`
+    const seenDates = seenDatesByPhoneStage.get(key) || new Set<string>()
+    const hasPreviousDifferentDate = Array.from(seenDates).some(d => d !== lead.date)
+    seenDates.add(lead.date)
+    seenDatesByPhoneStage.set(key, seenDates)
+
+    if (!hasPreviousDifferentDate) {
+      return { ...lead, dbTier: base } as LeadRecord
+    }
+
+    return { ...lead, dbTier: reentryTier(base) } as LeadRecord
+  })
+}
+
 export async function fetchLeads(startDate?: string, endDate?: string): Promise<LeadRecord[]> {
   const mappings = await fetchMappings()
-  return (await getSheetRows('leads'))
+  const [leadRows, firstRawRows, secondRawRows] = await Promise.all([
+    getSheetRows('leads'),
+    getSheetRows('firstRaw').catch(() => []),
+    getSheetRows('secondRaw').catch(() => []),
+  ])
+  const rawMetaLookup = buildRawMetaLookup(firstRawRows, secondRawRows)
+
+  const normalizedAll = leadRows
     .map((row, i) => normalizeLead(row, i, mappings))
+    .map((r: LeadRecord) => enrichMetaFromRaw(r, rawMetaLookup))
     .filter((r: LeadRecord) => r.phone)
     .filter((r: LeadRecord) => r.status !== 'invalid' && r.status !== 'test' && r.status !== 'duplicate')
+
+  // 조회/집계 단계에서 재인입을 한번 더 보정한다.
+  // 기준: 같은 연락처 + 같은 DB단계(first/second)가 다른 날짜에 다시 들어오면 재인입.
+  // 기존 DASHBOARD_LEADS에 dbTier가 first/second로 저장돼 있어도 화면에서는 재인입으로 잡힌다.
+  const classifiedAll = applyReentryClassification(normalizedAll)
+
+  return classifiedAll
     .filter((r: LeadRecord) => inRange(r.date, startDate, endDate))
-    .sort((a: LeadRecord, b: LeadRecord) => b.date.localeCompare(a.date))
+    .sort((a: LeadRecord, b: LeadRecord) => String((b as any).registeredAt || b.date).localeCompare(String((a as any).registeredAt || a.date)))
 }
 
 // ─── Ad Spend ────────────────────────────────────────────

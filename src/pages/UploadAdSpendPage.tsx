@@ -8,7 +8,9 @@ import clsx from 'clsx'
 type Stage = 'idle' | 'parsing' | 'preview' | 'uploading' | 'done' | 'error'
 
 const CHANNEL_LABELS: Record<string, string> = {
-  naver:'네이버', google:'구글', meta:'메타', youtube:'유튜브', viral:'바이럴'
+  naver:'네이버', google:'구글', meta:'메타', youtube:'유튜브', viral:'바이럴', direct:'직접유입',
+  tu_albarich:'TU-알바리치', tu_youtube:'TU-유튜브', tu_danggeun:'TU-당근',
+  hugreen_danggeun:'휴그린-당근', hugreen_mail:'휴그린-메일', inbound_call:'인바운드-인입콜', etc:'기타'
 }
 
 function fmtKRW(n: number) {

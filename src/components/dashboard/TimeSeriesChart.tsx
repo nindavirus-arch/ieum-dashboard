@@ -14,6 +14,8 @@ interface Props {
   selectedDate: string
 }
 
+const ONLINE_CHANNELS = new Set(['naver','google','meta','youtube','viral'])
+
 function safeDate(date: string) {
   try {
     const d = parseISO(date)
@@ -30,9 +32,11 @@ export default function TimeSeriesChart({ leads, spends, viewMode, selectedDate 
       const days = eachDayOfInterval({ start: startOfMonth(base), end: endOfMonth(base) })
       return days.map(d => {
         const key = format(d, 'yyyy-MM-dd')
-        const db = leads.filter(l => l.date === key).length
-        const spend = spends.filter(s => s.date === key).reduce((a, b) => a + b.amount, 0)
-        return { label: format(d, 'd일'), db, spend: Math.round(spend / 10000) }
+        const matched = leads.filter(l => l.date === key)
+        const onlineDb = matched.filter(l => ONLINE_CHANNELS.has(l.channel)).length
+        const externalDb = matched.filter(l => !ONLINE_CHANNELS.has(l.channel)).length
+        const spend = spends.filter(s => s.date === key && ONLINE_CHANNELS.has(s.channel)).reduce((a, b) => a + b.amount, 0)
+        return { label: format(d, 'd일'), onlineDb, externalDb, spend: Math.round(spend / 10000) }
       })
     }
 
@@ -40,9 +44,11 @@ export default function TimeSeriesChart({ leads, spends, viewMode, selectedDate 
       const months = eachMonthOfInterval({ start: startOfYear(base), end: endOfYear(base) })
       return months.map(m => {
         const key = format(m, 'yyyy-MM')
-        const db = leads.filter(l => l.date.startsWith(key)).length
-        const spend = spends.filter(s => s.date.startsWith(key)).reduce((a, b) => a + b.amount, 0)
-        return { label: format(m, 'MM월'), db, spend: Math.round(spend / 10000) }
+        const matched = leads.filter(l => l.date.startsWith(key))
+        const onlineDb = matched.filter(l => ONLINE_CHANNELS.has(l.channel)).length
+        const externalDb = matched.filter(l => !ONLINE_CHANNELS.has(l.channel)).length
+        const spend = spends.filter(s => s.date.startsWith(key) && ONLINE_CHANNELS.has(s.channel)).reduce((a, b) => a + b.amount, 0)
+        return { label: format(m, 'MM월'), onlineDb, externalDb, spend: Math.round(spend / 10000) }
       })
     }
 
@@ -52,9 +58,11 @@ export default function TimeSeriesChart({ leads, spends, viewMode, selectedDate 
     for (let y = start.getFullYear(); y <= base.getFullYear(); y++) years.push(new Date(y, 0, 1))
     return years.map(yDate => {
       const key = format(yDate, 'yyyy')
-      const db = leads.filter(l => l.date.startsWith(key)).length
-      const spend = spends.filter(s => s.date.startsWith(key)).reduce((a, b) => a + b.amount, 0)
-      return { label: format(yDate, 'yyyy년'), db, spend: Math.round(spend / 10000) }
+      const matched = leads.filter(l => l.date.startsWith(key))
+      const onlineDb = matched.filter(l => ONLINE_CHANNELS.has(l.channel)).length
+      const externalDb = matched.filter(l => !ONLINE_CHANNELS.has(l.channel)).length
+      const spend = spends.filter(s => s.date.startsWith(key) && ONLINE_CHANNELS.has(s.channel)).reduce((a, b) => a + b.amount, 0)
+      return { label: format(yDate, 'yyyy년'), onlineDb, externalDb, spend: Math.round(spend / 10000) }
     })
   }, [leads, spends, viewMode, selectedDate])
 
@@ -66,6 +74,10 @@ export default function TimeSeriesChart({ leads, spends, viewMode, selectedDate 
             <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
             <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
           </linearGradient>
+          <linearGradient id="externalGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#64748b" stopOpacity={0.18} />
+            <stop offset="95%" stopColor="#64748b" stopOpacity={0} />
+          </linearGradient>
           <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
             <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.15} />
             <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
@@ -76,16 +88,19 @@ export default function TimeSeriesChart({ leads, spends, viewMode, selectedDate 
         <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
         <Tooltip
           contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
-          formatter={(val: number, name: string) =>
-            name === 'db' ? [`${val}건`, 'DB'] : [`${val}만원`, '광고비']
-          }
+          formatter={(val: number, name: string) => {
+            if (name === 'onlineDb') return [`${val}건`, '온라인광고 DB']
+            if (name === 'externalDb') return [`${val}건`, '외부유입 DB']
+            return [`${val}만원`, '광고비']
+          }}
         />
         <Legend
           iconType="circle" iconSize={7}
-          formatter={(val) => val === 'db' ? 'DB 건수' : '광고비(만)'}
+          formatter={(val) => val === 'onlineDb' ? '온라인광고 DB' : val === 'externalDb' ? '외부유입 DB' : '광고비(만)'}
           wrapperStyle={{ fontSize: 11 }}
         />
-        <Area type="monotone" dataKey="db" stroke="#3b82f6" strokeWidth={2} fill="url(#dbGrad)" dot={false} />
+        <Area type="monotone" dataKey="onlineDb" stroke="#3b82f6" strokeWidth={2} fill="url(#dbGrad)" dot={false} />
+        <Area type="monotone" dataKey="externalDb" stroke="#64748b" strokeWidth={2} fill="url(#externalGrad)" dot={false} />
         <Area type="monotone" dataKey="spend" stroke="#8b5cf6" strokeWidth={2} fill="url(#spendGrad)" dot={false} />
       </AreaChart>
     </ResponsiveContainer>

@@ -101,6 +101,12 @@ const CHANNEL_MAP: Record<string, Channel> = {
   '메타': 'meta', '인스타': 'meta', '인스타그램': 'meta', '페이스북': 'meta', 'facebook': 'meta', 'fb': 'meta', 'ig': 'meta', 'instagram': 'meta', 'meta': 'meta',
   '유튜브': 'youtube', 'youtube': 'youtube', 'yt': 'youtube', '구글유튜브': 'youtube',
   '바이럴': 'viral', '블로그': 'viral', '레뷰': 'viral', 'revu': 'viral', 'viral': 'viral', '카페': 'viral', '당근': 'viral',
+  'tu': 'tu_albarich', 'tu알바리치': 'tu_albarich', 'tu-albarich': 'tu_albarich', 'tualbarich': 'tu_albarich', '알바리치': 'tu_albarich',
+  'tu유튜브': 'tu_youtube', 'tu-youtube': 'tu_youtube', 'tuyoutube': 'tu_youtube', 'tu유투브': 'tu_youtube',
+  'tu당근': 'tu_danggeun', 'tu-carrot': 'tu_danggeun', 'tudanggeun': 'tu_danggeun',
+  '휴그린당근': 'hugreen_danggeun', '휴그린-당근': 'hugreen_danggeun', 'hugreendanggeun': 'hugreen_danggeun',
+  '휴그린메일': 'hugreen_mail', '휴그린-메일': 'hugreen_mail', '휴그린본사': 'hugreen_mail', 'hugreenmail': 'hugreen_mail',
+  '인바운드': 'inbound_call', '인입콜': 'inbound_call', '인바운드콜': 'inbound_call', 'inbound': 'inbound_call', 'call': 'inbound_call',
   '홈페이지': 'direct', '공식홈페이지': 'direct', '직접유입': 'direct', 'direct': 'direct', 'website': 'direct', 'homepage': 'direct',
 }
 
@@ -114,6 +120,16 @@ export function normalizeChannel(raw: unknown): Channel {
   if (original.includes('naver') || original.includes('네이버') || original.includes('gfa') || original.includes('파워링크') || original.includes('브랜드검색')) return 'naver'
   if (original.includes('google') || original.includes('구글') || original.includes('gdn') || original.includes('demand') || original.includes('discovery') || original.includes('디맨드') || original.includes('디스커버리')) return 'google'
   if (original.includes('instagram') || original.includes('insta') || original.includes('facebook') || original.includes('meta') || original.includes('fb') || original.includes('ig') || original.includes('인스타') || original.includes('메타') || original.includes('페이스북')) return 'meta'
+  if (original.includes('tu') || original.includes('알바리치')) {
+    if (original.includes('유튜브') || original.includes('유투브') || original.includes('youtube')) return 'tu_youtube'
+    if (original.includes('당근') || original.includes('carrot')) return 'tu_danggeun'
+    return 'tu_albarich'
+  }
+  if (original.includes('휴그린') || original.includes('hugreen')) {
+    if (original.includes('당근') || original.includes('carrot')) return 'hugreen_danggeun'
+    return 'hugreen_mail'
+  }
+  if (original.includes('인바운드') || original.includes('인입콜') || original.includes('inbound') || original.includes('call')) return 'inbound_call'
   if (original.includes('blog') || original.includes('블로그') || original.includes('revu') || original.includes('레뷰') || original.includes('viral') || original.includes('카페') || original.includes('당근')) return 'viral'
   if (original.includes('홈페이지') || original.includes('공식홈') || original.includes('direct') || original.includes('homepage') || original.includes('website')) return 'direct'
   return 'etc'
@@ -161,6 +177,12 @@ export function inferSubChannel(fields: { channel: Channel; source?: unknown; so
     return '바이럴'
   }
   if (fields.channel === 'direct') return '홈페이지 직접유입'
+  if (fields.channel === 'tu_albarich') return 'TU-알바리치'
+  if (fields.channel === 'tu_youtube') return 'TU-유튜브'
+  if (fields.channel === 'tu_danggeun') return 'TU-당근'
+  if (fields.channel === 'hugreen_danggeun') return '휴그린-당근'
+  if (fields.channel === 'hugreen_mail') return '휴그린-메일'
+  if (fields.channel === 'inbound_call') return '인바운드-인입콜'
   return '기타'
 }
 
@@ -245,8 +267,11 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
           if (isTestPhone(phone) || lowerName.includes('test') || name.includes('테스트') || name.includes('이음마케팅') || name.includes('이음 마케팅') || name.includes('전환테스트') || name.includes('이동일테스트') || name.includes('함형석')) {
             testCount++; return
           }
-          if (seen.has(phone)) { duplicateCount++; return }
-          seen.add(phone)
+          // 같은 연락처라도 날짜가 다르면 재인입으로 봐야 하므로 제거하지 않음.
+          // 중복 제외는 같은 파일 안의 완전 동일 전화번호+등록일 기준으로만 처리.
+          const duplicateKey = `${phone}_${date}`
+          if (seen.has(duplicateKey)) { duplicateCount++; return }
+          seen.add(duplicateKey)
 
           const address = String(getCell(row, ['주소', '도로명주소', 'address', 'roadName', '고객주소']) ?? '').trim()
           const building = String(getCell(row, ['건물명', '아파트명', 'buildingName', 'apartmentName']) ?? '').trim()
@@ -267,6 +292,9 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
           const route = getCell(row, ['유입 경로', '유입경로', '채널', '매체'])
           const brand = String(getCell(row, ['브랜드', '시공 브랜드', '시공브랜드', 'brand']) ?? '').trim()
           const pyeong = String(getCell(row, ['평형', '평수', '거주평형', 'area', 'flatSize', 'flatSizePh']) ?? '').trim()
+          const operator = String(getCell(row, ['작업자', '처리자', '상담원', '상담담당자', '상담 담당자', '영업담당자', '영업 담당자', '담당자', '접수자', '등록자', 'operator', 'manager', 'owner']) ?? '').trim()
+          const consultationResult = String(getCell(row, ['상담결과', '상담 결과', '상담상태', '상담 상태', '결과']) ?? '').trim()
+          const memo = String(getCell(row, ['메모', '특이사항', '메모(특이사항)', '비고', '상담메모']) ?? '').trim()
 
           const channel = inferChannelStrict({ source, sourceRaw: route, medium, campaign, content, term })
           const subChannel = inferSubChannel({ channel, source, sourceRaw: route, medium, campaign, content, term })
@@ -300,6 +328,9 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
             brand,
             pyeong,
             registeredAt,
+            operator,
+            consultationResult,
+            memo,
           } as any)
         })
 

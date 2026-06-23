@@ -1,0 +1,26 @@
+# 유입채널 기타 과다 수정
+
+반영내역
+1. source_raw에 남아있는 외부 유입값 자동 분류 보강
+- TU → TU-알바리치
+- TU-유튜브 → TU-유튜브
+- TU-당근 → TU-당근
+- 휴그린본사/휴그린-메일 → 휴그린-메일
+- 휴그린-당근 → 휴그린-당근
+- 인바운드/인입콜 → 인바운드-인입콜
+- 외부유입 → 직접유입/외부유입
+- 로켓견적확인 → 직접유입/로켓견적확인
+- 온라인-기타/온라인광고 → 직접유입/온라인계열
+- 카카오-키워드광고 → 직접유입/카카오-키워드광고
+
+2. 1차DB params 기반 광고 매체 보정
+- NaPm, n_media, n_query, n_ad_group, n_keyword 포함 시 네이버로 분류
+- tr=gfa 포함 시 네이버 GFA, 그 외 네이버 SA
+- gclid, gad_source, gad_campaignid 포함 시 구글로 분류
+- fbclid 또는 meta/facebook/instagram utm 포함 시 메타로 분류
+
+3. 기존 DASHBOARD_LEADS에 channel=etc로 저장된 데이터도 화면 조회 시 재분류되도록 보정
+
+적용 후 권장
+- 기존 DASHBOARD_LEADS/FIRST_DB_RAW/SECOND_DB_RAW를 비우고 원본 DB파일 재업로드하면 시트 저장값까지 깨끗해짐
+- 단, 재업로드 전에도 대시보드 조회단에서는 상당수 etc가 자동 재분류됨

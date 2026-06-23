@@ -1,0 +1,12 @@
+등록일시 표시 오류 수정
+
+반영내용
+1. DB관리 등록일시가 uploadedAt(업로드 시간)으로 통일되어 보이던 문제 수정
+2. date = 집계용 날짜, registeredAt = 원본 엑셀 등록일시, uploadedAt = 업로드 시간으로 분리
+3. DASHBOARD_LEADS에 잘못 들어간 기존 registeredAt도 FIRST_DB_RAW/SECOND_DB_RAW 원본 기준으로 최대한 복구 표시
+4. 원본 등록일시를 못 찾는 경우에만 date 표시, uploadedAt 노출 방지
+
+변경파일
+- src/lib/dataService.ts
+- src/pages/DBManagePage.tsx
+- APPS_SCRIPT_CODE.txt
