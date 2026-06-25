@@ -52,8 +52,16 @@ function fmtDateTime(row: LeadRecord) {
   const v = String((row as any).registeredAt || row.uploadedAt || row.date || '')
   if (!v) return '-'
   const cleaned = v.replace('T', ' ').replace('Z', '')
+  const compact = cleaned.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{1,2})/)
+  if (compact) return `${compact[1]} ${compact[2].padStart(2, '0')}:${compact[3].padStart(2, '0')}`
   if (cleaned.length >= 16) return cleaned.slice(0, 16)
   return `${row.date}${cleaned && cleaned !== row.date ? ' ' + cleaned : ''}`.trim()
+}
+function sortTime(row: LeadRecord) {
+  const display = fmtDateTime(row)
+  const normalized = display.replace(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{1,2}).*$/, (_, d, h, m) => `${d} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`)
+  const parsed = new Date(normalized.replace(' ', 'T'))
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime()
 }
 function normalizeMoney(v: unknown) {
   const raw = String(v ?? '').replace(/,/g, '').trim()
@@ -153,6 +161,7 @@ export default function DBManagePage() {
   const [selectedYear, setSelectedYear] = useState(thisYear())
   const [channel, setChannel] = useState<'all' | Channel>('all')
   const [operatorFilter, setOperatorFilter] = useState('all')
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
   const [keyword, setKeyword] = useState('')
   const [editing, setEditing] = useState<LeadRecord | null>(null)
   const [manualOpen, setManualOpen] = useState(false)
@@ -189,7 +198,7 @@ export default function DBManagePage() {
       const hay = `${l.name}${l.phone}${l.rawPhone}${l.region}${l.district}${(l as any).source_raw}${l.subChannel}${l.channel}${(l as any).memo}${(l as any).operator}${(l as any).consultationResult}${shortAddress(l)}`.replace(/[^0-9a-zA-Z가-힣]/g, '').toLowerCase()
       return hay.includes(q)
     })
-    .sort((a, b) => `${(b as any).registeredAt || b.uploadedAt || b.date}`.localeCompare(`${(a as any).registeredAt || a.uploadedAt || a.date}`))
+    .sort((a, b) => sortOrder === 'desc' ? sortTime(b) - sortTime(a) : sortTime(a) - sortTime(b))
 
   const counts: Record<string, number> = { all: leads.length }
   STAGES.forEach(s => counts[s] = leads.filter(l => l.dbTier === s).length)
@@ -219,7 +228,7 @@ export default function DBManagePage() {
 
   return <div className="p-4 md:p-6 space-y-5">
     <div className="flex flex-col md:flex-row md:items-start justify-between gap-4"><div><h1 className="text-lg font-bold text-slate-800">DB관리</h1><p className="text-xs text-slate-500 mt-0.5">DB 리스트 조회, 상담결과/유입경로 수정, 인바운드 수기등록을 관리합니다.</p></div><div className="flex gap-2"><button onClick={() => setManualOpen(true)} className="btn-primary"><Plus size={14}/> 수기등록</button><button onClick={load} className="btn-secondary"><RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침</button></div></div>
-    <div className="card p-4 space-y-4"><div className="flex flex-wrap items-center gap-2">{[['all','전체',counts.all], ...STAGES.map(s => [s, STAGE_LABELS[s], counts[s]])].map(([v,label,count]) => <button key={String(v)} onClick={() => setStage(v as any)} className={clsx('tab-btn', stage === v && 'active')}>{label} <span className="opacity-70">{Number(count).toLocaleString()}</span></button>)}</div><div className="grid grid-cols-1 md:grid-cols-12 gap-3"><select value={period} onChange={e => setPeriod(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="today">오늘</option><option value="7d">최근 7일</option><option value="day">일자 선택</option><option value="month">월별</option><option value="year">연별</option><option value="all">전체</option></select>{period === 'day' && <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'month' && <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'year' && <input type="number" min="2024" max="2030" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}<select value={channel} onChange={e => setChannel(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 매체</option>{CHANNELS.map(c => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</select><select value={operatorFilter} onChange={e => setOperatorFilter(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 작업자</option>{operatorOptions.map(o => <option key={o} value={o}>{o}</option>)}</select><div className="md:col-span-3 relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="이름/연락처/지역/상담결과/메모 검색" className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-sm" /></div><div className="md:col-span-1 flex items-center md:justify-end text-xs text-slate-500">{range.label} · {filtered.length.toLocaleString()}건</div></div></div>
+    <div className="card p-4 space-y-4"><div className="flex flex-wrap items-center gap-2">{[['all','전체',counts.all], ...STAGES.map(s => [s, STAGE_LABELS[s], counts[s]])].map(([v,label,count]) => <button key={String(v)} onClick={() => setStage(v as any)} className={clsx('tab-btn', stage === v && 'active')}>{label} <span className="opacity-70">{Number(count).toLocaleString()}</span></button>)}</div><div className="grid grid-cols-1 md:grid-cols-12 gap-3"><select value={period} onChange={e => setPeriod(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="today">오늘</option><option value="7d">최근 7일</option><option value="day">일자 선택</option><option value="month">월별</option><option value="year">연별</option><option value="all">전체</option></select>{period === 'day' && <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'month' && <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'year' && <input type="number" min="2024" max="2030" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}<select value={channel} onChange={e => setChannel(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 매체</option>{CHANNELS.map(c => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</select><select value={operatorFilter} onChange={e => setOperatorFilter(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 작업자</option>{operatorOptions.map(o => <option key={o} value={o}>{o}</option>)}</select><select value={sortOrder} onChange={e => setSortOrder(e.target.value as 'desc' | 'asc')} className="md:col-span-1 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="desc">최신순</option><option value="asc">오래된순</option></select><div className="md:col-span-2 relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="이름/연락처/지역/상담결과/메모 검색" className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-sm" /></div><div className="md:col-span-1 flex items-center md:justify-end text-xs text-slate-500">{range.label} · {filtered.length.toLocaleString()}건</div></div></div>
     <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700">
       <b>집계 기준</b> DB 업로드는 엑셀의 등록일시/접수일시/신청일시, 수기등록은 수기 등록 시각을 DB 유입/신청일시로 사용합니다.
     </div>
