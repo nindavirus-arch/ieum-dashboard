@@ -23,6 +23,15 @@ const CHANNEL_COLORS: Record<string, string> = {
   hugreen_danggeun:'#22C55E', hugreen_mail:'#14B8A6', inbound_call:'#334155', etc:'#94A3B8'
 }
 
+function formatRateLabel(numerator: number, denominator: number) {
+  if (denominator <= 0) return '-'
+  const ratio = numerator / denominator
+  if (ratio >= 1) {
+    return `${ratio.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}배`
+  }
+  return `${(ratio * 100).toFixed(1)}%`
+}
+
 export default function FunnelPage() {
   const [leads, setLeads] = useState<LeadRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -71,9 +80,9 @@ export default function FunnelPage() {
   }))
 
   // Conversion rates
-  const r2f = retarget > 0 ? ((firstTotal / retarget) * 100).toFixed(1) : '0.0'
-  const f2s = firstTotal > 0 ? ((secondTotal / firstTotal) * 100).toFixed(1) : '0.0'
-  const r2s = retarget > 0 ? ((secondTotal / retarget) * 100).toFixed(1) : '0.0'
+  const r2f = formatRateLabel(firstTotal, retarget)
+  const f2s = formatRateLabel(secondTotal, firstTotal)
+  const r2s = formatRateLabel(secondTotal, retarget)
 
   return (
     <div className="p-4 md:p-6 space-y-6">
@@ -110,7 +119,7 @@ export default function FunnelPage() {
                   <div className="flex flex-col items-center gap-0.5 py-1">
                     <ArrowDown size={14} className="text-slate-300" />
                     <span className="text-[10px] text-slate-400">
-                      {i === 1 ? `전환율 ${r2f}%` : `전환율 ${f2s}%`}
+                      {i === 1 ? `전환율 ${r2f}` : `전환율 ${f2s}`}
                     </span>
                   </div>
                 )}
@@ -128,7 +137,7 @@ export default function FunnelPage() {
           <div className="mt-4 pt-4 border-t border-slate-100 w-full space-y-1.5">
             <div className="flex justify-between text-xs text-slate-500">
               <span>전체 → 최종전환</span>
-              <span className="font-semibold text-slate-700">{r2s}%</span>
+              <span className="font-semibold text-slate-700">{r2s}</span>
             </div>
             <div className="flex justify-between text-xs text-slate-500">
               <span>총 DB</span>
@@ -193,7 +202,7 @@ export default function FunnelPage() {
           <tbody className="divide-y divide-slate-50">
             {channelFunnelData.map(({ name, ch, retarget, first, second }) => {
               const tot = retarget + first + second
-              const finalRate = retarget > 0 ? ((second / retarget) * 100).toFixed(1) : '-'
+              const finalRate = formatRateLabel(second, retarget)
               return (
                 <tr key={ch} className="hover:bg-slate-50/60">
                   <td className="px-4 py-3">
@@ -209,7 +218,12 @@ export default function FunnelPage() {
                   <td className="px-4 py-3 text-right font-medium text-emerald-700">{second}</td>
                   <td className="px-4 py-3 text-right font-bold text-slate-800">{tot}</td>
                   <td className="px-4 py-3 text-right">
-                    <span className="text-xs font-semibold text-slate-600">{finalRate}{finalRate !== '-' ? '%' : ''}</span>
+                    <div className="flex flex-col items-end gap-0.5">
+                      <span className="text-xs font-semibold text-slate-700">{finalRate}</span>
+                      {retarget > 0 && (
+                        <span className="text-[10px] text-slate-400">2차 {second} / C {retarget}</span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               )
