@@ -168,7 +168,7 @@ export function inferSubChannel(fields: { channel: Channel; source?: unknown; so
     return '네이버 SA'
   }
   if (fields.channel === 'google') {
-    if (k.includes('demand') || text.includes('디맨드')) return '구글 디맨드젠'
+    if (k.includes('demand') || text.includes('디맨드')) return '구글 디스커버리/GDN'
     if (k.includes('gdn') || text.includes('디스커버리') || k.includes('discovery')) return '구글 디스커버리/GDN'
     if (k.includes('youtube') || text.includes('유튜브')) return '구글 유튜브'
     return '구글 검색광고'

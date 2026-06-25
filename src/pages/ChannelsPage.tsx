@@ -32,6 +32,8 @@ function isActiveLead(lead: LeadRecord) {
 
 function detailLabel(ch: string, subChannel?: string) {
   const label = String(subChannel || '').trim()
+  const normalized = label.toLowerCase().replace(/[\s_\-\/()\[\].]/g, '')
+  if (ch === 'google' && (normalized.includes('디맨드') || normalized.includes('demand'))) return '구글 디스커버리/GDN'
   return label || CHANNEL_LABELS[ch] || '기타'
 }
 
