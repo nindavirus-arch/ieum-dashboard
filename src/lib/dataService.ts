@@ -387,10 +387,13 @@ export async function createManualLead(params: {
   operator?: string
   registrant?: string
 }) {
-  const now = new Date().toISOString()
+  const nowDate = new Date()
+  const now = nowDate.toISOString()
+  const manualDate = normalizeDate(params.date, nowDate)
+  const manualRegisteredAt = `${manualDate} ${timePart(nowDate)}`
   const lead: LeadRecord = {
     id: makeId('manual'),
-    date: normalizeDate(params.date, new Date()),
+    date: manualDate,
     phone: normalizePhone(params.phone),
     rawPhone: params.phone,
     name: params.name,
@@ -407,6 +410,7 @@ export async function createManualLead(params: {
     operator: params.operator || params.registrant || '',
     source_file: 'manual',
     sourceKind: 'unknown',
+    registeredAt: manualRegisteredAt,
     uploadedAt: now,
   } as LeadRecord
   const row = {
@@ -431,7 +435,7 @@ export async function createManualLead(params: {
     brand: '',
     pyeong: '',
     source_file: 'manual',
-    registeredAt: now,
+    registeredAt: manualRegisteredAt,
     consultationResult: params.consultationResult || '',
     status: 'valid',
     memo: params.memo || '',
@@ -445,10 +449,26 @@ export async function createManualLead(params: {
 }
 
 
-function cleanRegisteredAtValue(v: unknown): string {
+function pad2(n: number) {
+  return String(n).padStart(2, '0')
+}
+
+function timePart(date: Date) {
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+}
+
+function formatDateTimeLocal(date: Date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${timePart(date)}`
+}
+
+function cleanRegisteredAtValue(v: unknown, allowIso = false): string {
   const s = String(v ?? '').trim()
   if (!s) return ''
-  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return ''
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+    if (!allowIso) return ''
+    const d = new Date(s)
+    return Number.isNaN(d.getTime()) ? '' : formatDateTimeLocal(d)
+  }
   return s
 }
 
@@ -543,9 +563,10 @@ function buildRawMetaLookup(firstRawRows: any[], secondRawRows: any[]) {
 
 function enrichMetaFromRaw(lead: LeadRecord, lookup: Map<string, { registeredAt?: string; operator?: string; consultationResult?: string; memo?: string }>): LeadRecord {
   const meta = lookup.get(`${lead.phone}_${lead.date}`) || lookup.get(lead.phone) || {}
+  const isManual = String((lead as any).source_file || '').toLowerCase() === 'manual'
   return {
     ...lead,
-    registeredAt: cleanRegisteredAtValue((lead as any).registeredAt) || meta.registeredAt || lead.date,
+    registeredAt: cleanRegisteredAtValue((lead as any).registeredAt, isManual) || meta.registeredAt || lead.date,
     operator: (lead as any).operator || meta.operator || '',
     consultationResult: (lead as any).consultationResult || meta.consultationResult || '',
     memo: (lead as any).memo || meta.memo || '',
