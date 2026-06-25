@@ -52,11 +52,11 @@ export default function UploadAdSpendPage() {
     } catch (e: any) { setError(String(e?.message ?? e)); setStage('error') }
   }
 
-  async function handleUpload() {
+  async function handleUpload(replaceExisting = false) {
     if (!result) return
     setStage('uploading')
     try {
-      await uploadAdSpend(result.records)
+      await uploadAdSpend(result.records, { replaceExisting })
       setStage('done')
     } catch (e: any) { setError(String(e?.message ?? e)); setStage('error') }
   }
@@ -223,6 +223,7 @@ export default function UploadAdSpendPage() {
                 <tr className="bg-slate-50 text-slate-500">
                   <th className="text-left px-3 py-2 font-medium">날짜</th>
                   <th className="text-left px-3 py-2 font-medium">매체</th>
+                  <th className="text-left px-3 py-2 font-medium">상세매체</th>
                   <th className="text-right px-3 py-2 font-medium">광고비</th>
                 </tr>
               </thead>
@@ -233,6 +234,7 @@ export default function UploadAdSpendPage() {
                     <td className="px-3 py-2">
                       <span className="px-1.5 py-0.5 bg-violet-50 text-violet-600 rounded">{CHANNEL_LABELS[r.channel]}</span>
                     </td>
+                    <td className="px-3 py-2 text-slate-600">{r.subChannel || '-'}</td>
                     <td className="px-3 py-2 text-right font-medium text-slate-700">{fmtKRW(r.amount)}</td>
                   </tr>
                 ))}
@@ -241,8 +243,11 @@ export default function UploadAdSpendPage() {
           </div>
 
           <div className="flex gap-3">
-            <button onClick={handleUpload} className="btn-primary">
-              <Upload size={14} /> {result.records.length}건 저장
+            <button onClick={() => handleUpload(false)} className="btn-primary">
+              <Upload size={14} /> {result.records.length}건 추가 저장
+            </button>
+            <button onClick={() => handleUpload(true)} className="btn-secondary">
+              같은 날짜+매체 기존 광고비 교체
             </button>
             <button onClick={reset} className="btn-secondary"><X size={14} /> 취소</button>
           </div>

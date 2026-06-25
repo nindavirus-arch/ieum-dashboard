@@ -24,6 +24,7 @@ function doPost(e) {
 
     if (type === 'leads') return appendRowsUnique(SHEETS.leads, rows, 'leads');
     if (type === 'adSpend') return appendRowsUnique(SHEETS.adSpend, rows, 'adSpend');
+    if (type === 'adSpendReplace') return replaceAdSpendRows(rows);
     if (type === 'firstRaw') return appendRowsUnique(SHEETS.firstRaw, rows, 'firstRaw');
     if (type === 'secondRaw') return appendRowsUnique(SHEETS.secondRaw, rows, 'secondRaw');
     if (type === 'updateLead') return updateLeadRow(body);
@@ -85,6 +86,47 @@ function appendRowsUnique(sheetName, rows, type) {
   const values = toAppend.map(row => headers.map(h => row[h] === undefined || row[h] === null ? '' : row[h]));
   sheet.getRange(sheet.getLastRow() + 1, 1, values.length, headers.length).setValues(values);
   return json({ success: true, count: values.length, skipped: rows.length - values.length });
+}
+
+function replaceAdSpendRows(rows) {
+  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEETS.adSpend);
+  if (!sheet) return json({ error: 'Sheet not found: ' + SHEETS.adSpend });
+  if (!rows || rows.length === 0) return json({ success: true, count: 0, deleted: 0 });
+
+  let lastCol = sheet.getLastColumn();
+  let headers = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0].filter(String) : [];
+  const incomingKeys = [];
+  rows.forEach(row => Object.keys(row).forEach(k => { if (incomingKeys.indexOf(k) === -1) incomingKeys.push(k); }));
+  incomingKeys.forEach(k => { if (headers.indexOf(k) === -1) headers.push(k); });
+  if (headers.length === 0) return json({ error: 'No headers found' });
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+  const dateIdx = headers.indexOf('date');
+  const channelIdx = headers.indexOf('channel');
+  if (dateIdx < 0 || channelIdx < 0) return json({ error: 'AD_SPEND date/channel column not found' });
+
+  const targets = {};
+  rows.forEach(row => {
+    const date = String(row.date || '').slice(0, 10);
+    const channel = String(row.channel || '').toLowerCase();
+    if (date && channel) targets[date + '_' + channel] = true;
+  });
+
+  const values = sheet.getDataRange().getDisplayValues();
+  let deleted = 0;
+  for (let r = values.length - 1; r >= 1; r--) {
+    const date = String(values[r][dateIdx] || '').slice(0, 10);
+    const channel = String(values[r][channelIdx] || '').toLowerCase();
+    if (targets[date + '_' + channel]) {
+      sheet.deleteRow(r + 1);
+      deleted++;
+    }
+  }
+
+  const appendResult = JSON.parse(appendRowsUnique(SHEETS.adSpend, rows, 'adSpend').getContent());
+  appendResult.deleted = deleted;
+  appendResult.replaced = true;
+  return json(appendResult);
 }
 
 

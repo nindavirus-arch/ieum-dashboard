@@ -10,9 +10,10 @@ import { normalizeDate, normalizePhone, normalizeChannel, inferChannelStrict, in
 
 // TODO: Apps Script 배포 후 웹앱 URL을 여기에 붙여넣으세요.
 // 예: const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec'
-const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzbjYEl7YE7ghlc11OYiijmSdKx0AqNIlh1QoaC1iPzfWABB5F1vS7WSKZ3WQeFMuFs0g/exec'
+const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzLkHZop4vjpq5MNEFFq56bfCJFHOR8GU47QNdH-gAwYrsxeBgT5ly7UsCi3y0eein8/exec'
 
 type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping'
+type PostSheetType = Exclude<SheetType, 'mapping'> | 'adSpendReplace'
 export type MappingRow = { raw: string; channel: Channel; subChannel: string }
 const EXCLUDED_LEAD_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted'])
 
@@ -214,7 +215,7 @@ async function getSheetRows(type: SheetType) {
   return Array.isArray(data) ? data : []
 }
 
-async function postSheetRows(type: Exclude<SheetType, 'mapping'>, rows: any[]) {
+async function postSheetRows(type: PostSheetType, rows: any[]) {
   if (SHEET_API_URL.includes('여기에_')) throw new Error('dataService.ts의 SHEET_API_URL에 Apps Script 웹앱 URL을 입력하세요.')
   if (!rows.length) return { success: true, count: 0 }
 
@@ -790,7 +791,7 @@ export async function fetchLeads(startDate?: string, endDate?: string): Promise<
 }
 
 // ─── Ad Spend ────────────────────────────────────────────
-export async function uploadAdSpend(records: Omit<AdSpend, 'id'>[]) {
+export async function uploadAdSpend(records: Omit<AdSpend, 'id'>[], options: { replaceExisting?: boolean } = {}) {
   const mappings = await fetchMappings()
   const rows = records.map((r) => {
     const spend = normalizeSpend(r, 0, mappings)
@@ -805,7 +806,7 @@ export async function uploadAdSpend(records: Omit<AdSpend, 'id'>[]) {
     }
   })
 
-  if (rows.length > 0) await postSheetRows('adSpend', rows)
+  if (rows.length > 0) await postSheetRows(options.replaceExisting ? 'adSpendReplace' : 'adSpend', rows)
   window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
 }
 
