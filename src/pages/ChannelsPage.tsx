@@ -29,17 +29,18 @@ export default function ChannelsPage() {
   const [leads, setLeads] = useState<LeadRecord[]>([])
   const [spends, setSpends] = useState<AdSpend[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'))
 
   async function load() {
     setLoading(true)
-    const now = new Date()
-    const start = format(startOfMonth(now), 'yyyy-MM-dd')
-    const end = format(endOfMonth(now), 'yyyy-MM-dd')
+    const base = new Date(`${selectedMonth}-01T00:00:00`)
+    const start = format(startOfMonth(base), 'yyyy-MM-dd')
+    const end = format(endOfMonth(base), 'yyyy-MM-dd')
     const [l, s] = await Promise.all([fetchLeads(start, end), fetchAdSpend(start, end)])
     setLeads(l); setSpends(s); setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [selectedMonth])
 
   const stats = CHANNELS.map(ch => {
     const chLeads = leads.filter(l => l.channel === ch)
@@ -53,17 +54,28 @@ export default function ChannelsPage() {
 
   const maxSpend = Math.max(...stats.map(s => s.spend), 1)
   const maxDB = Math.max(...stats.map(s => s.validDB), 1)
+  const isThisMonth = selectedMonth === format(new Date(), 'yyyy-MM')
+  const monthLabel = isThisMonth ? '이번달 기준' : `${selectedMonth} 기준`
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-lg font-bold text-slate-800">매체별 성과</h1>
-          <p className="text-xs text-slate-500 mt-0.5">이번달 기준</p>
+          <p className="text-xs text-slate-500 mt-0.5">{monthLabel}</p>
         </div>
-        <button onClick={load} className="btn-secondary">
-          <RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침
-        </button>
+        <div className="flex items-center gap-2">
+          <input
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
+          />
+          <button onClick={() => setSelectedMonth(format(new Date(), 'yyyy-MM'))} className="btn-secondary">이번달</button>
+          <button onClick={load} className="btn-secondary">
+            <RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침
+          </button>
+        </div>
       </div>
 
       {/* Table */}
