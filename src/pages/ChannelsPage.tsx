@@ -7,6 +7,7 @@ import type { LeadRecord, AdSpend } from '../types'
 import clsx from 'clsx'
 
 const CHANNELS = ['naver','google','meta','youtube','viral','kakao_search','kakao_moment','direct','tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','inbound_call','etc'] as const
+const ONLINE_CHANNELS = new Set<string>(['naver','google','meta','youtube','viral','kakao_search','kakao_moment'])
 const CHANNEL_LABELS: Record<string, string> = {
   naver:'네이버', google:'구글', meta:'메타', youtube:'유튜브', viral:'바이럴', direct:'직접유입',
   kakao_search:'카카오 검색광고', kakao_moment:'카카오모먼트',
@@ -39,6 +40,7 @@ export default function ChannelsPage() {
   const [spends, setSpends] = useState<AdSpend[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'))
+  const [channelScope, setChannelScope] = useState<'online' | 'external' | 'all'>('online')
   const [filterChannel, setFilterChannel] = useState<string>('all')
 
   async function load() {
@@ -52,7 +54,13 @@ export default function ChannelsPage() {
 
   useEffect(() => { load() }, [selectedMonth])
 
-  const visibleChannels = filterChannel === 'all' ? CHANNELS : CHANNELS.filter(ch => ch === filterChannel)
+  const channelInScope = (ch: string) => {
+    if (channelScope === 'online') return ONLINE_CHANNELS.has(ch)
+    if (channelScope === 'external') return !ONLINE_CHANNELS.has(ch)
+    return true
+  }
+  const scopedChannels = CHANNELS.filter(ch => channelInScope(ch))
+  const visibleChannels = filterChannel === 'all' ? scopedChannels : scopedChannels.filter(ch => ch === filterChannel)
 
   const stats = visibleChannels.map(ch => {
     const chLeads = leads.filter(l => l.channel === ch && isActiveLead(l))
@@ -69,7 +77,7 @@ export default function ChannelsPage() {
   const maxSpend = Math.max(...stats.map(s => s.spend), 1)
   const maxDB = Math.max(...stats.map(s => s.validDB), 1)
   const detailKeys = new Set<string>()
-  const channelMatches = (ch: string) => filterChannel === 'all' || ch === filterChannel
+  const channelMatches = (ch: string) => channelInScope(ch) && (filterChannel === 'all' || ch === filterChannel)
   leads.filter(l => isActiveLead(l) && channelMatches(l.channel)).forEach(l => detailKeys.add(`${l.channel}__${detailLabel(l.channel, l.subChannel)}`))
   spends.filter(s => channelMatches(s.channel)).forEach(s => detailKeys.add(`${s.channel}__${detailLabel(s.channel, s.subChannel)}`))
   const detailStats = Array.from(detailKeys).map(key => {
@@ -97,13 +105,31 @@ export default function ChannelsPage() {
           <p className="text-xs text-slate-500 mt-0.5">{monthLabel}</p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex h-9 rounded-lg border border-slate-200 bg-white p-1 gap-1">
+            {[
+              { key: 'online', label: '온라인광고' },
+              { key: 'external', label: '외부유입' },
+              { key: 'all', label: '전체' },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => { setChannelScope(key as 'online' | 'external' | 'all'); setFilterChannel('all') }}
+                className={clsx(
+                  'px-3 rounded-md text-xs font-medium transition-colors',
+                  channelScope === key ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <select
             value={filterChannel}
             onChange={(e) => setFilterChannel(e.target.value)}
             className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
           >
             <option value="all">전체 매체</option>
-            {CHANNELS.map(ch => <option key={ch} value={ch}>{CHANNEL_LABELS[ch]}</option>)}
+            {scopedChannels.map(ch => <option key={ch} value={ch}>{CHANNEL_LABELS[ch]}</option>)}
           </select>
           <input
             type="month"

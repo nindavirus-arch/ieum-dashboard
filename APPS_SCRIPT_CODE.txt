@@ -217,8 +217,9 @@ function makeUniqueKey(row, type) {
   if (type === 'adSpend') {
     const date = String(row.date || row['날짜'] || '').slice(0, 10);
     const channel = String(row.channel || row['매체'] || '').toLowerCase();
+    const subChannel = String(row.subChannel || row['상세매체'] || '').toLowerCase();
     const campaign = String(row.campaign || row['캠페인'] || '').toLowerCase();
-    return date && channel ? date + '_' + channel + '_' + campaign : '';
+    return date && channel ? date + '_' + channel + '_' + subChannel + '_' + campaign : '';
   }
 
   return '';

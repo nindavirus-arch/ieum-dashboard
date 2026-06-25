@@ -10,7 +10,7 @@ import { normalizeDate, normalizePhone, normalizeChannel, inferChannelStrict, in
 
 // TODO: Apps Script 배포 후 웹앱 URL을 여기에 붙여넣으세요.
 // 예: const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec'
-const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzLkHZop4vjpq5MNEFFq56bfCJFHOR8GU47QNdH-gAwYrsxeBgT5ly7UsCi3y0eein8/exec'
+const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzM1VG-xQ8Rigv_U2tqcXm7UQ_Miv8j2VxxUZt9-BR7PhReMk8KZiQZe5tYQD3nd1IHNA/exec'
 
 type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping'
 type PostSheetType = Exclude<SheetType, 'mapping'> | 'adSpendReplace'

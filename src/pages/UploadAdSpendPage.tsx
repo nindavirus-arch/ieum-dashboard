@@ -92,6 +92,16 @@ export default function UploadAdSpendPage() {
   function reset() { setStage('idle'); setResult(null); setError('') }
 
   const totalSpend = result?.records.reduce((a, b) => a + b.amount, 0) ?? 0
+  const detailTotals = result
+    ? Array.from(result.records.reduce((map, r) => {
+        const key = `${r.channel}__${r.subChannel || CHANNEL_LABELS[r.channel]}`
+        const prev = map.get(key) || { channel: r.channel, subChannel: r.subChannel || CHANNEL_LABELS[r.channel], amount: 0 }
+        prev.amount += r.amount
+        map.set(key, prev)
+        return map
+      }, new Map<string, { channel: Channel; subChannel: string; amount: number }>()).values())
+      .sort((a, b) => b.amount - a.amount)
+    : []
 
   return (
     <div className="p-6 space-y-6">
@@ -204,6 +214,28 @@ export default function UploadAdSpendPage() {
                   <div key={ch} className="space-y-1.5">
                     <p className="text-xs font-medium text-slate-600">{CHANNEL_LABELS[ch]}</p>
                     <p className="text-sm font-bold text-slate-800">{fmtKRW(total)}</p>
+                    <div className="w-full bg-slate-100 rounded-full h-1.5">
+                      <div className="h-1.5 rounded-full bg-violet-500" style={{ width: `${pct}%` }} />
+                    </div>
+                    <p className="text-xs text-slate-400">{pct}%</p>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="card p-5">
+            <p className="text-xs font-semibold text-slate-600 mb-3">상세매체별 합계</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {detailTotals.map(({ channel, subChannel, amount }) => {
+                const pct = totalSpend > 0 ? Math.round(amount/totalSpend*100) : 0
+                return (
+                  <div key={`${channel}_${subChannel}`} className="rounded-lg border border-slate-100 p-3 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-slate-600 truncate">{subChannel}</p>
+                      <span className="shrink-0 px-1.5 py-0.5 bg-violet-50 text-violet-600 rounded text-[10px]">{CHANNEL_LABELS[channel]}</span>
+                    </div>
+                    <p className="text-sm font-bold text-slate-800">{fmtKRW(amount)}</p>
                     <div className="w-full bg-slate-100 rounded-full h-1.5">
                       <div className="h-1.5 rounded-full bg-violet-500" style={{ width: `${pct}%` }} />
                     </div>
