@@ -10,7 +10,7 @@ import { normalizeDate, normalizePhone, normalizeChannel, inferChannelStrict, in
 
 // TODO: Apps Script 배포 후 웹앱 URL을 여기에 붙여넣으세요.
 // 예: const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec'
-const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzbjYEl7YE7ghlc11OYiijmSdKx0AqNIlh1QoaC1iPzfWABB5F1vS7WSKZ3WQeFMuFs0g/exec'
+const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxd8g0sD-Z64T4WUzxQNPE3xuEXK3oZHcsXDdkSEyB-8rExOz5Nv9dL3K5OTCA8jpEzEg/exec'
 
 type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping'
 type PostSheetType = Exclude<SheetType, 'mapping'> | 'adSpendReplace'
@@ -228,6 +228,9 @@ async function postSheetRows(type: PostSheetType, rows: any[]) {
 
   if (!res.ok) throw new Error('Google Sheets 저장 실패')
   const data = await res.json()
+  if (data?.error === 'Invalid type' && type === 'adSpendReplace') {
+    throw new Error('교체 저장 기능을 쓰려면 APPS_SCRIPT_CODE.txt를 구글 Apps Script에 다시 붙여넣고 배포해야 합니다.')
+  }
   if (data?.error) throw new Error(data.error)
   return data
 }
