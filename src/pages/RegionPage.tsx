@@ -15,18 +15,21 @@ export default function RegionPage() {
   const [leads, setLeads] = useState<LeadRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<string | null>(null)
+  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'))
 
   async function load() {
     setLoading(true)
-    const now = new Date()
-    const start = format(startOfMonth(now), 'yyyy-MM-dd')
-    const end = format(endOfMonth(now), 'yyyy-MM-dd')
+    const base = new Date(`${selectedMonth}-01T00:00:00`)
+    const start = format(startOfMonth(base), 'yyyy-MM-dd')
+    const end = format(endOfMonth(base), 'yyyy-MM-dd')
     const l = await fetchLeads(start, end)
     setLeads(l.filter(l => !['invalid', 'test', 'duplicate', 'deleted'].includes(String(l.status || '').toLowerCase())))
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [selectedMonth])
+  const isThisMonth = selectedMonth === format(new Date(), 'yyyy-MM')
+  const monthLabel = isThisMonth ? '이번달 유효 DB 기준' : `${selectedMonth} 유효 DB 기준`
 
   // Province stats
   const provinceStat = PROVINCES.map(prov => {
@@ -62,11 +65,20 @@ export default function RegionPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold text-slate-800">지역별 통계</h1>
-          <p className="text-xs text-slate-500 mt-0.5">이번달 유효 DB 기준</p>
+          <p className="text-xs text-slate-500 mt-0.5">{monthLabel}</p>
         </div>
-        <button onClick={load} className="btn-secondary">
-          <RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침
-        </button>
+        <div className="flex items-center gap-2">
+          <input
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
+          />
+          <button onClick={() => setSelectedMonth(format(new Date(), 'yyyy-MM'))} className="btn-secondary">이번달</button>
+          <button onClick={load} className="btn-secondary">
+            <RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4">

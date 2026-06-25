@@ -29,6 +29,11 @@ function isActiveLead(lead: LeadRecord) {
   return !['invalid', 'test', 'duplicate', 'deleted'].includes(String(lead.status || '').toLowerCase())
 }
 
+function detailLabel(ch: string, subChannel?: string) {
+  const label = String(subChannel || '').trim()
+  return label || CHANNEL_LABELS[ch] || '기타'
+}
+
 export default function ChannelsPage() {
   const [leads, setLeads] = useState<LeadRecord[]>([])
   const [spends, setSpends] = useState<AdSpend[]>([])
@@ -60,6 +65,23 @@ export default function ChannelsPage() {
 
   const maxSpend = Math.max(...stats.map(s => s.spend), 1)
   const maxDB = Math.max(...stats.map(s => s.validDB), 1)
+  const detailKeys = new Set<string>()
+  leads.filter(isActiveLead).forEach(l => detailKeys.add(`${l.channel}__${detailLabel(l.channel, l.subChannel)}`))
+  spends.forEach(s => detailKeys.add(`${s.channel}__${detailLabel(s.channel, s.subChannel)}`))
+  const detailStats = Array.from(detailKeys).map(key => {
+    const [ch, label] = key.split('__')
+    const detailLeads = leads.filter(l => l.channel === ch && isActiveLead(l) && detailLabel(l.channel, l.subChannel) === label)
+    const cFunnel = detailLeads.filter(l => l.dbTier === 'retarget').length
+    const firstDB = detailLeads.filter(l => l.dbTier === 'first' || l.dbTier === 'first_reentry').length
+    const secondDB = detailLeads.filter(l => l.dbTier === 'second' || l.dbTier === 'second_reentry').length
+    const validDB = firstDB + secondDB
+    const spend = spends
+      .filter(s => s.channel === ch && detailLabel(s.channel, s.subChannel) === label)
+      .reduce((a, b) => a + b.amount, 0)
+    const cpl = validDB > 0 ? Math.round(spend / validDB) : 0
+    return { key, ch, channelLabel: CHANNEL_LABELS[ch] || ch, label, color: CHANNEL_COLORS[ch] || '#94A3B8', spend, cFunnel, validDB, secondDB, cpl }
+  }).filter(r => r.spend > 0 || r.validDB > 0 || r.cFunnel > 0)
+    .sort((a, b) => b.spend - a.spend || b.validDB - a.validDB)
   const isThisMonth = selectedMonth === format(new Date(), 'yyyy-MM')
   const monthLabel = isThisMonth ? '이번달 기준' : `${selectedMonth} 기준`
 
@@ -165,6 +187,51 @@ export default function ChannelsPage() {
             </tr>
           </tfoot>
         </table>
+      </div>
+
+      {/* Detail media CPL */}
+      <div className="card overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100">
+          <p className="text-xs font-semibold text-slate-700">상세매체별 CPL</p>
+        </div>
+        <div className="overflow-auto">
+          <table className="w-full text-sm min-w-[860px]">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-100">
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500">매체</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500">상세매체</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">광고비</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">C퍼널</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">유효 DB</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">2차 DB</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">CPL</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {detailStats.map(({ key, channelLabel, label, color, spend, cFunnel, validDB, secondDB, cpl }) => (
+                <tr key={key} className="hover:bg-slate-50/60">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+                      <span className="font-medium text-slate-700">{channelLabel}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-slate-700">{label}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-800">{fmtKRW(spend)}원</td>
+                  <td className="px-4 py-3 text-right text-slate-600">{cFunnel.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-800">{validDB.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right text-emerald-700 font-medium">{secondDB.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-800">{validDB > 0 ? `${fmtKRW(cpl)}원` : '-'}</td>
+                </tr>
+              ))}
+              {!detailStats.length && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-10 text-center text-slate-400">조회된 상세매체 데이터가 없습니다.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Channel cards */}
