@@ -25,6 +25,10 @@ function fmtKRW(n: number) {
   return n.toLocaleString()
 }
 
+function isActiveLead(lead: LeadRecord) {
+  return !['invalid', 'test', 'duplicate', 'deleted'].includes(String(lead.status || '').toLowerCase())
+}
+
 export default function ChannelsPage() {
   const [leads, setLeads] = useState<LeadRecord[]>([])
   const [spends, setSpends] = useState<AdSpend[]>([])
@@ -43,13 +47,15 @@ export default function ChannelsPage() {
   useEffect(() => { load() }, [selectedMonth])
 
   const stats = CHANNELS.map(ch => {
-    const chLeads = leads.filter(l => l.channel === ch)
-    const validDB = chLeads.filter(l => !['invalid', 'test', 'duplicate', 'deleted'].includes(String(l.status || '').toLowerCase())).length
-    const cFunnel = chLeads.length
+    const chLeads = leads.filter(l => l.channel === ch && isActiveLead(l))
+    const cFunnel = chLeads.filter(l => l.dbTier === 'retarget').length
+    const firstDB = chLeads.filter(l => l.dbTier === 'first' || l.dbTier === 'first_reentry').length
+    const secondDB = chLeads.filter(l => l.dbTier === 'second' || l.dbTier === 'second_reentry').length
+    const validDB = firstDB + secondDB
     const spend = spends.filter(s => s.channel === ch).reduce((a, b) => a + b.amount, 0)
     const cpl = validDB > 0 ? Math.round(spend / validDB) : 0
-    const convRate = cFunnel > 0 ? ((validDB / cFunnel) * 100).toFixed(1) : '0.0'
-    return { ch, label: CHANNEL_LABELS[ch], color: CHANNEL_COLORS[ch], spend, cFunnel, validDB, cpl, convRate }
+    const convRate = cFunnel > 0 ? ((secondDB / cFunnel) * 100).toFixed(1) : '0.0'
+    return { ch, label: CHANNEL_LABELS[ch], color: CHANNEL_COLORS[ch], spend, cFunnel, validDB, secondDB, cpl, convRate }
   })
 
   const maxSpend = Math.max(...stats.map(s => s.spend), 1)
@@ -88,7 +94,7 @@ export default function ChannelsPage() {
               <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">C퍼널</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">유효 DB</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">CPL</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">전환율</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">2차 전환율</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
@@ -151,9 +157,9 @@ export default function ChannelsPage() {
               </td>
               <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">
                 {(() => {
-                  const totalDB = stats.reduce((a,b)=>a+b.validDB,0)
+                  const totalSecondDB = stats.reduce((a,b)=>a+b.secondDB,0)
                   const totalFunnel = stats.reduce((a,b)=>a+b.cFunnel,0)
-                  return totalFunnel > 0 ? `${((totalDB/totalFunnel)*100).toFixed(1)}%` : '-'
+                  return totalFunnel > 0 ? `${((totalSecondDB/totalFunnel)*100).toFixed(1)}%` : '-'
                 })()}
               </td>
             </tr>
