@@ -16,6 +16,12 @@ type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping'
 type PostSheetType = Exclude<SheetType, 'mapping'> | 'adSpendReplace'
 export type MappingRow = { raw: string; channel: Channel; subChannel: string }
 const EXCLUDED_LEAD_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted'])
+const SHEET_CACHE_TTL_MS = 10_000
+const sheetCache = new Map<SheetType, { expires: number; data?: any[]; promise?: Promise<any[]> }>()
+
+function clearSheetCache() {
+  sheetCache.clear()
+}
 
 function makeId(prefix = 'id') {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
@@ -208,11 +214,28 @@ function normalizeSpend(row: any, index = 0, mappings: MappingRow[] = []): AdSpe
 
 async function getSheetRows(type: SheetType) {
   if (SHEET_API_URL.includes('여기에_')) throw new Error('dataService.ts의 SHEET_API_URL에 Apps Script 웹앱 URL을 입력하세요.')
-  const res = await fetch(`${SHEET_API_URL}?type=${type}`)
-  if (!res.ok) throw new Error('Google Sheets 데이터를 불러오지 못했습니다.')
-  const data = await res.json()
-  if (data?.error) throw new Error(data.error)
-  return Array.isArray(data) ? data : []
+  const now = Date.now()
+  const cached = sheetCache.get(type)
+  if (cached?.data && cached.expires > now) return cached.data
+  if (cached?.promise) return cached.promise
+
+  const promise = (async () => {
+    const res = await fetch(`${SHEET_API_URL}?type=${type}`)
+    if (!res.ok) throw new Error('Google Sheets 데이터를 불러오지 못했습니다.')
+    const data = await res.json()
+    if (data?.error) throw new Error(data.error)
+    const rows = Array.isArray(data) ? data : []
+    sheetCache.set(type, { data: rows, expires: Date.now() + SHEET_CACHE_TTL_MS })
+    return rows
+  })()
+
+  sheetCache.set(type, { promise, expires: now + SHEET_CACHE_TTL_MS })
+  try {
+    return await promise
+  } catch (err) {
+    sheetCache.delete(type)
+    throw err
+  }
 }
 
 async function postSheetRows(type: PostSheetType, rows: any[]) {
@@ -232,6 +255,7 @@ async function postSheetRows(type: PostSheetType, rows: any[]) {
     throw new Error('교체 저장 기능을 쓰려면 APPS_SCRIPT_CODE.txt를 구글 Apps Script에 다시 붙여넣고 배포해야 합니다.')
   }
   if (data?.error) throw new Error(data.error)
+  clearSheetCache()
   return data
 }
 
@@ -771,17 +795,20 @@ function applyReentryClassification(leads: LeadRecord[]): LeadRecord[] {
   })
 }
 
-export async function fetchLeads(startDate?: string, endDate?: string): Promise<LeadRecord[]> {
-  const mappings = await fetchMappings()
+export async function fetchLeads(startDate?: string, endDate?: string, options: { includeRawMeta?: boolean } = {}): Promise<LeadRecord[]> {
+  const [mappings, leadRows] = await Promise.all([fetchMappings(), getSheetRows('leads')])
 
   // 운영 속도 개선 핵심:
   // 평소 조회는 DASHBOARD_LEADS만 읽는다.
   // FIRST_DB_RAW / SECOND_DB_RAW 전체 재계산은 업로드 시점 또는 DASHBOARD_LEADS가 비어 있을 때만 사용한다.
-  const leadRows = await getSheetRows('leads')
-  const [firstRawRows, secondRawRows] = await Promise.all([
-    getSheetRows('firstRaw').catch(() => []),
-    getSheetRows('secondRaw').catch(() => []),
-  ])
+  let firstRawRows: any[] = []
+  let secondRawRows: any[] = []
+  if (options.includeRawMeta || !leadRows || leadRows.length === 0) {
+    ;[firstRawRows, secondRawRows] = await Promise.all([
+      getSheetRows('firstRaw').catch(() => []),
+      getSheetRows('secondRaw').catch(() => []),
+    ])
+  }
 
   let sourceRows = leadRows
 
@@ -799,12 +826,12 @@ export async function fetchLeads(startDate?: string, endDate?: string): Promise<
     }
   }
 
-  const rawMetaLookup = buildRawMetaLookup(firstRawRows, secondRawRows)
+  const rawMetaLookup = options.includeRawMeta || firstRawRows.length > 0 || secondRawRows.length > 0 ? buildRawMetaLookup(firstRawRows, secondRawRows) : new Map<string, any>()
   const normalizedAll = sourceRows
     .map((row, i) => normalizeLead(row, i, mappings))
     .filter((r: LeadRecord) => r.phone)
     .filter((r: LeadRecord) => !EXCLUDED_LEAD_STATUSES.has(String(r.status || '').toLowerCase()))
-    .map((r: LeadRecord) => enrichMetaFromRaw(r, rawMetaLookup))
+    .map((r: LeadRecord) => rawMetaLookup.size ? enrichMetaFromRaw(r, rawMetaLookup) : r)
 
   // 재인입 표시/집계는 저장된 DASHBOARD_LEADS 기준으로 가볍게 보정한다.
   // 같은 번호 + 같은 단계 + 다른 날짜가 있으면 first_reentry / second_reentry로 분류된다.
@@ -836,8 +863,8 @@ export async function uploadAdSpend(records: Omit<AdSpend, 'id'>[], options: { r
 }
 
 export async function fetchAdSpend(startDate?: string, endDate?: string): Promise<AdSpend[]> {
-  const mappings = await fetchMappings()
-  return (await getSheetRows('adSpend'))
+  const [mappings, spendRows] = await Promise.all([fetchMappings(), getSheetRows('adSpend')])
+  return spendRows
     .map((row, i) => normalizeSpend(row, i, mappings))
     .filter((r: AdSpend) => inRange(r.date, startDate, endDate))
     .sort((a: AdSpend, b: AdSpend) => b.date.localeCompare(a.date))

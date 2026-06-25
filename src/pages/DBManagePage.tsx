@@ -173,7 +173,7 @@ export default function DBManagePage() {
   async function load() {
     setLoading(true)
     try {
-      const [l, m] = await Promise.all([fetchLeads(range.start, range.end), fetchMappings()])
+      const [l, m] = await Promise.all([fetchLeads(range.start, range.end, { includeRawMeta: true }), fetchMappings()])
       setLeads(l)
       setMappings(m)
     } finally { setLoading(false) }
