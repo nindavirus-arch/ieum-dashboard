@@ -242,8 +242,45 @@ export default function DBManagePage() {
     </div>
 
     <div className="card overflow-hidden hidden md:block"><div className="overflow-auto max-h-[680px]"><table className="w-full text-xs"><thead className="sticky top-0 bg-slate-50 z-10 border-b border-slate-100"><tr className="text-slate-500">{['등록일시','DB유형','고객정보','지역','주소','상담결과','작업자','매체','상세매체','유입경로 원본','상태','관리'].map(h => <th key={h} className="text-left px-3 py-2 font-semibold whitespace-nowrap">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-50">{filtered.map((l, idx) => { const key = `${l.phone}_${l.dbTier}_${l.date}_${idx}`; const quotes = quoteRows(l); const history = String((l as any).changeHistory || ''); return <tr key={key} className="align-top hover:bg-slate-50/70"><td className="px-3 py-3 text-slate-600 whitespace-nowrap">{fmtDateTime(l)}</td><td className="px-3 py-3 whitespace-nowrap"><span className={clsx('px-2 py-0.5 rounded-md border font-medium', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span></td><td className="px-3 py-3 min-w-[220px]"><div className="font-semibold text-slate-700">{l.name || '-'}</div><div className="text-slate-500 mt-0.5">{l.phone || '-'}</div>{(l as any).memo && <div className="mt-2 rounded-lg bg-amber-50 border border-amber-100 px-2 py-1.5 text-[11px] text-amber-800 whitespace-normal"><b>메모</b> {(l as any).memo}</div>}{quotes.length > 0 && <div className="mt-2"><button onClick={() => setOpenQuote(openQuote === key ? '' : key)} className="inline-flex items-center gap-1 text-blue-600 font-medium"><ChevronDown size={13} className={clsx(openQuote === key && 'rotate-180')} /> 외부창 견적</button>{openQuote === key && <QuotePanel rows={quotes} />}</div>}{history && <div className="mt-2"><button onClick={() => setOpenHistory(openHistory === key ? '' : key)} className="inline-flex items-center gap-1 text-slate-500 font-medium"><History size={12}/> 수정이력</button>{openHistory === key && <pre className="mt-2 p-2 rounded-lg bg-slate-50 text-slate-500 whitespace-pre-wrap max-w-[520px]">{history}</pre>}</div>}</td><td className="px-3 py-3 text-slate-600 whitespace-nowrap">{l.region} {l.district}</td><td className="px-3 py-3 text-slate-500 max-w-[240px] whitespace-normal">{shortAddress(l)}</td><td className="px-3 py-3 text-slate-700 whitespace-nowrap">{(l as any).consultationResult || '-'}</td><td className="px-3 py-3 text-slate-600 whitespace-nowrap">{(l as any).operator || '-'}</td><td className="px-3 py-3 text-slate-700 whitespace-nowrap">{mediaLabel(l)}</td><td className="px-3 py-3 text-slate-600 whitespace-nowrap">{detailLabel(l)}</td><td className="px-3 py-3 text-slate-500 max-w-[180px] truncate" title={(l as any).source_raw}>{(l as any).source_raw || '-'}</td><td className="px-3 py-3 text-slate-500 whitespace-nowrap">{l.status || 'valid'}</td><td className="px-3 py-3 whitespace-nowrap"><div className="flex gap-1"><button onClick={() => setEditing(l)} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-600"><Pencil size={12}/> 수정</button><button onClick={() => deleteLead(l)} disabled={saving} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-red-100 hover:bg-red-50 text-red-600"><Trash2 size={12}/> 삭제</button></div></td></tr> })}{!filtered.length && <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-400">조회된 DB가 없습니다.</td></tr>}</tbody></table></div></div>
-    {editing && <EditModal row={editing} subChannelOptions={subChannelOptions} onClose={() => setEditing(null)} onSave={saveEdit} saving={saving} />}
+    {editing && <EditModalWithAddress row={editing} subChannelOptions={subChannelOptions} onClose={() => setEditing(null)} onSave={saveEdit} saving={saving} />}
     {manualOpen && <ManualModal subChannelOptions={subChannelOptions} onClose={() => setManualOpen(false)} onSave={saveManual} saving={saving} />}
+  </div>
+}
+
+function EditModalWithAddress({ row, subChannelOptions, onClose, onSave, saving }: any) {
+  const [name, setName] = useState(row.name || '')
+  const [address, setAddress] = useState(row.address || '')
+  const [channel, setChannel] = useState<Channel>(row.channel)
+  const [subChannel, setSubChannel] = useState(row.subChannel || '')
+  const [sourceRaw, setSourceRaw] = useState(row.source_raw || '')
+  const [consultationResult, setConsultationResult] = useState(row.consultationResult || '')
+  const [memo, setMemo] = useState(row.memo || '')
+  const [operator, setOperator] = useState(row.operator || '')
+  const [status, setStatus] = useState(row.status || '')
+
+  return <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
+    <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[92vh] overflow-auto p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="font-bold text-slate-800">DB 수정</h2>
+        <button onClick={onClose}><X size={18}/></button>
+      </div>
+      <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">{row.phone} · {STAGE_LABELS[row.dbTier as DBTier]}</div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <label className="space-y-1 text-xs text-slate-500">이름<input value={name} onChange={e => setName(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
+        <label className="space-y-1 text-xs text-slate-500">작업자<input value={operator} onChange={e => setOperator(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
+        <label className="space-y-1 text-xs text-slate-500 md:col-span-2">주소<input value={address} onChange={e => setAddress(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
+        <label className="space-y-1 text-xs text-slate-500">상담결과<select value={consultationResult} onChange={e => setConsultationResult(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="">선택</option>{CONSULT_RESULTS.map(v => <option key={v} value={v}>{v}</option>)}</select></label>
+        <label className="space-y-1 text-xs text-slate-500">매체<select value={channel} onChange={e => setChannel(e.target.value as Channel)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">{CHANNELS.map(c => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</select></label>
+        <label className="space-y-1 text-xs text-slate-500">상세매체<input list="subchannels" value={subChannel} onChange={e => setSubChannel(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /><datalist id="subchannels">{subChannelOptions.map((s: string) => <option key={s} value={s}/>)}</datalist></label>
+        <label className="space-y-1 text-xs text-slate-500">유입경로 원본<input value={sourceRaw} onChange={e => setSourceRaw(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
+        <label className="space-y-1 text-xs text-slate-500">상태<input value={status} onChange={e => setStatus(e.target.value)} placeholder="valid / 재인입 등" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
+        <label className="space-y-1 text-xs text-slate-500 md:col-span-2">메모(특이사항)<textarea value={memo} onChange={e => setMemo(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm min-h-[80px]" /></label>
+      </div>
+      <div className="flex justify-end gap-2">
+        <button onClick={onClose} className="btn-secondary">취소</button>
+        <button onClick={() => onSave(row, { name, address, channel, subChannel, sourceRaw, consultationResult, memo, operator, status })} className="btn-primary" disabled={saving}><Save size={14}/> 저장</button>
+      </div>
+    </div>
   </div>
 }
 

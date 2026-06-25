@@ -10,7 +10,7 @@ import { normalizeDate, normalizePhone, normalizeChannel, inferChannelStrict, in
 
 // TODO: Apps Script 배포 후 웹앱 URL을 여기에 붙여넣으세요.
 // 예: const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec'
-const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzvnhZNjffW8oploGEQJ7q5e6ZJbEfLuG_MfLpNTlk-5W4yR_VBz5RHxiJGQG-1gkOjkw/exec'
+const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzbjYEl7YE7ghlc11OYiijmSdKx0AqNIlh1QoaC1iPzfWABB5F1vS7WSKZ3WQeFMuFs0g/exec'
 
 type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping'
 export type MappingRow = { raw: string; channel: Channel; subChannel: string }
@@ -326,6 +326,8 @@ export async function updateLeadAttribution(params: {
   phone: string
   stage: DBTier
   date?: string
+  name?: string
+  address?: string
   channel: Channel
   subChannel?: string
   sourceRaw?: string
@@ -342,6 +344,8 @@ export async function updateLeadAttribution(params: {
     date: params.date || '',
     patch: {
       channel: params.channel,
+      name: params.name,
+      address: params.address,
       subChannel: params.subChannel || '',
       source_raw: params.sourceRaw || '',
       consultationResult: params.consultationResult || '',
