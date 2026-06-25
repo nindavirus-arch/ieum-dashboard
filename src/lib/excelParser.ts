@@ -101,6 +101,8 @@ const CHANNEL_MAP: Record<string, Channel> = {
   '메타': 'meta', '인스타': 'meta', '인스타그램': 'meta', '페이스북': 'meta', 'facebook': 'meta', 'fb': 'meta', 'ig': 'meta', 'instagram': 'meta', 'meta': 'meta',
   '유튜브': 'youtube', 'youtube': 'youtube', 'yt': 'youtube', '구글유튜브': 'youtube',
   '바이럴': 'viral', '블로그': 'viral', '레뷰': 'viral', 'revu': 'viral', 'viral': 'viral', '카페': 'viral', '당근': 'viral',
+  '카카오검색광고': 'kakao_search', '카카오검색': 'kakao_search', '카카오키워드': 'kakao_search', 'kakaosearch': 'kakao_search', 'kakao_sa': 'kakao_search', 'kakaosa': 'kakao_search',
+  '카카오모먼트': 'kakao_moment', '카카오모멘트': 'kakao_moment', '카카오moment': 'kakao_moment', 'kakaomoment': 'kakao_moment',
   'tu': 'tu_albarich', 'tu알바리치': 'tu_albarich', 'tu-albarich': 'tu_albarich', 'tualbarich': 'tu_albarich', '알바리치': 'tu_albarich',
   'tu유튜브': 'tu_youtube', 'tu-youtube': 'tu_youtube', 'tuyoutube': 'tu_youtube', 'tu유투브': 'tu_youtube',
   'tu당근': 'tu_danggeun', 'tu-carrot': 'tu_danggeun', 'tudanggeun': 'tu_danggeun',
@@ -116,6 +118,10 @@ export function normalizeChannel(raw: unknown): Channel {
   if (!key) return 'etc'
   if (CHANNEL_MAP[key]) return CHANNEL_MAP[key]
 
+  if (original.includes('kakao') || original.includes('카카오')) {
+    if (original.includes('moment') || original.includes('모먼트') || original.includes('모멘트')) return 'kakao_moment'
+    return 'kakao_search'
+  }
   if (original.includes('youtube') || original.includes('youtu') || original.includes('유튜브')) return 'youtube'
   if (original.includes('naver') || original.includes('네이버') || original.includes('gfa') || original.includes('파워링크') || original.includes('브랜드검색')) return 'naver'
   if (original.includes('google') || original.includes('구글') || original.includes('gdn') || original.includes('demand') || original.includes('discovery') || original.includes('디맨드') || original.includes('디스커버리')) return 'google'
@@ -176,6 +182,8 @@ export function inferSubChannel(fields: { channel: Channel; source?: unknown; so
     if (text.includes('당근')) return '당근'
     return '바이럴'
   }
+  if (fields.channel === 'kakao_search') return '카카오 검색광고'
+  if (fields.channel === 'kakao_moment') return '카카오모먼트'
   if (fields.channel === 'direct') return '홈페이지 직접유입'
   if (fields.channel === 'tu_albarich') return 'TU-알바리치'
   if (fields.channel === 'tu_youtube') return 'TU-유튜브'

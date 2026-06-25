@@ -14,7 +14,7 @@ interface Props {
   selectedDate: string
 }
 
-const ONLINE_CHANNELS = new Set(['naver','google','meta','youtube','viral'])
+const ONLINE_CHANNELS = new Set(['naver','google','meta','youtube','viral','kakao_search','kakao_moment'])
 
 function safeDate(date: string) {
   try {

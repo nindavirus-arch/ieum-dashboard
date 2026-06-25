@@ -6,14 +6,15 @@ import { fetchLeads, fetchAdSpend } from '../lib/dataService'
 import type { LeadRecord, AdSpend } from '../types'
 import clsx from 'clsx'
 
-const CHANNELS = ['naver','google','meta','youtube','viral','direct','tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','inbound_call','etc'] as const
+const CHANNELS = ['naver','google','meta','youtube','viral','kakao_search','kakao_moment','direct','tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','inbound_call','etc'] as const
 const CHANNEL_LABELS: Record<string, string> = {
   naver:'네이버', google:'구글', meta:'메타', youtube:'유튜브', viral:'바이럴', direct:'직접유입',
+  kakao_search:'카카오 검색광고', kakao_moment:'카카오모먼트',
   tu_albarich:'TU-알바리치', tu_youtube:'TU-유튜브', tu_danggeun:'TU-당근',
   hugreen_danggeun:'휴그린-당근', hugreen_mail:'휴그린-메일', inbound_call:'인바운드-인입콜', etc:'기타'
 }
 const CHANNEL_COLORS: Record<string, string> = {
-  naver:'#03C75A', google:'#4285F4', meta:'#1877F2', youtube:'#FF0000', viral:'#7C3AED', direct:'#64748B',
+  naver:'#03C75A', google:'#4285F4', meta:'#1877F2', youtube:'#FF0000', viral:'#7C3AED', kakao_search:'#FEE500', kakao_moment:'#111827', direct:'#64748B',
   tu_albarich:'#0EA5E9', tu_youtube:'#EF4444', tu_danggeun:'#F97316',
   hugreen_danggeun:'#22C55E', hugreen_mail:'#14B8A6', inbound_call:'#334155', etc:'#94A3B8'
 }
@@ -42,7 +43,7 @@ export default function ChannelsPage() {
 
   const stats = CHANNELS.map(ch => {
     const chLeads = leads.filter(l => l.channel === ch)
-    const validDB = chLeads.filter(l => l.status !== 'invalid' && l.status !== 'test' && l.status !== 'duplicate').length
+    const validDB = chLeads.filter(l => !['invalid', 'test', 'duplicate', 'deleted'].includes(String(l.status || '').toLowerCase())).length
     const cFunnel = chLeads.length
     const spend = spends.filter(s => s.channel === ch).reduce((a, b) => a + b.amount, 0)
     const cpl = validDB > 0 ? Math.round(spend / validDB) : 0

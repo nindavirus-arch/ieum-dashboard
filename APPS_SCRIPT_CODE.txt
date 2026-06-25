@@ -121,8 +121,9 @@ function updateLeadRow(body) {
       const operator = patch.operator || patch.updatedBy || '';
       const historyIdx = headers.indexOf('changeHistory');
       const oldHistory = historyIdx >= 0 ? String(values[r][historyIdx] || '') : '';
-      const changedKeys = Object.keys(patch).filter(k => k !== 'updatedAt' && patch[k] !== undefined && patch[k] !== null).join(', ');
-      const historyLine = '[' + now.replace('T',' ').slice(0,16) + '] ' + (operator || '작업자미상') + ' 수정: ' + changedKeys;
+      const changedKeys = Object.keys(patch).filter(k => k !== 'updatedAt' && k !== 'updatedBy' && patch[k] !== undefined && patch[k] !== null).join(', ');
+      const action = String(patch.status || '').toLowerCase() === 'deleted' ? '삭제' : '수정';
+      const historyLine = '[' + now.replace('T',' ').slice(0,16) + '] ' + (operator || '작업자미상') + ' ' + action + ': ' + changedKeys;
       patch.updatedAt = now;
       patch.changeHistory = oldHistory ? oldHistory + '\n' + historyLine : historyLine;
 

@@ -9,15 +9,16 @@ import ChannelBar from '../components/channels/ChannelBar'
 import clsx from 'clsx'
 
 const today = format(new Date(), 'yyyy-MM-dd')
-const CHANNELS = ['naver','google','meta','youtube','viral','direct','tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','inbound_call','etc'] as const
-const ONLINE_CHANNELS = new Set(['naver','google','meta','youtube','viral'])
+const CHANNELS = ['naver','google','meta','youtube','viral','kakao_search','kakao_moment','direct','tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','inbound_call','etc'] as const
+const ONLINE_CHANNELS = new Set(['naver','google','meta','youtube','viral','kakao_search','kakao_moment'])
 const CHANNEL_LABELS: Record<string, string> = {
   naver:'네이버', google:'구글', meta:'메타', youtube:'유튜브', viral:'바이럴', direct:'직접유입',
+  kakao_search:'카카오 검색광고', kakao_moment:'카카오모먼트',
   tu_albarich:'TU-알바리치', tu_youtube:'TU-유튜브', tu_danggeun:'TU-당근',
   hugreen_danggeun:'휴그린-당근', hugreen_mail:'휴그린-메일', inbound_call:'인바운드-인입콜', etc:'기타'
 }
 const CHANNEL_COLORS: Record<string, string> = {
-  naver:'#03C75A', google:'#4285F4', meta:'#1877F2', youtube:'#FF0000', viral:'#7C3AED', direct:'#64748B',
+  naver:'#03C75A', google:'#4285F4', meta:'#1877F2', youtube:'#FF0000', viral:'#7C3AED', kakao_search:'#FEE500', kakao_moment:'#111827', direct:'#64748B',
   tu_albarich:'#0EA5E9', tu_youtube:'#EF4444', tu_danggeun:'#F97316',
   hugreen_danggeun:'#22C55E', hugreen_mail:'#14B8A6', inbound_call:'#334155', etc:'#94A3B8'
 }
@@ -28,6 +29,8 @@ function defaultSubChannelForChannel(ch: string) {
   if (ch === 'meta') return '메타'
   if (ch === 'youtube') return '유튜브'
   if (ch === 'viral') return '바이럴'
+  if (ch === 'kakao_search') return '카카오 검색광고'
+  if (ch === 'kakao_moment') return '카카오모먼트'
   if (ch === 'direct') return '홈페이지 직접유입'
   if (ch === 'tu_albarich') return 'TU-알바리치'
   if (ch === 'tu_youtube') return 'TU-유튜브'
@@ -46,6 +49,8 @@ function channelFromSubChannel(label?: string) {
   if (t.includes('메타') || t.includes('인스타') || t.includes('facebook') || t.includes('meta')) return 'meta'
   if (t.includes('유튜브') || t.includes('youtube')) return 'youtube'
   if (t.includes('바이럴') || t.includes('블로그') || t.includes('레뷰') || t.includes('카페')) return 'viral'
+  if (t.includes('카카오검색') || t.includes('kakaosearch') || t.includes('kakaosa')) return 'kakao_search'
+  if (t.includes('카카오모먼트') || t.includes('카카오모멘트') || t.includes('kakaomoment')) return 'kakao_moment'
   if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('direct')) return 'direct'
   if (t.includes('tu알바리치') || t === 'tu') return 'tu_albarich'
   if (t.includes('tu유튜브') || t.includes('tu유투브')) return 'tu_youtube'
@@ -138,7 +143,7 @@ export default function DashboardPage() {
 
   useEffect(() => { load() }, [viewMode, selectedDate])
 
-  const validLeads = leads.filter(l => l.status !== 'invalid' && l.status !== 'test' && l.status !== 'duplicate')
+  const validLeads = leads.filter(l => !['invalid', 'test', 'duplicate', 'deleted'].includes(String(l.status || '').toLowerCase()))
   const activeLeads = validLeads.filter(l => inRange(l.date, range.activeStart, range.activeEnd))
   const activeSpends = spends.filter(s => inRange(s.date, range.activeStart, range.activeEnd))
   // CPL은 온라인 광고매체만 기준으로 계산. 외부유입(TU/휴그린/인바운드/직접유입/기타)은 제외.

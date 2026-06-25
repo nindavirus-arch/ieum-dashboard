@@ -10,10 +10,11 @@ import { normalizeDate, normalizePhone, normalizeChannel, inferChannelStrict, in
 
 // TODO: Apps Script 배포 후 웹앱 URL을 여기에 붙여넣으세요.
 // 예: const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec'
-const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzbjYEl7YE7ghlc11OYiijmSdKx0AqNIlh1QoaC1iPzfWABB5F1vS7WSKZ3WQeFMuFs0g/exec'
+const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzvnhZNjffW8oploGEQJ7q5e6ZJbEfLuG_MfLpNTlk-5W4yR_VBz5RHxiJGQG-1gkOjkw/exec'
 
 type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping'
 export type MappingRow = { raw: string; channel: Channel; subChannel: string }
+const EXCLUDED_LEAD_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted'])
 
 function makeId(prefix = 'id') {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
@@ -119,6 +120,8 @@ function subChannelImpliesChannel(label?: string): Channel | '' {
   if (t.includes('메타') || t.includes('인스타') || t.includes('facebook') || t.includes('meta')) return 'meta'
   if (t.includes('유튜브') || t.includes('youtube')) return 'youtube'
   if (t.includes('바이럴') || t.includes('블로그') || t.includes('레뷰') || t.includes('카페')) return 'viral'
+  if (t.includes('카카오검색') || t.includes('kakaosearch') || t.includes('kakaosa')) return 'kakao_search'
+  if (t.includes('카카오모먼트') || t.includes('카카오모멘트') || t.includes('kakaomoment')) return 'kakao_moment'
   if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('direct')) return 'direct'
   if (t.includes('tu알바리치') || t === 'tu') return 'tu_albarich'
   if (t.includes('tu유튜브') || t.includes('tu유투브')) return 'tu_youtube'
@@ -197,6 +200,8 @@ function normalizeSpend(row: any, index = 0, mappings: MappingRow[] = []): AdSpe
     subChannel: mapped.subChannel,
     campaign,
     amount: Number(String(row.amount ?? row.cost ?? row.광고비 ?? row.비용 ?? 0).replace(/[^0-9]/g, '')),
+    memo: String(row.memo ?? row.메모 ?? row.note ?? ''),
+    registrant: String(row.registrant ?? row.등록자 ?? row.operator ?? row.createdBy ?? ''),
   } as AdSpend
 }
 
@@ -343,6 +348,7 @@ export async function updateLeadAttribution(params: {
       memo: params.memo || '',
       operator: params.operator || '',
       status: params.status || '',
+      updatedBy: params.operator || '',
       updatedAt: new Date().toISOString(),
     },
   }
@@ -701,7 +707,7 @@ function mergeDashboardEdits(rawLeads: LeadRecord[], dashboardLeads: LeadRecord[
       // 상담원이 화면에서 수정한 값은 유지
       consultationResult: (edited as any).consultationResult || (lead as any).consultationResult || '',
       memo: (edited as any).memo || (lead as any).memo || '',
-      status: (edited as any).status || (lead as any).status || 'valid',
+    status: (edited as any).status || (lead as any).status || 'valid',
       // 작업자는 원본 접수자 기준이 우선. 단, 수기/수정으로 직접 입력된 경우만 유지 가능
       operator: (lead as any).operator || (edited as any).operator || '',
       changeHistory: (edited as any).changeHistory || (lead as any).changeHistory || '',
@@ -768,7 +774,7 @@ export async function fetchLeads(startDate?: string, endDate?: string): Promise<
   const normalizedAll = sourceRows
     .map((row, i) => normalizeLead(row, i, mappings))
     .filter((r: LeadRecord) => r.phone)
-    .filter((r: LeadRecord) => r.status !== 'invalid' && r.status !== 'test' && r.status !== 'duplicate')
+    .filter((r: LeadRecord) => !EXCLUDED_LEAD_STATUSES.has(String(r.status || '').toLowerCase()))
 
   // 재인입 표시/집계는 저장된 DASHBOARD_LEADS 기준으로 가볍게 보정한다.
   // 같은 번호 + 같은 단계 + 다른 날짜가 있으면 first_reentry / second_reentry로 분류된다.
@@ -790,6 +796,8 @@ export async function uploadAdSpend(records: Omit<AdSpend, 'id'>[]) {
       subChannel: spend.subChannel || '',
       campaign: spend.campaign || '',
       amount: spend.amount,
+      memo: spend.memo || '',
+      registrant: spend.registrant || '',
     }
   })
 

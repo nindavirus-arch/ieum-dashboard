@@ -22,7 +22,7 @@ export default function RegionPage() {
     const start = format(startOfMonth(now), 'yyyy-MM-dd')
     const end = format(endOfMonth(now), 'yyyy-MM-dd')
     const l = await fetchLeads(start, end)
-    setLeads(l.filter(l => l.status !== 'invalid' && l.status !== 'test' && l.status !== 'duplicate'))
+    setLeads(l.filter(l => !['invalid', 'test', 'duplicate', 'deleted'].includes(String(l.status || '').toLowerCase())))
     setLoading(false)
   }
 
