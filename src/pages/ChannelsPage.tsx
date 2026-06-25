@@ -39,6 +39,7 @@ export default function ChannelsPage() {
   const [spends, setSpends] = useState<AdSpend[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'))
+  const [filterChannel, setFilterChannel] = useState<string>('all')
 
   async function load() {
     setLoading(true)
@@ -51,7 +52,9 @@ export default function ChannelsPage() {
 
   useEffect(() => { load() }, [selectedMonth])
 
-  const stats = CHANNELS.map(ch => {
+  const visibleChannels = filterChannel === 'all' ? CHANNELS : CHANNELS.filter(ch => ch === filterChannel)
+
+  const stats = visibleChannels.map(ch => {
     const chLeads = leads.filter(l => l.channel === ch && isActiveLead(l))
     const cFunnel = chLeads.filter(l => l.dbTier === 'retarget').length
     const firstDB = chLeads.filter(l => l.dbTier === 'first' || l.dbTier === 'first_reentry').length
@@ -66,8 +69,9 @@ export default function ChannelsPage() {
   const maxSpend = Math.max(...stats.map(s => s.spend), 1)
   const maxDB = Math.max(...stats.map(s => s.validDB), 1)
   const detailKeys = new Set<string>()
-  leads.filter(isActiveLead).forEach(l => detailKeys.add(`${l.channel}__${detailLabel(l.channel, l.subChannel)}`))
-  spends.forEach(s => detailKeys.add(`${s.channel}__${detailLabel(s.channel, s.subChannel)}`))
+  const channelMatches = (ch: string) => filterChannel === 'all' || ch === filterChannel
+  leads.filter(l => isActiveLead(l) && channelMatches(l.channel)).forEach(l => detailKeys.add(`${l.channel}__${detailLabel(l.channel, l.subChannel)}`))
+  spends.filter(s => channelMatches(s.channel)).forEach(s => detailKeys.add(`${s.channel}__${detailLabel(s.channel, s.subChannel)}`))
   const detailStats = Array.from(detailKeys).map(key => {
     const [ch, label] = key.split('__')
     const detailLeads = leads.filter(l => l.channel === ch && isActiveLead(l) && detailLabel(l.channel, l.subChannel) === label)
@@ -93,6 +97,14 @@ export default function ChannelsPage() {
           <p className="text-xs text-slate-500 mt-0.5">{monthLabel}</p>
         </div>
         <div className="flex items-center gap-2">
+          <select
+            value={filterChannel}
+            onChange={(e) => setFilterChannel(e.target.value)}
+            className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
+          >
+            <option value="all">전체 매체</option>
+            {CHANNELS.map(ch => <option key={ch} value={ch}>{CHANNEL_LABELS[ch]}</option>)}
+          </select>
           <input
             type="month"
             value={selectedMonth}
