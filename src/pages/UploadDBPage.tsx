@@ -135,7 +135,7 @@ export default function UploadDBPage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-slate-50 text-slate-500">
-                    {['날짜','이름','전화번호','채널','DB등급','지역'].map(h => (
+                    {['DB 유입일시','날짜','이름','전화번호','채널','DB등급','지역'].map(h => (
                       <th key={h} className="text-left px-3 py-2 font-medium">{h}</th>
                     ))}
                   </tr>
@@ -143,6 +143,7 @@ export default function UploadDBPage() {
                 <tbody className="divide-y divide-slate-50">
                   {result.valid.slice(0, 10).map((r, i) => (
                     <tr key={i} className="hover:bg-slate-50">
+                      <td className="px-3 py-2 text-slate-600">{(r as any).registeredAt || r.date}</td>
                       <td className="px-3 py-2 text-slate-600">{r.date}</td>
                       <td className="px-3 py-2 font-medium text-slate-700">{r.name}</td>
                       <td className="px-3 py-2 text-slate-600">{r.phone}</td>
@@ -214,7 +215,8 @@ export default function UploadDBPage() {
             </thead>
             <tbody className="divide-y divide-slate-50 text-slate-600">
               {[
-                ['날짜 / date', '2024-01-15', 'YYYY-MM-DD 형식'],
+                ['등록일시 / 접수일시 / 신청일시', '2024-01-15 14:32', '실제 DB가 들어온 시간. 월별/일별 집계 기준'],
+                ['날짜 / date', '2024-01-15', '등록일시가 없을 때 쓰는 날짜 기준'],
                 ['이름 / 성명', '홍길동', ''],
                 ['연락처 / 전화번호', '01012345678', '숫자만 또는 하이픈 포함'],
                 ['채널 / 매체', '네이버 / naver', '네이버·구글·메타·유튜브·바이럴'],

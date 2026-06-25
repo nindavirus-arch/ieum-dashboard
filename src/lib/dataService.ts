@@ -10,7 +10,7 @@ import { normalizeDate, normalizePhone, normalizeChannel, inferChannelStrict, in
 
 // TODO: Apps Script 배포 후 웹앱 URL을 여기에 붙여넣으세요.
 // 예: const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec'
-const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxd8g0sD-Z64T4WUzxQNPE3xuEXK3oZHcsXDdkSEyB-8rExOz5Nv9dL3K5OTCA8jpEzEg/exec'
+const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzbjYEl7YE7ghlc11OYiijmSdKx0AqNIlh1QoaC1iPzfWABB5F1vS7WSKZ3WQeFMuFs0g/exec'
 
 type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping'
 type PostSheetType = Exclude<SheetType, 'mapping'> | 'adSpendReplace'
@@ -757,17 +757,16 @@ export async function fetchLeads(startDate?: string, endDate?: string): Promise<
   // 평소 조회는 DASHBOARD_LEADS만 읽는다.
   // FIRST_DB_RAW / SECOND_DB_RAW 전체 재계산은 업로드 시점 또는 DASHBOARD_LEADS가 비어 있을 때만 사용한다.
   const leadRows = await getSheetRows('leads')
+  const [firstRawRows, secondRawRows] = await Promise.all([
+    getSheetRows('firstRaw').catch(() => []),
+    getSheetRows('secondRaw').catch(() => []),
+  ])
 
   let sourceRows = leadRows
 
   // 안전장치: DASHBOARD_LEADS가 비어 있는데 RAW만 쌓인 경우에만 1회 재생성한다.
   // 이 조건이 아니면 RAW를 매번 읽지 않아서 새로고침/DB관리 로딩이 빨라진다.
   if (!leadRows || leadRows.length === 0) {
-    const [firstRawRows, secondRawRows] = await Promise.all([
-      getSheetRows('firstRaw').catch(() => []),
-      getSheetRows('secondRaw').catch(() => []),
-    ])
-
     if (firstRawRows.length > 0 || secondRawRows.length > 0) {
       const rebuilt = buildLeadRowsFromRaw(firstRawRows, secondRawRows, mappings)
       sourceRows = dashboardRowsFromLeads(rebuilt)
@@ -779,10 +778,12 @@ export async function fetchLeads(startDate?: string, endDate?: string): Promise<
     }
   }
 
+  const rawMetaLookup = buildRawMetaLookup(firstRawRows, secondRawRows)
   const normalizedAll = sourceRows
     .map((row, i) => normalizeLead(row, i, mappings))
     .filter((r: LeadRecord) => r.phone)
     .filter((r: LeadRecord) => !EXCLUDED_LEAD_STATUSES.has(String(r.status || '').toLowerCase()))
+    .map((r: LeadRecord) => enrichMetaFromRaw(r, rawMetaLookup))
 
   // 재인입 표시/집계는 저장된 DASHBOARD_LEADS 기준으로 가볍게 보정한다.
   // 같은 번호 + 같은 단계 + 다른 날짜가 있으면 first_reentry / second_reentry로 분류된다.
