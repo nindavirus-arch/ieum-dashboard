@@ -738,29 +738,40 @@ function applyReentryClassification(leads: LeadRecord[]): LeadRecord[] {
 
 export async function fetchLeads(startDate?: string, endDate?: string): Promise<LeadRecord[]> {
   const mappings = await fetchMappings()
-  const [leadRows, firstRawRows, secondRawRows] = await Promise.all([
-    getSheetRows('leads'),
-    getSheetRows('firstRaw').catch(() => []),
-    getSheetRows('secondRaw').catch(() => []),
-  ])
-  const rawMetaLookup = buildRawMetaLookup(firstRawRows, secondRawRows)
 
-  const dashboardLeads = leadRows
+  // 운영 속도 개선 핵심:
+  // 평소 조회는 DASHBOARD_LEADS만 읽는다.
+  // FIRST_DB_RAW / SECOND_DB_RAW 전체 재계산은 업로드 시점 또는 DASHBOARD_LEADS가 비어 있을 때만 사용한다.
+  const leadRows = await getSheetRows('leads')
+
+  let sourceRows = leadRows
+
+  // 안전장치: DASHBOARD_LEADS가 비어 있는데 RAW만 쌓인 경우에만 1회 재생성한다.
+  // 이 조건이 아니면 RAW를 매번 읽지 않아서 새로고침/DB관리 로딩이 빨라진다.
+  if (!leadRows || leadRows.length === 0) {
+    const [firstRawRows, secondRawRows] = await Promise.all([
+      getSheetRows('firstRaw').catch(() => []),
+      getSheetRows('secondRaw').catch(() => []),
+    ])
+
+    if (firstRawRows.length > 0 || secondRawRows.length > 0) {
+      const rebuilt = buildLeadRowsFromRaw(firstRawRows, secondRawRows, mappings)
+      sourceRows = dashboardRowsFromLeads(rebuilt)
+      try {
+        await postSheetRows('leads', sourceRows)
+      } catch (err) {
+        console.error('DASHBOARD_LEADS 자동 재생성 저장 실패:', err)
+      }
+    }
+  }
+
+  const normalizedAll = sourceRows
     .map((row, i) => normalizeLead(row, i, mappings))
-    .map((r: LeadRecord) => enrichMetaFromRaw(r, rawMetaLookup))
-    .filter((r: LeadRecord) => r.phone)
-
-  // 핵심: 재인입은 DASHBOARD_LEADS가 아니라 RAW 기준으로 다시 만든다.
-  // 기존 업로드/Apps Script에서 같은 번호를 중복 처리해 재인입 후보가 빠져도 RAW에 남아 있으면 화면에서 복구된다.
-  const rawBuiltLeads = buildLeadRowsFromRaw(firstRawRows, secondRawRows, mappings)
-  const sourceLeads = rawBuiltLeads.length > 0
-    ? mergeDashboardEdits(rawBuiltLeads, dashboardLeads)
-    : dashboardLeads
-
-  const normalizedAll = sourceLeads
     .filter((r: LeadRecord) => r.phone)
     .filter((r: LeadRecord) => r.status !== 'invalid' && r.status !== 'test' && r.status !== 'duplicate')
 
+  // 재인입 표시/집계는 저장된 DASHBOARD_LEADS 기준으로 가볍게 보정한다.
+  // 같은 번호 + 같은 단계 + 다른 날짜가 있으면 first_reentry / second_reentry로 분류된다.
   const classifiedAll = applyReentryClassification(normalizedAll)
 
   return classifiedAll
