@@ -10,7 +10,7 @@ import { normalizeDate, normalizePhone, normalizeChannel, inferChannelStrict, in
 
 // TODO: Apps Script 배포 후 웹앱 URL을 여기에 붙여넣으세요.
 // 예: const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec'
-const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbyvQVnhu8_57q4GNTq0qM5lJCz7UL2UG27i5q_9plaARHhLkLCoPu_U1iIuCTMazpEEDA/exec'
+const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzbjYEl7YE7ghlc11OYiijmSdKx0AqNIlh1QoaC1iPzfWABB5F1vS7WSKZ3WQeFMuFs0g/exec'
 
 type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping'
 type PostSheetType = Exclude<SheetType, 'mapping'> | 'adSpendReplace'
@@ -21,6 +21,10 @@ const sheetCache = new Map<SheetType, { expires: number; data?: any[]; promise?:
 
 function clearSheetCache() {
   sheetCache.clear()
+}
+
+export function invalidateDataCache() {
+  clearSheetCache()
 }
 
 function makeId(prefix = 'id') {
@@ -480,7 +484,7 @@ export async function createManualLead(params: {
   }
   await postSheetRows('leads', [row])
   window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
-  return 1
+  return lead
 }
 
 

@@ -3,9 +3,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { format, startOfMonth, endOfMonth, subDays, startOfYear, endOfYear } from 'date-fns'
 import { RefreshCw, Search, Pencil, Plus, X, Save, ChevronDown, History, Trash2 } from 'lucide-react'
 import clsx from 'clsx'
-import { createManualLead, fetchLeads, fetchMappings, updateLeadAttribution, type MappingRow } from '../lib/dataService'
+import { createManualLead, fetchLeads, fetchMappings, invalidateDataCache, updateLeadAttribution, type MappingRow } from '../lib/dataService'
 import type { Channel, DBTier, LeadRecord } from '../types'
-import { buildLeadJourneys } from '../lib/leadMetrics'
+import { baseStage, buildLeadJourneys } from '../lib/leadMetrics'
 
 const CHANNELS: Channel[] = ['naver', 'google', 'meta', 'youtube', 'viral', 'kakao_search', 'kakao_moment', 'direct', 'tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'inbound_call', 'etc']
 const CHANNEL_LABELS: Record<Channel, string> = {
@@ -30,6 +30,17 @@ const BRAND_KEYS = [
 ]
 
 type QuoteRow = { brand: string; price: string }
+const LEADS_SESSION_KEY = 'ieum-db-manage-leads'
+const MAPPINGS_SESSION_KEY = 'ieum-db-manage-mappings'
+
+function readSessionRows<T>(key: string): T[] {
+  try {
+    const value = window.sessionStorage.getItem(key)
+    return value ? JSON.parse(value) : []
+  } catch {
+    return []
+  }
+}
 
 function today() { return format(new Date(), 'yyyy-MM-dd') }
 function thisMonth() { return format(new Date(), 'yyyy-MM') }
@@ -137,6 +148,28 @@ function detailLabel(row: LeadRecord) {
   return row.subChannel || '-'
 }
 
+function sameLeadIdentity(row: LeadRecord, target: LeadRecord) {
+  if (row.phone !== target.phone || row.date !== target.date) return false
+  if (baseStage(row.dbTier) !== baseStage(target.dbTier)) return false
+  const targetTime = fmtDateTime(target)
+  return targetTime === '-' || fmtDateTime(row) === targetTime
+}
+
+function applyLeadPatch(row: LeadRecord, patch: any): LeadRecord {
+  return {
+    ...row,
+    name: patch.name ?? row.name,
+    address: patch.address ?? row.address,
+    channel: patch.channel ?? row.channel,
+    subChannel: patch.subChannel ?? row.subChannel,
+    source_raw: patch.sourceRaw ?? row.source_raw,
+    consultationResult: patch.consultationResult ?? row.consultationResult,
+    memo: patch.memo ?? row.memo,
+    operator: patch.operator ?? row.operator,
+    status: patch.status || row.status,
+  }
+}
+
 function QuotePanel({ rows }: { rows: QuoteRow[] }) {
   if (!rows.length) return null
   return <div className="mt-2 overflow-hidden rounded-lg border border-slate-100 bg-slate-50 max-w-[360px]">
@@ -167,9 +200,9 @@ function StageHistoryPanel({ rows }: { rows: LeadRecord[] }) {
 }
 
 export default function DBManagePage() {
-  const [leads, setLeads] = useState<LeadRecord[]>([])
-  const [mappings, setMappings] = useState<MappingRow[]>([])
-  const [loading, setLoading] = useState(false)
+  const [leads, setLeads] = useState<LeadRecord[]>(() => readSessionRows<LeadRecord>(LEADS_SESSION_KEY))
+  const [mappings, setMappings] = useState<MappingRow[]>(() => readSessionRows<MappingRow>(MAPPINGS_SESSION_KEY))
+  const [loading, setLoading] = useState(true)
   const [stage, setStage] = useState<'all' | 'history' | DBTier>('all')
   const [period, setPeriod] = useState<'today' | '7d' | 'month' | 'year' | 'day' | 'all'>('month')
   const [selectedDate, setSelectedDate] = useState(today())
@@ -183,20 +216,25 @@ export default function DBManagePage() {
   const [manualOpen, setManualOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [openQuote, setOpenQuote] = useState<string>('')
-  const [openHistory, setOpenHistory] = useState<string>('')
-  const [openStageHistory, setOpenStageHistory] = useState<string>('')
+  const [page, setPage] = useState(1)
   const range = dateRange(period, selectedDate, selectedMonth, selectedYear)
 
-  async function load() {
+  async function load(force = false) {
     setLoading(true)
     try {
+      if (force) invalidateDataCache()
       const [l, m] = await Promise.all([fetchLeads(undefined, undefined, { includeRawMeta: true }), fetchMappings()])
       setLeads(l)
       setMappings(m)
     } finally { setLoading(false) }
   }
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(true) }, [])
+  useEffect(() => {
+    try { window.sessionStorage.setItem(LEADS_SESSION_KEY, JSON.stringify(leads)) } catch {}
+  }, [leads])
+  useEffect(() => {
+    try { window.sessionStorage.setItem(MAPPINGS_SESSION_KEY, JSON.stringify(mappings)) } catch {}
+  }, [mappings])
   useEffect(() => {
     if (!notice) return
     const timer = window.setTimeout(() => setNotice(null), 3500)
@@ -212,9 +250,14 @@ export default function DBManagePage() {
   const operatorOptions = useMemo(() => uniq(leads.map(l => String((l as any).operator || '').trim())).sort(), [leads])
   const journeys = useMemo(() => buildLeadJourneys(leads), [leads])
   const currentLeads = useMemo(() => journeys.map(journey => ({ ...journey.lead, dbTier: journey.finalTier })), [journeys])
-  const inSelectedRange = (lead: LeadRecord) => (!range.start || lead.date >= range.start) && (!range.end || lead.date <= range.end)
-  const currentPeriodLeads = currentLeads.filter(inSelectedRange)
-  const rawPeriodLeads = leads.filter(inSelectedRange)
+  const currentPeriodLeads = useMemo(
+    () => currentLeads.filter(lead => (!range.start || lead.date >= range.start) && (!range.end || lead.date <= range.end)),
+    [currentLeads, range.start, range.end]
+  )
+  const rawPeriodLeads = useMemo(
+    () => leads.filter(lead => (!range.start || lead.date >= range.start) && (!range.end || lead.date <= range.end)),
+    [leads, range.start, range.end]
+  )
   const displayLeads = stage === 'history' ? rawPeriodLeads : currentPeriodLeads
   const previousByPhone = useMemo(() => {
     const map = new Map<string, LeadRecord[]>()
@@ -231,17 +274,24 @@ export default function DBManagePage() {
     return map
   }, [journeys])
 
-  const filtered = displayLeads
-    .filter(l => stage === 'all' || stage === 'history' ? true : l.dbTier === stage)
-    .filter(l => channel === 'all' ? true : l.channel === channel)
-    .filter(l => operatorFilter === 'all' ? true : String((l as any).operator || '').trim() === operatorFilter)
-    .filter(l => {
-      const q = keyword.replace(/[^0-9a-zA-Z가-힣]/g, '').toLowerCase()
-      if (!q) return true
-      const hay = `${l.name}${l.phone}${l.rawPhone}${l.region}${l.district}${(l as any).source_raw}${l.subChannel}${l.channel}${(l as any).memo}${(l as any).operator}${(l as any).consultationResult}${shortAddress(l)}`.replace(/[^0-9a-zA-Z가-힣]/g, '').toLowerCase()
-      return hay.includes(q)
-    })
-    .sort((a, b) => sortOrder === 'desc' ? sortTime(b) - sortTime(a) : sortTime(a) - sortTime(b))
+  const filtered = useMemo(() => {
+    const q = keyword.replace(/[^0-9a-zA-Z가-힣]/g, '').toLowerCase()
+    return displayLeads
+      .filter(l => (stage === 'all' || stage === 'history') ? true : l.dbTier === stage)
+      .filter(l => channel === 'all' ? true : l.channel === channel)
+      .filter(l => operatorFilter === 'all' ? true : String((l as any).operator || '').trim() === operatorFilter)
+      .filter(l => {
+        if (!q) return true
+        const hay = `${l.name}${l.phone}${l.rawPhone}${l.region}${l.district}${(l as any).source_raw}${l.subChannel}${l.channel}${(l as any).memo}${(l as any).operator}${(l as any).consultationResult}${shortAddress(l)}`.replace(/[^0-9a-zA-Z가-힣]/g, '').toLowerCase()
+        return hay.includes(q)
+      })
+      .sort((a, b) => sortOrder === 'desc' ? sortTime(b) - sortTime(a) : sortTime(a) - sortTime(b))
+  }, [displayLeads, stage, channel, operatorFilter, keyword, sortOrder])
+  const pageSize = 50
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const pagedLeads = filtered.slice((page - 1) * pageSize, page * pageSize)
+  useEffect(() => { setPage(1) }, [stage, period, selectedDate, selectedMonth, selectedYear, channel, operatorFilter, keyword, sortOrder])
+  useEffect(() => { if (page > totalPages) setPage(totalPages) }, [page, totalPages])
 
   const counts: Record<string, number> = { all: currentPeriodLeads.length, history: rawPeriodLeads.length }
   STAGES.forEach(s => counts[s] = currentPeriodLeads.filter(l => l.dbTier === s).length)
@@ -250,9 +300,9 @@ export default function DBManagePage() {
     setNotice(null)
     try {
       await updateLeadAttribution({ phone: row.phone, stage: row.dbTier, date: row.date, registeredAt: row.registeredAt, ...next })
+      setLeads(current => current.map(item => sameLeadIdentity(item, row) ? applyLeadPatch(item, next) : item))
       setEditing(null)
       setNotice({ type: 'success', text: 'DB 정보가 수정되었습니다.' })
-      await load()
     } catch (err) {
       setNotice({ type: 'error', text: err instanceof Error ? err.message : 'DB 수정에 실패했습니다.' })
     } finally {
@@ -277,8 +327,8 @@ export default function DBManagePage() {
         operator: (row as any).operator || '',
         status: 'deleted',
       })
+      setLeads(current => current.filter(item => !sameLeadIdentity(item, row)))
       setNotice({ type: 'success', text: '삭제되었습니다.' })
-      await load()
     } catch (err) {
       setNotice({ type: 'error', text: err instanceof Error ? err.message : '삭제 처리에 실패했습니다.' })
     } finally {
@@ -289,10 +339,10 @@ export default function DBManagePage() {
     setSaving(true)
     setNotice(null)
     try {
-      await createManualLead(form)
+      const created = await createManualLead(form)
+      setLeads(current => [created, ...current])
       setManualOpen(false)
       setNotice({ type: 'success', text: 'DB가 등록되었습니다.' })
-      await load()
     } catch (err) {
       setNotice({ type: 'error', text: err instanceof Error ? err.message : 'DB 등록에 실패했습니다.' })
     } finally {
@@ -301,7 +351,7 @@ export default function DBManagePage() {
   }
 
   return <div className="p-4 md:p-6 space-y-5">
-    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4"><div><h1 className="text-lg font-bold text-slate-800">DB관리</h1><p className="text-xs text-slate-500 mt-0.5">DB 리스트 조회, 상담결과/유입경로 수정, 인바운드 수기등록을 관리합니다.</p></div><div className="flex gap-2"><button onClick={() => setManualOpen(true)} className="btn-primary"><Plus size={14}/> 수기등록</button><button onClick={load} className="btn-secondary"><RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침</button></div></div>
+    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4"><div><h1 className="text-lg font-bold text-slate-800">DB관리</h1><p className="text-xs text-slate-500 mt-0.5">DB 리스트 조회, 상담결과/유입경로 수정, 인바운드 수기등록을 관리합니다.</p></div><div className="flex gap-2"><button onClick={() => setManualOpen(true)} className="btn-primary"><Plus size={14}/> 수기등록</button><button onClick={() => load(true)} className="btn-secondary"><RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침</button></div></div>
     {notice && <div className={clsx('fixed right-4 top-4 z-[70] min-w-[280px] max-w-[min(420px,calc(100vw-2rem))] rounded-lg border px-4 py-3 text-sm shadow-lg', notice.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700')}>{notice.text}</div>}
     <div className="card p-4 space-y-4"><div className="flex flex-wrap items-center gap-2">{[
       ['all','현재 상담대상',counts.all],
@@ -313,7 +363,7 @@ export default function DBManagePage() {
     </div>
 
     <div className="space-y-3 md:hidden">
-      {filtered.map((l, idx) => {
+      {pagedLeads.map((l, idx) => {
         const key = `${l.phone}_${l.dbTier}_${l.date}_${idx}`
         const quotes = quoteRows(l)
         const history = String((l as any).changeHistory || '')
@@ -322,9 +372,9 @@ export default function DBManagePage() {
           <div className="flex items-start justify-between gap-3"><div><div className="text-[11px] text-slate-400">DB 유입/신청일시</div><div className="text-xs text-slate-500">{fmtDateTime(l)}</div><div className="font-semibold text-slate-800 mt-1">{l.name || '-'}</div><div className="text-sm text-slate-500">{l.phone || '-'}</div></div><span className={clsx('px-2 py-0.5 rounded-md border text-xs font-medium whitespace-nowrap', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span></div>
           {(l as any).memo && <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-800"><b>메모</b> {(l as any).memo}</div>}
           <div className="grid grid-cols-2 gap-2 text-xs text-slate-600"><div><b>지역</b><br/>{l.region} {l.district}</div><div><b>상담결과</b><br/>{(l as any).consultationResult || '-'}</div><div className="col-span-2"><b>주소</b><br/>{shortAddress(l)}</div><div><b>매체</b><br/>{mediaLabel(l)}</div><div><b>상세매체</b><br/>{detailLabel(l)}</div><div><b>작업자</b><br/>{(l as any).operator || '-'}</div><div><b>상태</b><br/>{l.status || 'valid'}</div></div>
-          {quotes.length > 0 && <div><button onClick={() => setOpenQuote(openQuote === key ? '' : key)} className="inline-flex items-center gap-1 text-blue-600 text-sm font-medium"><ChevronDown size={14} className={clsx(openQuote === key && 'rotate-180')} /> 외부창 견적</button>{openQuote === key && <QuotePanel rows={quotes} />}</div>}
-          {previousRows.length > 0 && <div><button onClick={() => setOpenStageHistory(openStageHistory === key ? '' : key)} className="inline-flex items-center gap-1 text-slate-600 text-sm font-medium"><History size={13}/> 이전 단계 이력 {previousRows.length}건</button>{openStageHistory === key && <StageHistoryPanel rows={previousRows} />}</div>}
-          {history && <div><button onClick={() => setOpenHistory(openHistory === key ? '' : key)} className="inline-flex items-center gap-1 text-slate-500 text-sm font-medium"><History size={13}/> 수정이력</button>{openHistory === key && <pre className="mt-2 p-2 rounded-lg bg-slate-50 text-slate-500 whitespace-pre-wrap text-xs">{history}</pre>}</div>}
+          {quotes.length > 0 && <details className="group"><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-blue-600 text-sm font-medium"><ChevronDown size={14} className="transition-transform group-open:rotate-180" /> 외부창 견적</summary><QuotePanel rows={quotes} /></details>}
+          {previousRows.length > 0 && <details className="group"><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-slate-600 text-sm font-medium"><History size={13}/> 이전 단계 이력 {previousRows.length}건</summary><StageHistoryPanel rows={previousRows} /></details>}
+          {history && <details><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-slate-500 text-sm font-medium"><History size={13}/> 수정이력</summary><pre className="mt-2 p-2 rounded-lg bg-slate-50 text-slate-500 whitespace-pre-wrap text-xs">{history}</pre></details>}
           <div className="grid grid-cols-2 gap-2">
             <button onClick={() => setEditing(l)} className="inline-flex justify-center items-center gap-1 px-3 py-2 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-600 text-sm"><Pencil size={13}/> 수정</button>
             <button onClick={() => deleteLead(l)} disabled={saving} className="inline-flex justify-center items-center gap-1 px-3 py-2 rounded-md border border-red-100 hover:bg-red-50 text-red-600 text-sm"><Trash2 size={13}/> 삭제</button>
@@ -343,7 +393,7 @@ export default function DBManagePage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {filtered.map((l, idx) => {
+            {pagedLeads.map((l, idx) => {
               const key = `${l.phone}_${l.dbTier}_${l.date}_${idx}`
               const quotes = quoteRows(l)
               const history = String((l as any).changeHistory || '')
@@ -355,9 +405,9 @@ export default function DBManagePage() {
                   <div className="font-semibold text-slate-700">{l.name || '-'}</div>
                   <div className="text-slate-500 mt-0.5">{l.phone || '-'}</div>
                   {(l as any).memo && <div className="mt-2 rounded-lg bg-amber-50 border border-amber-100 px-2 py-1.5 text-[11px] text-amber-800 whitespace-normal"><b>메모</b> {(l as any).memo}</div>}
-                  {quotes.length > 0 && <div className="mt-2"><button onClick={() => setOpenQuote(openQuote === key ? '' : key)} className="inline-flex items-center gap-1 text-blue-600 font-medium"><ChevronDown size={13} className={clsx(openQuote === key && 'rotate-180')} /> 외부창 견적</button>{openQuote === key && <QuotePanel rows={quotes} />}</div>}
-                  {previousRows.length > 0 && <div className="mt-2"><button onClick={() => setOpenStageHistory(openStageHistory === key ? '' : key)} className="inline-flex items-center gap-1 text-slate-600 font-medium"><History size={12}/> 이전 단계 이력 {previousRows.length}건</button>{openStageHistory === key && <StageHistoryPanel rows={previousRows} />}</div>}
-                  {history && <div className="mt-2"><button onClick={() => setOpenHistory(openHistory === key ? '' : key)} className="inline-flex items-center gap-1 text-slate-500 font-medium"><History size={12}/> 수정이력</button>{openHistory === key && <pre className="mt-2 p-2 rounded-lg bg-slate-50 text-slate-500 whitespace-pre-wrap max-w-[520px]">{history}</pre>}</div>}
+                  {quotes.length > 0 && <details className="group mt-2"><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-blue-600 font-medium"><ChevronDown size={13} className="transition-transform group-open:rotate-180" /> 외부창 견적</summary><QuotePanel rows={quotes} /></details>}
+                  {previousRows.length > 0 && <details className="mt-2"><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-slate-600 font-medium"><History size={12}/> 이전 단계 이력 {previousRows.length}건</summary><StageHistoryPanel rows={previousRows} /></details>}
+                  {history && <details className="mt-2"><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-slate-500 font-medium"><History size={12}/> 수정이력</summary><pre className="mt-2 p-2 rounded-lg bg-slate-50 text-slate-500 whitespace-pre-wrap max-w-[520px]">{history}</pre></details>}
                 </td>
                 <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{l.region} {l.district}</td>
                 <td className="px-3 py-3 text-slate-500 max-w-[240px] whitespace-normal">{shortAddress(l)}</td>
@@ -375,6 +425,14 @@ export default function DBManagePage() {
         </table>
       </div>
     </div>
+    {filtered.length > 0 && <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs">
+      <span className="text-slate-500">{((page - 1) * pageSize + 1).toLocaleString()}-{Math.min(page * pageSize, filtered.length).toLocaleString()} / {filtered.length.toLocaleString()}건</span>
+      <div className="flex items-center gap-2">
+        <button onClick={() => setPage(current => Math.max(1, current - 1))} disabled={page <= 1} className="btn-secondary disabled:opacity-40">이전</button>
+        <span className="min-w-[72px] text-center font-medium text-slate-600">{page} / {totalPages}</span>
+        <button onClick={() => setPage(current => Math.min(totalPages, current + 1))} disabled={page >= totalPages} className="btn-secondary disabled:opacity-40">다음</button>
+      </div>
+    </div>}
     {editing && <EditModalWithAddress row={editing} subChannelOptions={subChannelOptions} onClose={() => setEditing(null)} onSave={saveEdit} saving={saving} />}
     {manualOpen && <ManualModal subChannelOptions={subChannelOptions} onClose={() => setManualOpen(false)} onSave={saveManual} saving={saving} />}
   </div>
