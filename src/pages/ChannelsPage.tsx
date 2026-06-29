@@ -66,7 +66,7 @@ export default function ChannelsPage() {
     const secondDB = chLeads.filter(l => l.dbTier === 'second').length
     const validDB = firstDB + secondDB
     const spend = isPaidChannel(ch) ? monthSpends.filter(s => s.channel === ch).reduce((a, b) => a + b.amount, 0) : 0
-    const cpl = secondDB > 0 ? Math.round(spend / secondDB) : 0
+    const cpl = validDB > 0 ? Math.round(spend / validDB) : 0
     const converted = monthJourneys.filter(journey => journey.lead.channel === ch && leadInScope(journey.lead) && journey.secondType === 'estimate_to_consult').length
     const convRate = firstDB + converted > 0 ? ((converted / (firstDB + converted)) * 100).toFixed(1) : '0.0'
     const label = ch === 'direct' && channelScope === 'external'
@@ -102,7 +102,7 @@ export default function ChannelsPage() {
     const spend = isPaidChannel(ch) ? monthSpends
       .filter(s => s.channel === ch && detailLabel(s.channel, s.subChannel) === label)
       .reduce((a, b) => a + b.amount, 0) : 0
-    const cpl = secondDB > 0 ? Math.round(spend / secondDB) : 0
+    const cpl = validDB > 0 ? Math.round(spend / validDB) : 0
     return { key, ch, channelLabel: CHANNEL_LABELS[ch] || ch, label, color: CHANNEL_COLORS[ch] || '#94A3B8', spend, cFunnel, firstDB, validDB, secondDB, cpl }
   }).filter(r => r.spend > 0 || r.validDB > 0 || r.cFunnel > 0)
     .sort((a, b) => b.spend - a.spend || b.validDB - a.validDB)
@@ -229,7 +229,7 @@ export default function ChannelsPage() {
               </td>
               <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">
                 {(() => {
-                  const totalDB = stats.reduce((a,b)=>a+b.secondDB,0)
+                  const totalDB = stats.reduce((a,b)=>a+b.validDB,0)
                   const totalSpend = stats.reduce((a,b)=>a+b.spend,0)
                   return totalDB > 0 ? `${fmtKRW(Math.round(totalSpend/totalDB))}원` : '-'
                 })()}
@@ -276,7 +276,7 @@ export default function ChannelsPage() {
                   <td className="px-4 py-3 text-right text-slate-600">{cFunnel.toLocaleString()}</td>
                   <td className="px-4 py-3 text-right font-semibold text-blue-700">{firstDB.toLocaleString()}</td>
                   <td className="px-4 py-3 text-right text-emerald-700 font-medium">{secondDB.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-slate-800">{secondDB > 0 ? `${fmtKRW(cpl)}원` : '-'}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-800">{firstDB + secondDB > 0 ? `${fmtKRW(cpl)}원` : '-'}</td>
                 </tr>
               ))}
               {!detailStats.length && (
@@ -291,15 +291,15 @@ export default function ChannelsPage() {
 
       {/* Channel cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3">
-        {stats.map(({ ch, label, color, spend, secondDB, cpl }) => (
+        {stats.map(({ ch, label, color, spend, validDB, cpl }) => (
           <div key={ch} className="card p-4 space-y-3">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
               <span className="text-xs font-semibold text-slate-700">{label}</span>
             </div>
             <div>
-              <p className="text-xl font-bold text-slate-800">{secondDB}<span className="text-xs text-slate-400 ml-1">건</span></p>
-              <p className="text-xs text-slate-400 mt-0.5">최종 2차 DB</p>
+              <p className="text-xl font-bold text-slate-800">{validDB}<span className="text-xs text-slate-400 ml-1">건</span></p>
+              <p className="text-xs text-slate-400 mt-0.5">유효 DB (1차+2차)</p>
             </div>
             <div className="pt-2 border-t border-slate-100 space-y-1">
               <div className="flex justify-between">

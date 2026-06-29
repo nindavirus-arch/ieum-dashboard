@@ -197,10 +197,10 @@ export default function DashboardPage() {
   const activeJourneys = journeys.filter(journey => inRange(journey.lead.date, range.activeStart, range.activeEnd))
   const activeLeads = activeJourneys.map(journey => journey.lead)
   const activeSpends = spends.filter(s => inRange(s.date, range.activeStart, range.activeEnd))
-  const paidSecondLeads = activeLeads.filter(l => isPaidChannel(l.channel) && l.dbTier === 'second')
+  const paidValidLeads = activeLeads.filter(l => isPaidChannel(l.channel) && (l.dbTier === 'first' || l.dbTier === 'second'))
   const periodSpend = activeSpends.filter(s => isPaidChannel(s.channel)).reduce((a, b) => a + b.amount, 0)
   const totalDB = activeLeads.length
-  const avgCPL = paidSecondLeads.length > 0 ? Math.round(periodSpend / paidSecondLeads.length) : 0
+  const avgCPL = paidValidLeads.length > 0 ? Math.round(periodSpend / paidValidLeads.length) : 0
 
   const channelStats = CHANNEL_ROW_DEFINITIONS.map(definition => {
     const chLeads = activeLeads.filter(definition.matches)
@@ -249,12 +249,13 @@ export default function DashboardPage() {
     const spend = activeSpends
       .filter(row => row.channel === channel && safeDetailLabel(row.channel, row.subChannel) === label)
       .reduce((sum, row) => sum + row.amount, 0)
-    const cpl = second > 0 ? Math.round(spend / second) : 0
+    const validDB = first + second
+    const cpl = validDB > 0 ? Math.round(spend / validDB) : 0
     const conversion = first + converted > 0 ? Math.round((converted / (first + converted)) * 100) : 0
-    return { key, channel, label, second, spend, cpl, conversion }
+    return { key, channel, label, second, validDB, spend, cpl, conversion }
   })
-    .filter(row => row.spend > 0 || row.second > 0)
-    .sort((a, b) => b.second - a.second || a.cpl - b.cpl || b.spend - a.spend)
+    .filter(row => row.spend > 0 || row.validDB > 0)
+    .sort((a, b) => b.validDB - a.validDB || a.cpl - b.cpl || b.spend - a.spend)
     .slice(0, 5)
 
   const periodLabel = viewMode === 'daily'
@@ -268,7 +269,7 @@ export default function DashboardPage() {
     { label: periodLabel, value: totalDB, unit: '건', icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
     { label: '누적 DB', value: validLeads.length, unit: '건', icon: Users, color: 'text-teal-600', bg: 'bg-teal-50' },
     { label: viewMode === 'daily' ? '선택일 광고비' : viewMode === 'monthly' ? '이번달 광고비' : '선택연 광고비', value: fmtKRW(periodSpend), unit: '원', icon: DollarSign, color: 'text-violet-600', bg: 'bg-violet-50' },
-    { label: '2차 DB CPL', value: fmtKRW(avgCPL), unit: '원', icon: TrendingDown, color: 'text-orange-600', bg: 'bg-orange-50' },
+    { label: '유효 DB CPL', value: fmtKRW(avgCPL), unit: '원', icon: TrendingDown, color: 'text-orange-600', bg: 'bg-orange-50' },
     { label: '1→2 전환율', value: conversionRate, unit: '%', icon: TrendingDown, color: 'text-cyan-600', bg: 'bg-cyan-50' },
   ]
 
@@ -380,7 +381,7 @@ export default function DashboardPage() {
             <div>
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs font-semibold text-slate-700">상세매체 성과 TOP 5</p>
-                <span className="text-[11px] text-slate-400">최종 2차 DB 기준</span>
+                <span className="text-[11px] text-slate-400">최종 1차+2차 기준</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
@@ -388,7 +389,7 @@ export default function DashboardPage() {
                     <tr className="border-b border-slate-100 text-slate-400">
                       <th className="pb-2 text-left font-medium">상세매체</th>
                       <th className="pb-2 text-right font-medium">광고비</th>
-                      <th className="pb-2 text-right font-medium">2차</th>
+                      <th className="pb-2 text-right font-medium">유효 DB</th>
                       <th className="pb-2 text-right font-medium">CPL</th>
                     </tr>
                   </thead>
@@ -400,8 +401,8 @@ export default function DashboardPage() {
                           <div className="text-[10px] text-slate-400">전환 {row.conversion}%</div>
                         </td>
                         <td className="py-2.5 text-right text-slate-500">{fmtKRW(row.spend)}원</td>
-                        <td className="py-2.5 text-right font-semibold text-emerald-700">{row.second.toLocaleString()}</td>
-                        <td className="py-2.5 text-right font-semibold text-slate-700">{row.second > 0 ? `${fmtKRW(row.cpl)}원` : '-'}</td>
+                        <td className="py-2.5 text-right font-semibold text-emerald-700">{row.validDB.toLocaleString()}</td>
+                        <td className="py-2.5 text-right font-semibold text-slate-700">{row.validDB > 0 ? `${fmtKRW(row.cpl)}원` : '-'}</td>
                       </tr>
                     ))}
                     {!detailPerformance.length && (
