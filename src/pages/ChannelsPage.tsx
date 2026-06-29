@@ -1,8 +1,8 @@
 // src/pages/ChannelsPage.tsx
 import { useEffect, useState } from 'react'
-import { endOfMonth, endOfWeek, endOfYear, format, parseISO, startOfMonth, startOfWeek, startOfYear } from 'date-fns'
+import { endOfMonth, endOfYear, format, parseISO, startOfMonth, startOfYear, subDays } from 'date-fns'
 import { RefreshCw, TrendingUp } from 'lucide-react'
-import { Bar, CartesianGrid, ComposedChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, CartesianGrid, ComposedChart, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { fetchLeads, fetchAdSpend } from '../lib/dataService'
 import type { LeadRecord, AdSpend, ViewMode } from '../types'
 import clsx from 'clsx'
@@ -32,9 +32,8 @@ function performanceRange(viewMode: ViewMode, selectedDate: string) {
   const base = parseISO(selectedDate)
   if (viewMode === 'daily') return { start: selectedDate, end: selectedDate, label: `${format(base, 'yyyy년 MM월 dd일')} 일별 기준` }
   if (viewMode === 'weekly') {
-    const start = startOfWeek(base, { weekStartsOn: 1 })
-    const end = endOfWeek(base, { weekStartsOn: 1 })
-    return { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd'), label: `${format(start, 'yyyy년 MM월 dd일')} ~ ${format(end, 'MM월 dd일')} 주별 기준` }
+    const start = subDays(base, 6)
+    return { start: format(start, 'yyyy-MM-dd'), end: selectedDate, label: `${format(start, 'yyyy년 MM월 dd일')} ~ ${format(base, 'MM월 dd일')} 최근 7일 기준` }
   }
   if (viewMode === 'monthly') return { start: format(startOfMonth(base), 'yyyy-MM-dd'), end: format(endOfMonth(base), 'yyyy-MM-dd'), label: `${format(base, 'yyyy년 MM월')} 월별 기준` }
   return { start: format(startOfYear(base), 'yyyy-MM-dd'), end: format(endOfYear(base), 'yyyy-MM-dd'), label: `${format(base, 'yyyy년')} 연별 기준` }
@@ -207,21 +206,28 @@ export default function ChannelsPage() {
 
       <div className="card p-4 md:p-5">
         <div className="mb-4 flex items-center justify-between">
-          <p className="text-sm font-semibold text-slate-700">매체별 광고비·유효 DB 비교</p>
-          <span className="text-[11px] text-slate-400">유효 DB = 최종 1차+2차</span>
+          <p className="text-sm font-semibold text-slate-700">상세매체별 광고비·1차·2차 DB 비교</p>
+          <span className="text-[11px] text-slate-400">막대 위 숫자는 선택기간 합계</span>
         </div>
         <div className="w-full overflow-x-auto">
-          <div className="min-w-[620px]">
-            <ResponsiveContainer width="100%" height={260}>
-              <ComposedChart data={stats.map(row => ({ ...row, spendMan: Math.round(row.spend / 10000) }))} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <div style={{ minWidth: `${Math.max(720, detailStats.length * 115)}px` }}>
+            <ResponsiveContainer width="100%" height={300}>
+              <ComposedChart data={detailStats.map(row => ({ ...row, spendMan: Math.round(row.spend / 10000) }))} margin={{ top: 28, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
                 <YAxis yAxisId="spend" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                 <YAxis yAxisId="db" orientation="right" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip formatter={(value: number, name: string) => name === 'spendMan' ? [`${value.toLocaleString()}만원`, '광고비'] : [`${value.toLocaleString()}건`, '유효 DB']} contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
-                <Legend formatter={value => value === 'spendMan' ? '광고비(만원)' : '유효 DB'} wrapperStyle={{ fontSize: 11 }} />
-                <Bar yAxisId="spend" dataKey="spendMan" fill="#8b5cf6" radius={[4, 4, 0, 0]} maxBarSize={34} />
-                <Bar yAxisId="db" dataKey="validDB" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={34} />
+                <Tooltip formatter={(value: number, name: string) => name === 'spendMan' ? [`${value.toLocaleString()}만원`, '광고비'] : [`${value.toLocaleString()}건`, name === 'firstDB' ? '1차 DB' : '2차 DB']} contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                <Legend formatter={value => value === 'spendMan' ? '광고비(만원)' : value === 'firstDB' ? '1차 DB' : '2차 DB'} wrapperStyle={{ fontSize: 11 }} />
+                <Bar yAxisId="spend" dataKey="spendMan" fill="#8b5cf6" radius={[4, 4, 0, 0]} maxBarSize={30}>
+                  <LabelList dataKey="spendMan" position="top" formatter={(value: number) => value > 0 ? `${value}만` : ''} style={{ fontSize: 10, fill: '#7c3aed', fontWeight: 600 }} />
+                </Bar>
+                <Bar yAxisId="db" dataKey="firstDB" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={30}>
+                  <LabelList dataKey="firstDB" position="top" formatter={(value: number) => value > 0 ? `${value}` : ''} style={{ fontSize: 10, fill: '#2563eb', fontWeight: 600 }} />
+                </Bar>
+                <Bar yAxisId="db" dataKey="secondDB" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={30}>
+                  <LabelList dataKey="secondDB" position="top" formatter={(value: number) => value > 0 ? `${value}` : ''} style={{ fontSize: 10, fill: '#059669', fontWeight: 600 }} />
+                </Bar>
               </ComposedChart>
             </ResponsiveContainer>
           </div>

@@ -1,6 +1,6 @@
 // src/pages/DashboardPage.tsx
 import { useEffect, useMemo, useState } from 'react'
-import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfYear, endOfYear, parseISO } from 'date-fns'
+import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, parseISO, subDays } from 'date-fns'
 import { Users, DollarSign, TrendingDown, CalendarDays, RefreshCw, ChevronDown } from 'lucide-react'
 import { fetchLeads, fetchAdSpend } from '../lib/dataService'
 import type { LeadRecord, AdSpend, ViewMode } from '../types'
@@ -146,13 +146,14 @@ function rangeByMode(viewMode: ViewMode, selectedDate: string) {
     }
   }
   if (viewMode === 'weekly') {
+    const start = subDays(base, 6)
     return {
-      start: format(startOfWeek(base, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
-      end: format(endOfWeek(base, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
-      activeStart: format(startOfWeek(base, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
-      activeEnd: format(endOfWeek(base, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
-      label: `${format(startOfWeek(base, { weekStartsOn: 1 }), 'yyyy년 MM월 dd일')} ~ ${format(endOfWeek(base, { weekStartsOn: 1 }), 'MM월 dd일')}`,
-      cardLabel: '선택주 DB',
+      start: format(start, 'yyyy-MM-dd'),
+      end: selectedDate,
+      activeStart: format(start, 'yyyy-MM-dd'),
+      activeEnd: selectedDate,
+      label: `${format(start, 'yyyy년 MM월 dd일')} ~ ${format(base, 'MM월 dd일')}`,
+      cardLabel: '최근 7일 DB',
     }
   }
   if (viewMode === 'monthly') {
@@ -271,7 +272,7 @@ export default function DashboardPage() {
   const periodLabel = viewMode === 'daily'
     ? (range.activeStart === today ? '오늘 DB' : '선택일 DB')
     : viewMode === 'weekly'
-      ? '선택주 DB'
+      ? '최근 7일 DB'
       : viewMode === 'monthly'
       ? (selectedDate.slice(0, 7) === today.slice(0, 7) ? '이번달 DB' : '선택월 DB')
       : (selectedDate.slice(0, 4) === today.slice(0, 4) ? '올해 DB' : '선택연 DB')
@@ -280,7 +281,7 @@ export default function DashboardPage() {
     { label: '오늘 DB', value: todayDB, unit: '건', icon: CalendarDays, color: 'text-blue-600', bg: 'bg-blue-50' },
     { label: periodLabel, value: totalDB, unit: '건', icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
     { label: '누적 DB', value: validLeads.length, unit: '건', icon: Users, color: 'text-teal-600', bg: 'bg-teal-50' },
-    { label: viewMode === 'daily' ? '선택일 광고비' : viewMode === 'weekly' ? '선택주 광고비' : viewMode === 'monthly' ? '이번달 광고비' : '선택연 광고비', value: fmtKRW(periodSpend), unit: '원', icon: DollarSign, color: 'text-violet-600', bg: 'bg-violet-50' },
+    { label: viewMode === 'daily' ? '선택일 광고비' : viewMode === 'weekly' ? '최근 7일 광고비' : viewMode === 'monthly' ? '이번달 광고비' : '선택연 광고비', value: fmtKRW(periodSpend), unit: '원', icon: DollarSign, color: 'text-violet-600', bg: 'bg-violet-50' },
     { label: '유효 DB CPL', value: fmtKRW(avgCPL), unit: '원', icon: TrendingDown, color: 'text-orange-600', bg: 'bg-orange-50' },
     { label: '1→2 전환율', value: conversionRate, unit: '%', icon: TrendingDown, color: 'text-cyan-600', bg: 'bg-cyan-50' },
   ]
@@ -354,7 +355,7 @@ export default function DashboardPage() {
         <div className="lg:col-span-2 card p-5 space-y-5">
           <div>
             <p className="text-sm font-semibold text-slate-700 mb-4">
-              {viewMode === 'daily' ? '일자별 DB 추이' : viewMode === 'weekly' ? '주별 DB 추이' : viewMode === 'monthly' ? '월별 DB 추이' : '연도별 DB 추이'}
+              {viewMode === 'daily' ? '일자별 DB 추이' : viewMode === 'weekly' ? '최근 7일 DB 추이' : viewMode === 'monthly' ? '월별 DB 추이' : '연도별 DB 추이'}
             </p>
             <TimeSeriesChart leads={validLeads} spends={spends} viewMode={viewMode} selectedDate={selectedDate} />
           </div>

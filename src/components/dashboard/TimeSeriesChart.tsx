@@ -4,7 +4,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend
 } from 'recharts'
-import { format, eachDayOfInterval, eachMonthOfInterval, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfYear, endOfYear, subYears } from 'date-fns'
+import { format, eachDayOfInterval, eachMonthOfInterval, parseISO, startOfMonth, endOfMonth, startOfYear, endOfYear, subDays, subYears } from 'date-fns'
 import type { LeadRecord, AdSpend, ViewMode } from '../../types'
 import { isPaidChannel, trafficGroup } from '../../lib/leadMetrics'
 
@@ -43,8 +43,8 @@ export default function TimeSeriesChart({ leads, spends, viewMode, selectedDate 
 
     if (viewMode === 'weekly') {
       const days = eachDayOfInterval({
-        start: startOfWeek(base, { weekStartsOn: 1 }),
-        end: endOfWeek(base, { weekStartsOn: 1 }),
+        start: subDays(base, 6),
+        end: base,
       })
       return days.map(d => {
         const key = format(d, 'yyyy-MM-dd')
