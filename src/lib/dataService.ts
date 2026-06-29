@@ -75,6 +75,11 @@ function normKey(v: unknown) {
   return String(v ?? '').toLowerCase().replace(/[\s_\-\/()\[\].]/g, '')
 }
 
+function isDirectSalesText(v: unknown) {
+  const key = normKey(v)
+  return key.includes('직접영업') || key.includes('directsales')
+}
+
 function normalizeMappingRow(row: any): MappingRow | null {
   const raw = String(row['원본값'] ?? row.raw ?? row.source ?? row.keyword ?? '').trim()
   if (!raw) return null
@@ -129,7 +134,7 @@ function subChannelImpliesChannel(label?: string): Channel | '' {
   if (t.includes('바이럴') || t.includes('블로그') || t.includes('레뷰') || t.includes('카페')) return 'viral'
   if (t.includes('카카오검색') || t.includes('kakaosearch') || t.includes('kakaosa')) return 'kakao_search'
   if (t.includes('카카오모먼트') || t.includes('카카오모멘트') || t.includes('kakaomoment')) return 'kakao_moment'
-  if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('direct')) return 'direct'
+  if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('직접영업') || t.includes('direct')) return 'direct'
   if (t.includes('tu알바리치') || t === 'tu') return 'tu_albarich'
   if (t.includes('tu유튜브') || t.includes('tu유투브')) return 'tu_youtube'
   if (t.includes('tu당근')) return 'tu_danggeun'
@@ -157,7 +162,9 @@ function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRe
   const utm_campaign = String(row.utm_campaign ?? row.utmCampaign ?? row.campaign ?? row.캠페인 ?? '')
   const utm_content = String(row.utm_content ?? row.utmContent ?? row.content ?? row.콘텐츠 ?? '')
   const utm_term = String(row.utm_term ?? row.utmTerm ?? row.term ?? row.키워드 ?? '')
-  const source_raw = String(row.source_raw ?? row.sourceRaw ?? row.유입경로 ?? row['유입 경로'] ?? row.source ?? '')
+  const consultingType = row.consultingType ?? row.consulting_type ?? row['컨설팅 타입'] ?? row.컨설팅타입 ?? row['상담 타입'] ?? row.상담타입 ?? ''
+  const source_raw_base = String(row.source_raw ?? row.sourceRaw ?? row.유입경로 ?? row['유입 경로'] ?? row.source ?? '')
+  const source_raw = String(isDirectSalesText(consultingType) ? consultingType : (source_raw_base || consultingType))
   const baseChannel = normalizeChannel(row.channel ?? row.최종매체 ?? row.매체 ?? row._parsed_channel ?? '')
   const mapped = applyChannelMapping({ channel: baseChannel, subChannel: String(row.subChannel ?? row.상세매체 ?? ''), utm_source, source_raw, utm_medium, utm_campaign, utm_content, utm_term }, mappings)
   const safeSubChannel = sanitizeSubChannelForChannel(mapped.channel, mapped.subChannel, { source: utm_source, sourceRaw: source_raw, medium: utm_medium, campaign: utm_campaign, content: utm_content, term: utm_term })
@@ -512,6 +519,32 @@ function pickRegisteredAtFromRaw(row: any): string {
   )
 }
 
+function directSalesRawLookup(secondRawRows: any[]) {
+  const lookup = new Map<string, { channel: Channel; subChannel: string; source_raw: string }>()
+  secondRawRows.forEach((row: any) => {
+    const consultingType = row.consultingType ?? row.consulting_type ?? row['컨설팅 타입'] ?? row.컨설팅타입 ?? row['상담 타입'] ?? row.상담타입 ?? ''
+    if (!isDirectSalesText(consultingType)) return
+
+    const phone = normalizePhone(row._parsed_phone ?? row.phone ?? row.연락처 ?? row.휴대폰번호 ?? row['휴대폰 번호'] ?? row['고객 번호'] ?? row.고객번호 ?? '')
+    const date = normalizeDate(row._parsed_date ?? row.date ?? row.날짜 ?? row.등록일 ?? row.등록일시 ?? row['등록 일시'] ?? row.접수일시 ?? row['접수 일시'] ?? row.신청일시 ?? row['신청 일시'], new Date())
+    if (!phone || !date) return
+    lookup.set(`${phone}_second_${date}`, { channel: 'direct', subChannel: '직접영업', source_raw: String(consultingType) })
+  })
+  return lookup
+}
+
+function applyRawAttribution(lead: LeadRecord, lookup: Map<string, { channel: Channel; subChannel: string; source_raw: string }>) {
+  const key = `${lead.phone}_${baseTier(lead.dbTier)}_${lead.date}`
+  const attribution = lookup.get(key)
+  if (!attribution) return lead
+  return {
+    ...lead,
+    channel: attribution.channel,
+    subChannel: attribution.subChannel,
+    source_raw: attribution.source_raw || (lead as any).source_raw || '',
+  } as LeadRecord
+}
+
 function buildRegisteredAtLookup(firstRawRows: any[], secondRawRows: any[]) {
   const lookup = new Map<string, string>()
 
@@ -795,7 +828,7 @@ function applyReentryClassification(leads: LeadRecord[]): LeadRecord[] {
   })
 }
 
-export async function fetchLeads(startDate?: string, endDate?: string, options: { includeRawMeta?: boolean } = {}): Promise<LeadRecord[]> {
+export async function fetchLeads(startDate?: string, endDate?: string, options: { includeRawMeta?: boolean; includeRawAttribution?: boolean } = {}): Promise<LeadRecord[]> {
   const [mappings, leadRows] = await Promise.all([fetchMappings(), getSheetRows('leads')])
 
   // 운영 속도 개선 핵심:
@@ -808,6 +841,8 @@ export async function fetchLeads(startDate?: string, endDate?: string, options: 
       getSheetRows('firstRaw').catch(() => []),
       getSheetRows('secondRaw').catch(() => []),
     ])
+  } else if (options.includeRawAttribution) {
+    secondRawRows = await getSheetRows('secondRaw').catch(() => [])
   }
 
   let sourceRows = leadRows
@@ -827,11 +862,13 @@ export async function fetchLeads(startDate?: string, endDate?: string, options: 
   }
 
   const rawMetaLookup = options.includeRawMeta || firstRawRows.length > 0 || secondRawRows.length > 0 ? buildRawMetaLookup(firstRawRows, secondRawRows) : new Map<string, any>()
+  const rawAttributionLookup = options.includeRawAttribution || options.includeRawMeta ? directSalesRawLookup(secondRawRows) : new Map<string, { channel: Channel; subChannel: string; source_raw: string }>()
   const normalizedAll = sourceRows
     .map((row, i) => normalizeLead(row, i, mappings))
     .filter((r: LeadRecord) => r.phone)
     .filter((r: LeadRecord) => !EXCLUDED_LEAD_STATUSES.has(String(r.status || '').toLowerCase()))
     .map((r: LeadRecord) => rawMetaLookup.size ? enrichMetaFromRaw(r, rawMetaLookup) : r)
+    .map((r: LeadRecord) => rawAttributionLookup.size ? applyRawAttribution(r, rawAttributionLookup) : r)
 
   // 재인입 표시/집계는 저장된 DASHBOARD_LEADS 기준으로 가볍게 보정한다.
   // 같은 번호 + 같은 단계 + 다른 날짜가 있으면 first_reentry / second_reentry로 분류된다.

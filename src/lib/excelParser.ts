@@ -109,7 +109,13 @@ const CHANNEL_MAP: Record<string, Channel> = {
   '휴그린당근': 'hugreen_danggeun', '휴그린-당근': 'hugreen_danggeun', 'hugreendanggeun': 'hugreen_danggeun',
   '휴그린메일': 'hugreen_mail', '휴그린-메일': 'hugreen_mail', '휴그린본사': 'hugreen_mail', 'hugreenmail': 'hugreen_mail',
   '인바운드': 'inbound_call', '인입콜': 'inbound_call', '인바운드콜': 'inbound_call', 'inbound': 'inbound_call', 'call': 'inbound_call',
-  '홈페이지': 'direct', '공식홈페이지': 'direct', '직접유입': 'direct', 'direct': 'direct', 'website': 'direct', 'homepage': 'direct',
+  '홈페이지': 'direct', '공식홈페이지': 'direct', '직접유입': 'direct', '직접영업': 'direct', 'direct': 'direct', 'website': 'direct', 'homepage': 'direct',
+}
+
+function isDirectSalesText(raw: unknown): boolean {
+  const text = decodeMaybe(raw).toLowerCase()
+  const key = normalizeKey(text)
+  return key.includes('직접영업') || key.includes('directsales')
 }
 
 export function normalizeChannel(raw: unknown): Channel {
@@ -137,7 +143,7 @@ export function normalizeChannel(raw: unknown): Channel {
   }
   if (original.includes('인바운드') || original.includes('인입콜') || original.includes('inbound') || original.includes('call')) return 'inbound_call'
   if (original.includes('blog') || original.includes('블로그') || original.includes('revu') || original.includes('레뷰') || original.includes('viral') || original.includes('카페') || original.includes('당근')) return 'viral'
-  if (original.includes('홈페이지') || original.includes('공식홈') || original.includes('direct') || original.includes('homepage') || original.includes('website')) return 'direct'
+  if (original.includes('홈페이지') || original.includes('공식홈') || original.includes('직접영업') || original.includes('direct') || original.includes('homepage') || original.includes('website')) return 'direct'
   return 'etc'
 }
 
@@ -184,7 +190,10 @@ export function inferSubChannel(fields: { channel: Channel; source?: unknown; so
   }
   if (fields.channel === 'kakao_search') return '카카오 검색광고'
   if (fields.channel === 'kakao_moment') return '카카오모먼트'
-  if (fields.channel === 'direct') return '홈페이지 직접유입'
+  if (fields.channel === 'direct') {
+    if (k.includes('직접영업') || k.includes('directsales')) return '직접영업'
+    return '홈페이지 직접유입'
+  }
   if (fields.channel === 'tu_albarich') return 'TU-알바리치'
   if (fields.channel === 'tu_youtube') return 'TU-유튜브'
   if (fields.channel === 'tu_danggeun') return 'TU-당근'
@@ -298,14 +307,16 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
           const term = getCell(row, ['term', 'utm_term', 'UTM텀', 'UTM Term', '키워드'])
           const params = decodeMaybe(getCell(row, ['params', '파라미터', 'url', 'URL', '링크']))
           const route = getCell(row, ['유입 경로', '유입경로', '채널', '매체'])
+          const consultingType = getCell(row, ['컨설팅 타입', '컨설팅타입', '상담 타입', '상담타입', 'consultingType', 'consulting_type'])
+          const mediaRoute = isDirectSalesText(consultingType) ? consultingType : (route || consultingType)
           const brand = String(getCell(row, ['브랜드', '시공 브랜드', '시공브랜드', 'brand']) ?? '').trim()
           const pyeong = String(getCell(row, ['평형', '평수', '거주평형', 'area', 'flatSize', 'flatSizePh']) ?? '').trim()
           const operator = String(getCell(row, ['접수자', 'operator', '작업자', '처리자', '상담원', '상담담당자', '상담 담당자', '담당자', '등록자', '영업담당자', '영업 담당자', 'manager', 'owner']) ?? '').trim()
           const consultationResult = String(getCell(row, ['상담결과', '상담 결과', '상담상태', '상담 상태', '결과']) ?? '').trim()
           const memo = String(getCell(row, ['메모', '특이사항', '메모(특이사항)', '비고', '상담메모']) ?? '').trim()
 
-          const channel = inferChannelStrict({ source, sourceRaw: route, medium, campaign, content, term })
-          const subChannel = inferSubChannel({ channel, source, sourceRaw: route, medium, campaign, content, term })
+          const channel = inferChannelStrict({ source, sourceRaw: mediaRoute, medium, campaign, content, term })
+          const subChannel = inferSubChannel({ channel, source, sourceRaw: mediaRoute, medium, campaign, content, term })
 
           if (sourceKind === 'second_raw') {
             dbTier = 'second'
@@ -329,7 +340,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
             utm_campaign: String(campaign ?? ''),
             utm_content: String(content ?? ''),
             utm_term: String(term ?? ''),
-            source_raw: String(route ?? ''),
+            source_raw: String(mediaRoute ?? ''),
             params,
             address,
             building,

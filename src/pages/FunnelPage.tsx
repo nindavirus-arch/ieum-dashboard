@@ -43,7 +43,7 @@ export default function FunnelPage() {
     const base = new Date(`${selectedMonth}-01T00:00:00`)
     const start = format(startOfMonth(base), 'yyyy-MM-dd')
     const end = format(endOfMonth(base), 'yyyy-MM-dd')
-    const l = await fetchLeads(start, end)
+    const l = await fetchLeads(start, end, { includeRawAttribution: true })
     setLeads(l)
     setLoading(false)
   }

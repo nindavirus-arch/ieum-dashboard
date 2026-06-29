@@ -51,7 +51,7 @@ function channelFromSubChannel(label?: string) {
   if (t.includes('바이럴') || t.includes('블로그') || t.includes('레뷰') || t.includes('카페')) return 'viral'
   if (t.includes('카카오검색') || t.includes('kakaosearch') || t.includes('kakaosa')) return 'kakao_search'
   if (t.includes('카카오모먼트') || t.includes('카카오모멘트') || t.includes('kakaomoment')) return 'kakao_moment'
-  if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('direct')) return 'direct'
+  if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('직접영업') || t.includes('direct')) return 'direct'
   if (t.includes('tu알바리치') || t === 'tu') return 'tu_albarich'
   if (t.includes('tu유튜브') || t.includes('tu유투브')) return 'tu_youtube'
   if (t.includes('tu당근')) return 'tu_danggeun'
@@ -133,7 +133,7 @@ export default function DashboardPage() {
   async function load() {
     setLoading(true)
     try {
-      const [l, s] = await Promise.all([fetchLeads(range.start, range.end), fetchAdSpend(range.start, range.end)])
+      const [l, s] = await Promise.all([fetchLeads(range.start, range.end, { includeRawAttribution: true }), fetchAdSpend(range.start, range.end)])
       setLeads(l)
       setSpends(s)
     } finally {

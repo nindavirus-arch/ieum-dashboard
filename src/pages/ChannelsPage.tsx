@@ -50,7 +50,7 @@ export default function ChannelsPage() {
     const base = new Date(`${selectedMonth}-01T00:00:00`)
     const start = format(startOfMonth(base), 'yyyy-MM-dd')
     const end = format(endOfMonth(base), 'yyyy-MM-dd')
-    const [l, s] = await Promise.all([fetchLeads(start, end), fetchAdSpend(start, end)])
+    const [l, s] = await Promise.all([fetchLeads(start, end, { includeRawAttribution: true }), fetchAdSpend(start, end)])
     setLeads(l); setSpends(s); setLoading(false)
   }
 
