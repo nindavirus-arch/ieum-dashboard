@@ -6,6 +6,8 @@ export type TrafficGroup = 'paid' | 'organic' | 'external' | 'unclassified'
 export interface LeadJourney {
   lead: LeadRecord
   stage: FinalStage
+  finalTier: DBTier
+  records: LeadRecord[]
   hadRetarget: boolean
   hadFirst: boolean
   hadSecond: boolean
@@ -64,6 +66,8 @@ export function buildLeadJourneys(leads: LeadRecord[]): LeadJourney[] {
     return {
       lead: { ...finalLead, dbTier: stage },
       stage,
+      finalTier: finalLead.dbTier,
+      records: sorted,
       hadRetarget,
       hadFirst,
       hadSecond,

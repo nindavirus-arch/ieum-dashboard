@@ -5,6 +5,7 @@ import { RefreshCw, Search, Pencil, Plus, X, Save, ChevronDown, History, Trash2 
 import clsx from 'clsx'
 import { createManualLead, fetchLeads, fetchMappings, updateLeadAttribution, type MappingRow } from '../lib/dataService'
 import type { Channel, DBTier, LeadRecord } from '../types'
+import { buildLeadJourneys } from '../lib/leadMetrics'
 
 const CHANNELS: Channel[] = ['naver', 'google', 'meta', 'youtube', 'viral', 'kakao_search', 'kakao_moment', 'direct', 'tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'inbound_call', 'etc']
 const CHANNEL_LABELS: Record<Channel, string> = {
@@ -150,11 +151,26 @@ function QuotePanel({ rows }: { rows: QuoteRow[] }) {
   </div>
 }
 
+function StageHistoryPanel({ rows }: { rows: LeadRecord[] }) {
+  if (!rows.length) return null
+  return <div className="mt-2 overflow-hidden rounded-lg border border-slate-100 bg-slate-50 min-w-[280px]">
+    {[...rows].sort((a, b) => sortTime(b) - sortTime(a)).map((row, index) => (
+      <div key={`${row.phone}_${row.dbTier}_${row.date}_${index}`} className="flex items-start justify-between gap-3 border-b border-slate-100 px-3 py-2 last:border-b-0">
+        <div>
+          <div className="text-[11px] text-slate-500">{fmtDateTime(row)}</div>
+          <div className="mt-0.5 text-[11px] text-slate-400">{mediaLabel(row)} · {detailLabel(row)}</div>
+        </div>
+        <span className={clsx('shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-medium', stageBadge(row.dbTier))}>{STAGE_LABELS[row.dbTier]}</span>
+      </div>
+    ))}
+  </div>
+}
+
 export default function DBManagePage() {
   const [leads, setLeads] = useState<LeadRecord[]>([])
   const [mappings, setMappings] = useState<MappingRow[]>([])
   const [loading, setLoading] = useState(false)
-  const [stage, setStage] = useState<'all' | DBTier>('all')
+  const [stage, setStage] = useState<'all' | 'history' | DBTier>('all')
   const [period, setPeriod] = useState<'today' | '7d' | 'month' | 'year' | 'day' | 'all'>('month')
   const [selectedDate, setSelectedDate] = useState(today())
   const [selectedMonth, setSelectedMonth] = useState(thisMonth())
@@ -168,17 +184,18 @@ export default function DBManagePage() {
   const [saving, setSaving] = useState(false)
   const [openQuote, setOpenQuote] = useState<string>('')
   const [openHistory, setOpenHistory] = useState<string>('')
+  const [openStageHistory, setOpenStageHistory] = useState<string>('')
   const range = dateRange(period, selectedDate, selectedMonth, selectedYear)
 
   async function load() {
     setLoading(true)
     try {
-      const [l, m] = await Promise.all([fetchLeads(range.start, range.end, { includeRawMeta: true }), fetchMappings()])
+      const [l, m] = await Promise.all([fetchLeads(undefined, undefined, { includeRawMeta: true }), fetchMappings()])
       setLeads(l)
       setMappings(m)
     } finally { setLoading(false) }
   }
-  useEffect(() => { load() }, [period, selectedDate, selectedMonth, selectedYear])
+  useEffect(() => { load() }, [])
 
   const subChannelOptions = useMemo(() => {
     const fromMap = mappings.map(m => m.subChannel)
@@ -187,9 +204,29 @@ export default function DBManagePage() {
   }, [mappings])
 
   const operatorOptions = useMemo(() => uniq(leads.map(l => String((l as any).operator || '').trim())).sort(), [leads])
+  const journeys = useMemo(() => buildLeadJourneys(leads), [leads])
+  const currentLeads = useMemo(() => journeys.map(journey => ({ ...journey.lead, dbTier: journey.finalTier })), [journeys])
+  const inSelectedRange = (lead: LeadRecord) => (!range.start || lead.date >= range.start) && (!range.end || lead.date <= range.end)
+  const currentPeriodLeads = currentLeads.filter(inSelectedRange)
+  const rawPeriodLeads = leads.filter(inSelectedRange)
+  const displayLeads = stage === 'history' ? rawPeriodLeads : currentPeriodLeads
+  const previousByPhone = useMemo(() => {
+    const map = new Map<string, LeadRecord[]>()
+    journeys.forEach(journey => {
+      const finalTime = sortTime(journey.lead)
+      let finalSkipped = false
+      const previous = journey.records.filter(record => {
+        const isFinal = !finalSkipped && record.dbTier === journey.finalTier && record.date === journey.lead.date && sortTime(record) === finalTime
+        if (isFinal) finalSkipped = true
+        return !isFinal
+      })
+      if (previous.length) map.set(journey.lead.phone, previous)
+    })
+    return map
+  }, [journeys])
 
-  const filtered = leads
-    .filter(l => stage === 'all' ? true : l.dbTier === stage)
+  const filtered = displayLeads
+    .filter(l => stage === 'all' || stage === 'history' ? true : l.dbTier === stage)
     .filter(l => channel === 'all' ? true : l.channel === channel)
     .filter(l => operatorFilter === 'all' ? true : String((l as any).operator || '').trim() === operatorFilter)
     .filter(l => {
@@ -200,8 +237,8 @@ export default function DBManagePage() {
     })
     .sort((a, b) => sortOrder === 'desc' ? sortTime(b) - sortTime(a) : sortTime(a) - sortTime(b))
 
-  const counts: Record<string, number> = { all: leads.length }
-  STAGES.forEach(s => counts[s] = leads.filter(l => l.dbTier === s).length)
+  const counts: Record<string, number> = { all: currentPeriodLeads.length, history: rawPeriodLeads.length }
+  STAGES.forEach(s => counts[s] = currentPeriodLeads.filter(l => l.dbTier === s).length)
   async function saveEdit(row: LeadRecord, next: any) { setSaving(true); try { await updateLeadAttribution({ phone: row.phone, stage: row.dbTier, date: row.date, ...next }); setEditing(null); await load() } finally { setSaving(false) } }
   async function deleteLead(row: LeadRecord) {
     if (!window.confirm(`${row.name || row.phone || '선택한 DB'}를 삭제 처리할까요?`)) return
@@ -228,9 +265,13 @@ export default function DBManagePage() {
 
   return <div className="p-4 md:p-6 space-y-5">
     <div className="flex flex-col md:flex-row md:items-start justify-between gap-4"><div><h1 className="text-lg font-bold text-slate-800">DB관리</h1><p className="text-xs text-slate-500 mt-0.5">DB 리스트 조회, 상담결과/유입경로 수정, 인바운드 수기등록을 관리합니다.</p></div><div className="flex gap-2"><button onClick={() => setManualOpen(true)} className="btn-primary"><Plus size={14}/> 수기등록</button><button onClick={load} className="btn-secondary"><RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침</button></div></div>
-    <div className="card p-4 space-y-4"><div className="flex flex-wrap items-center gap-2">{[['all','전체',counts.all], ...STAGES.map(s => [s, STAGE_LABELS[s], counts[s]])].map(([v,label,count]) => <button key={String(v)} onClick={() => setStage(v as any)} className={clsx('tab-btn', stage === v && 'active')}>{label} <span className="opacity-70">{Number(count).toLocaleString()}</span></button>)}</div><div className="grid grid-cols-1 md:grid-cols-12 gap-3"><select value={period} onChange={e => setPeriod(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="today">오늘</option><option value="7d">최근 7일</option><option value="day">일자 선택</option><option value="month">월별</option><option value="year">연별</option><option value="all">전체</option></select>{period === 'day' && <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'month' && <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'year' && <input type="number" min="2024" max="2030" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}<select value={channel} onChange={e => setChannel(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 매체</option>{CHANNELS.map(c => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</select><select value={operatorFilter} onChange={e => setOperatorFilter(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 작업자</option>{operatorOptions.map(o => <option key={o} value={o}>{o}</option>)}</select><select value={sortOrder} onChange={e => setSortOrder(e.target.value as 'desc' | 'asc')} className="md:col-span-1 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="desc">최신순</option><option value="asc">오래된순</option></select><div className="md:col-span-2 relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="이름/연락처/지역/상담결과/메모 검색" className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-sm" /></div><div className="md:col-span-1 flex items-center md:justify-end text-xs text-slate-500">{range.label} · {filtered.length.toLocaleString()}건</div></div></div>
+    <div className="card p-4 space-y-4"><div className="flex flex-wrap items-center gap-2">{[
+      ['all','현재 상담대상',counts.all],
+      ...STAGES.map(s => [s, STAGE_LABELS[s], counts[s]]),
+      ['history','전체 원본 이력',counts.history],
+    ].map(([v,label,count]) => <button key={String(v)} onClick={() => setStage(v as any)} className={clsx('tab-btn', stage === v && 'active', v === 'history' && stage !== 'history' && 'text-slate-500')}>{label} <span className="opacity-70">{Number(count).toLocaleString()}</span></button>)}</div><div className="grid grid-cols-1 md:grid-cols-12 gap-3"><select value={period} onChange={e => setPeriod(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="today">오늘</option><option value="7d">최근 7일</option><option value="day">일자 선택</option><option value="month">월별</option><option value="year">연별</option><option value="all">전체</option></select>{period === 'day' && <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'month' && <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'year' && <input type="number" min="2024" max="2030" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}<select value={channel} onChange={e => setChannel(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 매체</option>{CHANNELS.map(c => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</select><select value={operatorFilter} onChange={e => setOperatorFilter(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 작업자</option>{operatorOptions.map(o => <option key={o} value={o}>{o}</option>)}</select><select value={sortOrder} onChange={e => setSortOrder(e.target.value as 'desc' | 'asc')} className="md:col-span-1 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="desc">최신순</option><option value="asc">오래된순</option></select><div className="md:col-span-2 relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="이름/연락처/지역/상담결과/메모 검색" className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-sm" /></div><div className="md:col-span-1 flex items-center md:justify-end text-xs text-slate-500">{range.label} · {filtered.length.toLocaleString()}건</div></div></div>
     <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700">
-      <b>집계 기준</b> DB 업로드는 엑셀의 등록일시/접수일시/신청일시, 수기등록은 수기 등록 시각을 DB 유입/신청일시로 사용합니다.
+      <b>상담대상 기준</b> 기본 탭은 연락처별 최종 단계 한 건만 표시합니다. 이전 단계는 고객 행에서 확인하고, 모든 단계 행은 전체 원본 이력 탭에서 볼 수 있습니다.
     </div>
 
     <div className="space-y-3 md:hidden">
@@ -238,11 +279,13 @@ export default function DBManagePage() {
         const key = `${l.phone}_${l.dbTier}_${l.date}_${idx}`
         const quotes = quoteRows(l)
         const history = String((l as any).changeHistory || '')
+        const previousRows = stage === 'history' ? [] : (previousByPhone.get(l.phone) || [])
         return <div key={key} className="card p-4 space-y-3">
           <div className="flex items-start justify-between gap-3"><div><div className="text-[11px] text-slate-400">DB 유입/신청일시</div><div className="text-xs text-slate-500">{fmtDateTime(l)}</div><div className="font-semibold text-slate-800 mt-1">{l.name || '-'}</div><div className="text-sm text-slate-500">{l.phone || '-'}</div></div><span className={clsx('px-2 py-0.5 rounded-md border text-xs font-medium whitespace-nowrap', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span></div>
           {(l as any).memo && <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-800"><b>메모</b> {(l as any).memo}</div>}
           <div className="grid grid-cols-2 gap-2 text-xs text-slate-600"><div><b>지역</b><br/>{l.region} {l.district}</div><div><b>상담결과</b><br/>{(l as any).consultationResult || '-'}</div><div className="col-span-2"><b>주소</b><br/>{shortAddress(l)}</div><div><b>매체</b><br/>{mediaLabel(l)}</div><div><b>상세매체</b><br/>{detailLabel(l)}</div><div><b>작업자</b><br/>{(l as any).operator || '-'}</div><div><b>상태</b><br/>{l.status || 'valid'}</div></div>
           {quotes.length > 0 && <div><button onClick={() => setOpenQuote(openQuote === key ? '' : key)} className="inline-flex items-center gap-1 text-blue-600 text-sm font-medium"><ChevronDown size={14} className={clsx(openQuote === key && 'rotate-180')} /> 외부창 견적</button>{openQuote === key && <QuotePanel rows={quotes} />}</div>}
+          {previousRows.length > 0 && <div><button onClick={() => setOpenStageHistory(openStageHistory === key ? '' : key)} className="inline-flex items-center gap-1 text-slate-600 text-sm font-medium"><History size={13}/> 이전 단계 이력 {previousRows.length}건</button>{openStageHistory === key && <StageHistoryPanel rows={previousRows} />}</div>}
           {history && <div><button onClick={() => setOpenHistory(openHistory === key ? '' : key)} className="inline-flex items-center gap-1 text-slate-500 text-sm font-medium"><History size={13}/> 수정이력</button>{openHistory === key && <pre className="mt-2 p-2 rounded-lg bg-slate-50 text-slate-500 whitespace-pre-wrap text-xs">{history}</pre>}</div>}
           <div className="grid grid-cols-2 gap-2">
             <button onClick={() => setEditing(l)} className="inline-flex justify-center items-center gap-1 px-3 py-2 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-600 text-sm"><Pencil size={13}/> 수정</button>
@@ -253,7 +296,47 @@ export default function DBManagePage() {
       {!filtered.length && <div className="card p-8 text-center text-slate-400 text-sm">조회된 DB가 없습니다.</div>}
     </div>
 
-    <div className="card overflow-hidden hidden md:block"><div className="overflow-auto max-h-[680px]"><table className="w-full text-xs"><thead className="sticky top-0 bg-slate-50 z-10 border-b border-slate-100"><tr className="text-slate-500">{['DB 유입/신청일시','DB유형','고객정보','지역','주소','상담결과','작업자','매체','상세매체','유입경로 원본','상태','관리'].map(h => <th key={h} className="text-left px-3 py-2 font-semibold whitespace-nowrap">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-50">{filtered.map((l, idx) => { const key = `${l.phone}_${l.dbTier}_${l.date}_${idx}`; const quotes = quoteRows(l); const history = String((l as any).changeHistory || ''); return <tr key={key} className="align-top hover:bg-slate-50/70"><td className="px-3 py-3 text-slate-600 whitespace-nowrap">{fmtDateTime(l)}</td><td className="px-3 py-3 whitespace-nowrap"><span className={clsx('px-2 py-0.5 rounded-md border font-medium', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span></td><td className="px-3 py-3 min-w-[220px]"><div className="font-semibold text-slate-700">{l.name || '-'}</div><div className="text-slate-500 mt-0.5">{l.phone || '-'}</div>{(l as any).memo && <div className="mt-2 rounded-lg bg-amber-50 border border-amber-100 px-2 py-1.5 text-[11px] text-amber-800 whitespace-normal"><b>메모</b> {(l as any).memo}</div>}{quotes.length > 0 && <div className="mt-2"><button onClick={() => setOpenQuote(openQuote === key ? '' : key)} className="inline-flex items-center gap-1 text-blue-600 font-medium"><ChevronDown size={13} className={clsx(openQuote === key && 'rotate-180')} /> 외부창 견적</button>{openQuote === key && <QuotePanel rows={quotes} />}</div>}{history && <div className="mt-2"><button onClick={() => setOpenHistory(openHistory === key ? '' : key)} className="inline-flex items-center gap-1 text-slate-500 font-medium"><History size={12}/> 수정이력</button>{openHistory === key && <pre className="mt-2 p-2 rounded-lg bg-slate-50 text-slate-500 whitespace-pre-wrap max-w-[520px]">{history}</pre>}</div>}</td><td className="px-3 py-3 text-slate-600 whitespace-nowrap">{l.region} {l.district}</td><td className="px-3 py-3 text-slate-500 max-w-[240px] whitespace-normal">{shortAddress(l)}</td><td className="px-3 py-3 text-slate-700 whitespace-nowrap">{(l as any).consultationResult || '-'}</td><td className="px-3 py-3 text-slate-600 whitespace-nowrap">{(l as any).operator || '-'}</td><td className="px-3 py-3 text-slate-700 whitespace-nowrap">{mediaLabel(l)}</td><td className="px-3 py-3 text-slate-600 whitespace-nowrap">{detailLabel(l)}</td><td className="px-3 py-3 text-slate-500 max-w-[180px] truncate" title={(l as any).source_raw}>{(l as any).source_raw || '-'}</td><td className="px-3 py-3 text-slate-500 whitespace-nowrap">{l.status || 'valid'}</td><td className="px-3 py-3 whitespace-nowrap"><div className="flex gap-1"><button onClick={() => setEditing(l)} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-600"><Pencil size={12}/> 수정</button><button onClick={() => deleteLead(l)} disabled={saving} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-red-100 hover:bg-red-50 text-red-600"><Trash2 size={12}/> 삭제</button></div></td></tr> })}{!filtered.length && <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-400">조회된 DB가 없습니다.</td></tr>}</tbody></table></div></div>
+    <div className="card overflow-hidden hidden md:block">
+      <div className="overflow-auto max-h-[680px]">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-slate-50 z-10 border-b border-slate-100">
+            <tr className="text-slate-500">
+              {['DB 유입/신청일시','DB유형','고객정보','지역','주소','상담결과','작업자','매체','상세매체','유입경로 원본','상태','관리'].map(h => <th key={h} className="text-left px-3 py-2 font-semibold whitespace-nowrap">{h}</th>)}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {filtered.map((l, idx) => {
+              const key = `${l.phone}_${l.dbTier}_${l.date}_${idx}`
+              const quotes = quoteRows(l)
+              const history = String((l as any).changeHistory || '')
+              const previousRows = stage === 'history' ? [] : (previousByPhone.get(l.phone) || [])
+              return <tr key={key} className="align-top hover:bg-slate-50/70">
+                <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{fmtDateTime(l)}</td>
+                <td className="px-3 py-3 whitespace-nowrap"><span className={clsx('px-2 py-0.5 rounded-md border font-medium', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span></td>
+                <td className="px-3 py-3 min-w-[220px]">
+                  <div className="font-semibold text-slate-700">{l.name || '-'}</div>
+                  <div className="text-slate-500 mt-0.5">{l.phone || '-'}</div>
+                  {(l as any).memo && <div className="mt-2 rounded-lg bg-amber-50 border border-amber-100 px-2 py-1.5 text-[11px] text-amber-800 whitespace-normal"><b>메모</b> {(l as any).memo}</div>}
+                  {quotes.length > 0 && <div className="mt-2"><button onClick={() => setOpenQuote(openQuote === key ? '' : key)} className="inline-flex items-center gap-1 text-blue-600 font-medium"><ChevronDown size={13} className={clsx(openQuote === key && 'rotate-180')} /> 외부창 견적</button>{openQuote === key && <QuotePanel rows={quotes} />}</div>}
+                  {previousRows.length > 0 && <div className="mt-2"><button onClick={() => setOpenStageHistory(openStageHistory === key ? '' : key)} className="inline-flex items-center gap-1 text-slate-600 font-medium"><History size={12}/> 이전 단계 이력 {previousRows.length}건</button>{openStageHistory === key && <StageHistoryPanel rows={previousRows} />}</div>}
+                  {history && <div className="mt-2"><button onClick={() => setOpenHistory(openHistory === key ? '' : key)} className="inline-flex items-center gap-1 text-slate-500 font-medium"><History size={12}/> 수정이력</button>{openHistory === key && <pre className="mt-2 p-2 rounded-lg bg-slate-50 text-slate-500 whitespace-pre-wrap max-w-[520px]">{history}</pre>}</div>}
+                </td>
+                <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{l.region} {l.district}</td>
+                <td className="px-3 py-3 text-slate-500 max-w-[240px] whitespace-normal">{shortAddress(l)}</td>
+                <td className="px-3 py-3 text-slate-700 whitespace-nowrap">{(l as any).consultationResult || '-'}</td>
+                <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{(l as any).operator || '-'}</td>
+                <td className="px-3 py-3 text-slate-700 whitespace-nowrap">{mediaLabel(l)}</td>
+                <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{detailLabel(l)}</td>
+                <td className="px-3 py-3 text-slate-500 max-w-[180px] truncate" title={(l as any).source_raw}>{(l as any).source_raw || '-'}</td>
+                <td className="px-3 py-3 text-slate-500 whitespace-nowrap">{l.status || 'valid'}</td>
+                <td className="px-3 py-3 whitespace-nowrap"><div className="flex gap-1"><button onClick={() => setEditing(l)} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-600"><Pencil size={12}/> 수정</button><button onClick={() => deleteLead(l)} disabled={saving} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-red-100 hover:bg-red-50 text-red-600"><Trash2 size={12}/> 삭제</button></div></td>
+              </tr>
+            })}
+            {!filtered.length && <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-400">조회된 DB가 없습니다.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
     {editing && <EditModalWithAddress row={editing} subChannelOptions={subChannelOptions} onClose={() => setEditing(null)} onSave={saveEdit} saving={saving} />}
     {manualOpen && <ManualModal subChannelOptions={subChannelOptions} onClose={() => setManualOpen(false)} onSave={saveManual} saving={saving} />}
   </div>
