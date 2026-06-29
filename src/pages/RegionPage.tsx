@@ -1,10 +1,11 @@
 // src/pages/RegionPage.tsx
 import { useEffect, useState } from 'react'
-import { format, startOfMonth, endOfMonth } from 'date-fns'
+import { format } from 'date-fns'
 import { MapPin, RefreshCw, ChevronRight } from 'lucide-react'
 import { fetchLeads } from '../lib/dataService'
 import type { LeadRecord } from '../types'
 import clsx from 'clsx'
+import { finalLeads } from '../lib/leadMetrics'
 
 const PROVINCES = [
   '서울','부산','대구','인천','광주','대전','울산','세종',
@@ -19,15 +20,12 @@ export default function RegionPage() {
 
   async function load() {
     setLoading(true)
-    const base = new Date(`${selectedMonth}-01T00:00:00`)
-    const start = format(startOfMonth(base), 'yyyy-MM-dd')
-    const end = format(endOfMonth(base), 'yyyy-MM-dd')
-    const l = await fetchLeads(start, end)
-    setLeads(l.filter(l => !['invalid', 'test', 'duplicate', 'deleted'].includes(String(l.status || '').toLowerCase())))
+    const l = await fetchLeads()
+    setLeads(finalLeads(l).filter(lead => lead.date.startsWith(selectedMonth)))
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [selectedMonth])
+  useEffect(() => { load() }, [])
   const isThisMonth = selectedMonth === format(new Date(), 'yyyy-MM')
   const monthLabel = isThisMonth ? '이번달 유효 DB 기준' : `${selectedMonth} 유효 DB 기준`
 

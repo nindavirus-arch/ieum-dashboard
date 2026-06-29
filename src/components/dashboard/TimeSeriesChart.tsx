@@ -6,6 +6,7 @@ import {
 } from 'recharts'
 import { format, eachDayOfInterval, eachMonthOfInterval, parseISO, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears } from 'date-fns'
 import type { LeadRecord, AdSpend, ViewMode } from '../../types'
+import { isPaidChannel, trafficGroup } from '../../lib/leadMetrics'
 
 interface Props {
   leads: LeadRecord[]
@@ -13,8 +14,6 @@ interface Props {
   viewMode: ViewMode
   selectedDate: string
 }
-
-const ONLINE_CHANNELS = new Set(['naver','google','meta','youtube','viral','kakao_search','kakao_moment'])
 
 function safeDate(date: string) {
   try {
@@ -33,10 +32,12 @@ export default function TimeSeriesChart({ leads, spends, viewMode, selectedDate 
       return days.map(d => {
         const key = format(d, 'yyyy-MM-dd')
         const matched = leads.filter(l => l.date === key)
-        const onlineDb = matched.filter(l => ONLINE_CHANNELS.has(l.channel)).length
-        const externalDb = matched.filter(l => !ONLINE_CHANNELS.has(l.channel)).length
-        const spend = spends.filter(s => s.date === key && ONLINE_CHANNELS.has(s.channel)).reduce((a, b) => a + b.amount, 0)
-        return { label: format(d, 'd일'), onlineDb, externalDb, spend: Math.round(spend / 10000) }
+        const paidDb = matched.filter(l => trafficGroup(l) === 'paid').length
+        const organicDb = matched.filter(l => trafficGroup(l) === 'organic').length
+        const externalDb = matched.filter(l => trafficGroup(l) === 'external').length
+        const unclassifiedDb = matched.filter(l => trafficGroup(l) === 'unclassified').length
+        const spend = spends.filter(s => s.date === key && isPaidChannel(s.channel)).reduce((a, b) => a + b.amount, 0)
+        return { label: format(d, 'd일'), paidDb, organicDb, externalDb, unclassifiedDb, spend: Math.round(spend / 10000) }
       })
     }
 
@@ -45,10 +46,12 @@ export default function TimeSeriesChart({ leads, spends, viewMode, selectedDate 
       return months.map(m => {
         const key = format(m, 'yyyy-MM')
         const matched = leads.filter(l => l.date.startsWith(key))
-        const onlineDb = matched.filter(l => ONLINE_CHANNELS.has(l.channel)).length
-        const externalDb = matched.filter(l => !ONLINE_CHANNELS.has(l.channel)).length
-        const spend = spends.filter(s => s.date.startsWith(key) && ONLINE_CHANNELS.has(s.channel)).reduce((a, b) => a + b.amount, 0)
-        return { label: format(m, 'MM월'), onlineDb, externalDb, spend: Math.round(spend / 10000) }
+        const paidDb = matched.filter(l => trafficGroup(l) === 'paid').length
+        const organicDb = matched.filter(l => trafficGroup(l) === 'organic').length
+        const externalDb = matched.filter(l => trafficGroup(l) === 'external').length
+        const unclassifiedDb = matched.filter(l => trafficGroup(l) === 'unclassified').length
+        const spend = spends.filter(s => s.date.startsWith(key) && isPaidChannel(s.channel)).reduce((a, b) => a + b.amount, 0)
+        return { label: format(m, 'MM월'), paidDb, organicDb, externalDb, unclassifiedDb, spend: Math.round(spend / 10000) }
       })
     }
 
@@ -59,10 +62,12 @@ export default function TimeSeriesChart({ leads, spends, viewMode, selectedDate 
     return years.map(yDate => {
       const key = format(yDate, 'yyyy')
       const matched = leads.filter(l => l.date.startsWith(key))
-      const onlineDb = matched.filter(l => ONLINE_CHANNELS.has(l.channel)).length
-      const externalDb = matched.filter(l => !ONLINE_CHANNELS.has(l.channel)).length
-      const spend = spends.filter(s => s.date.startsWith(key) && ONLINE_CHANNELS.has(s.channel)).reduce((a, b) => a + b.amount, 0)
-      return { label: format(yDate, 'yyyy년'), onlineDb, externalDb, spend: Math.round(spend / 10000) }
+      const paidDb = matched.filter(l => trafficGroup(l) === 'paid').length
+      const organicDb = matched.filter(l => trafficGroup(l) === 'organic').length
+      const externalDb = matched.filter(l => trafficGroup(l) === 'external').length
+      const unclassifiedDb = matched.filter(l => trafficGroup(l) === 'unclassified').length
+      const spend = spends.filter(s => s.date.startsWith(key) && isPaidChannel(s.channel)).reduce((a, b) => a + b.amount, 0)
+      return { label: format(yDate, 'yyyy년'), paidDb, organicDb, externalDb, unclassifiedDb, spend: Math.round(spend / 10000) }
     })
   }, [leads, spends, viewMode, selectedDate])
 
@@ -89,18 +94,22 @@ export default function TimeSeriesChart({ leads, spends, viewMode, selectedDate 
         <Tooltip
           contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
           formatter={(val: number, name: string) => {
-            if (name === 'onlineDb') return [`${val}건`, '온라인광고 DB']
+            if (name === 'paidDb') return [`${val}건`, '온라인광고 DB']
+            if (name === 'organicDb') return [`${val}건`, '온라인 직접·자연유입']
             if (name === 'externalDb') return [`${val}건`, '외부유입 DB']
+            if (name === 'unclassifiedDb') return [`${val}건`, '미분류 DB']
             return [`${val}만원`, '광고비']
           }}
         />
         <Legend
           iconType="circle" iconSize={7}
-          formatter={(val) => val === 'onlineDb' ? '온라인광고 DB' : val === 'externalDb' ? '외부유입 DB' : '광고비(만)'}
+          formatter={(val) => val === 'paidDb' ? '온라인광고' : val === 'organicDb' ? '온라인 직접·자연' : val === 'externalDb' ? '외부·제휴' : val === 'unclassifiedDb' ? '미분류' : '광고비(만)'}
           wrapperStyle={{ fontSize: 11 }}
         />
-        <Area type="monotone" dataKey="onlineDb" stroke="#3b82f6" strokeWidth={2} fill="url(#dbGrad)" dot={false} />
+        <Area type="monotone" dataKey="paidDb" stroke="#3b82f6" strokeWidth={2} fill="url(#dbGrad)" dot={false} />
+        <Area type="monotone" dataKey="organicDb" stroke="#14b8a6" strokeWidth={2} fill="none" dot={false} />
         <Area type="monotone" dataKey="externalDb" stroke="#64748b" strokeWidth={2} fill="url(#externalGrad)" dot={false} />
+        <Area type="monotone" dataKey="unclassifiedDb" stroke="#cbd5e1" strokeWidth={2} strokeDasharray="4 4" fill="none" dot={false} />
         <Area type="monotone" dataKey="spend" stroke="#8b5cf6" strokeWidth={2} fill="url(#spendGrad)" dot={false} />
       </AreaChart>
     </ResponsiveContainer>

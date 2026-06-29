@@ -1,6 +1,6 @@
 // src/pages/FunnelPage.tsx
 import { useEffect, useState } from 'react'
-import { format, startOfMonth, endOfMonth } from 'date-fns'
+import { format } from 'date-fns'
 import { RefreshCw, ArrowDown } from 'lucide-react'
 import { fetchLeads } from '../lib/dataService'
 import type { LeadRecord } from '../types'
@@ -9,6 +9,7 @@ import {
   Tooltip, ResponsiveContainer, Cell
 } from 'recharts'
 import clsx from 'clsx'
+import { buildLeadJourneys } from '../lib/leadMetrics'
 
 const CHANNELS = ['naver','google','meta','youtube','viral','kakao_search','kakao_moment','direct','tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','inbound_call','etc'] as const
 const CHANNEL_LABELS: Record<string, string> = {
@@ -25,11 +26,7 @@ const CHANNEL_COLORS: Record<string, string> = {
 
 function formatRateLabel(numerator: number, denominator: number) {
   if (denominator <= 0) return '-'
-  const ratio = numerator / denominator
-  if (ratio >= 1) {
-    return `${ratio.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}배`
-  }
-  return `${(ratio * 100).toFixed(1)}%`
+  return `${((numerator / denominator) * 100).toFixed(1)}%`
 }
 
 export default function FunnelPage() {
@@ -40,29 +37,25 @@ export default function FunnelPage() {
 
   async function load() {
     setLoading(true)
-    const base = new Date(`${selectedMonth}-01T00:00:00`)
-    const start = format(startOfMonth(base), 'yyyy-MM-dd')
-    const end = format(endOfMonth(base), 'yyyy-MM-dd')
-    const l = await fetchLeads(start, end, { includeRawAttribution: true })
+    const l = await fetchLeads(undefined, undefined, { includeRawAttribution: true })
     setLeads(l)
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [selectedMonth])
+  useEffect(() => { load() }, [])
   const isThisMonth = selectedMonth === format(new Date(), 'yyyy-MM')
   const monthLabel = isThisMonth ? '이번달 DB 전환 흐름' : `${selectedMonth} DB 전환 흐름`
 
+  const monthJourneys = buildLeadJourneys(leads).filter(journey => journey.lead.date.startsWith(selectedMonth))
   const filtered = filterChannel === 'all'
-    ? leads
-    : leads.filter(l => l.channel === filterChannel)
+    ? monthJourneys
+    : monthJourneys.filter(journey => journey.lead.channel === filterChannel)
 
-  const retarget = filtered.filter(l => l.dbTier === 'retarget').length
-  const first = filtered.filter(l => l.dbTier === 'first').length
-  const second = filtered.filter(l => l.dbTier === 'second').length
-  const firstReentry = filtered.filter(l => l.dbTier === 'first_reentry').length
-  const secondReentry = filtered.filter(l => l.dbTier === 'second_reentry').length
-  const firstTotal = first + firstReentry
-  const secondTotal = second + secondReentry
+  const retarget = filtered.filter(journey => journey.stage === 'retarget').length
+  const firstTotal = filtered.filter(journey => journey.stage === 'first').length
+  const secondTotal = filtered.filter(journey => journey.stage === 'second').length
+  const convertedSecond = filtered.filter(journey => journey.secondType === 'estimate_to_consult').length
+  const directSecond = filtered.filter(journey => journey.secondType === 'direct_consult').length
   const total = retarget + firstTotal + secondTotal
 
   const funnelSteps = [
@@ -75,17 +68,13 @@ export default function FunnelPage() {
   const channelFunnelData = CHANNELS.map(ch => ({
     name: CHANNEL_LABELS[ch],
     ch,
-    retarget: leads.filter(l => l.channel === ch && l.dbTier === 'retarget').length,
-    first: leads.filter(l => l.channel === ch && (l.dbTier === 'first' || l.dbTier === 'first_reentry')).length,
-    second: leads.filter(l => l.channel === ch && (l.dbTier === 'second' || l.dbTier === 'second_reentry')).length,
-    firstReentry: leads.filter(l => l.channel === ch && l.dbTier === 'first_reentry').length,
-    secondReentry: leads.filter(l => l.channel === ch && l.dbTier === 'second_reentry').length,
+    retarget: monthJourneys.filter(journey => journey.lead.channel === ch && journey.stage === 'retarget').length,
+    first: monthJourneys.filter(journey => journey.lead.channel === ch && journey.stage === 'first').length,
+    second: monthJourneys.filter(journey => journey.lead.channel === ch && journey.stage === 'second').length,
   }))
 
-  // Conversion rates
-  const r2f = formatRateLabel(firstTotal, retarget)
-  const f2s = formatRateLabel(secondTotal, firstTotal)
-  const r2s = formatRateLabel(secondTotal, retarget)
+  const f2s = formatRateLabel(convertedSecond, firstTotal + convertedSecond)
+  const finalSecondShare = formatRateLabel(secondTotal, total)
 
   return (
     <div className="p-4 md:p-6 space-y-6">
@@ -129,7 +118,7 @@ export default function FunnelPage() {
                   <div className="flex flex-col items-center gap-0.5 py-1">
                     <ArrowDown size={14} className="text-slate-300" />
                     <span className="text-[10px] text-slate-400">
-                      {i === 1 ? `전환율 ${r2f}` : `전환율 ${f2s}`}
+                      {i === 1 ? '최종 단계 기준' : `견적→상담 ${f2s}`}
                     </span>
                   </div>
                 )}
@@ -146,8 +135,12 @@ export default function FunnelPage() {
           })}
           <div className="mt-4 pt-4 border-t border-slate-100 w-full space-y-1.5">
             <div className="flex justify-between text-xs text-slate-500">
-              <span>전체 → 최종전환</span>
-              <span className="font-semibold text-slate-700">{r2s}</span>
+              <span>최종 2차 DB 비중</span>
+              <span className="font-semibold text-slate-700">{finalSecondShare}</span>
+            </div>
+            <div className="flex justify-between text-xs text-slate-500">
+              <span>견적 후 상담 / 바로 상담</span>
+              <span className="font-semibold text-slate-700">{convertedSecond}건 / {directSecond}건</span>
             </div>
             <div className="flex justify-between text-xs text-slate-500">
               <span>총 DB</span>

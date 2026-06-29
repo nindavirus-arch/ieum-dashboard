@@ -7,10 +7,11 @@ import type { LeadRecord, AdSpend, ViewMode } from '../types'
 import TimeSeriesChart from '../components/dashboard/TimeSeriesChart'
 import ChannelBar from '../components/channels/ChannelBar'
 import clsx from 'clsx'
+import { buildLeadJourneys, isDirectSales, isPaidChannel, trafficGroup, type TrafficGroup } from '../lib/leadMetrics'
 
 const today = format(new Date(), 'yyyy-MM-dd')
-const CHANNELS = ['naver','google','meta','youtube','viral','kakao_search','kakao_moment','direct','tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','inbound_call','etc'] as const
-const ONLINE_CHANNELS = new Set(['naver','google','meta','youtube','viral','kakao_search','kakao_moment'])
+const PAID_CHANNEL_LIST = ['naver','google','meta','youtube','viral','kakao_search','kakao_moment'] as const
+const EXTERNAL_CHANNEL_LIST = ['tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','inbound_call'] as const
 const CHANNEL_LABELS: Record<string, string> = {
   naver:'네이버', google:'구글', meta:'메타', youtube:'유튜브', viral:'바이럴', direct:'직접유입',
   kakao_search:'카카오 검색광고', kakao_moment:'카카오모먼트',
@@ -69,6 +70,54 @@ function safeDetailLabel(ch: string, rawLabel?: string) {
   if (implied && implied !== ch) return defaultSubChannelForChannel(ch)
   return label
 }
+
+type ChannelRowDefinition = {
+  key: string
+  label: string
+  color: string
+  group: TrafficGroup
+  matches: (lead: LeadRecord) => boolean
+  spendChannel?: string
+}
+
+const CHANNEL_ROW_DEFINITIONS: ChannelRowDefinition[] = [
+  ...PAID_CHANNEL_LIST.map(ch => ({
+    key: ch,
+    label: CHANNEL_LABELS[ch],
+    color: CHANNEL_COLORS[ch],
+    group: 'paid' as const,
+    matches: (lead: LeadRecord) => lead.channel === ch,
+    spendChannel: ch,
+  })),
+  {
+    key: 'online_direct',
+    label: '홈페이지·온라인 기타',
+    color: '#64748B',
+    group: 'organic',
+    matches: (lead: LeadRecord) => trafficGroup(lead) === 'organic',
+  },
+  {
+    key: 'direct_sales',
+    label: '직접영업',
+    color: '#475569',
+    group: 'external',
+    matches: (lead: LeadRecord) => isDirectSales(lead),
+  },
+  ...EXTERNAL_CHANNEL_LIST.map(ch => ({
+    key: ch,
+    label: CHANNEL_LABELS[ch],
+    color: CHANNEL_COLORS[ch],
+    group: 'external' as const,
+    matches: (lead: LeadRecord) => lead.channel === ch && !isDirectSales(lead),
+  })),
+  {
+    key: 'unclassified',
+    label: '미분류',
+    color: '#94A3B8',
+    group: 'unclassified',
+    matches: (lead: LeadRecord) => trafficGroup(lead) === 'unclassified',
+  },
+]
 
 function fmtKRW(n: number) {
   if (n >= 100_000_000) return `${(n/100_000_000).toFixed(1)}억`
@@ -133,7 +182,7 @@ export default function DashboardPage() {
   async function load() {
     setLoading(true)
     try {
-      const [l, s] = await Promise.all([fetchLeads(range.start, range.end, { includeRawAttribution: true }), fetchAdSpend(range.start, range.end)])
+      const [l, s] = await Promise.all([fetchLeads(undefined, undefined, { includeRawAttribution: true }), fetchAdSpend()])
       setLeads(l)
       setSpends(s)
     } finally {
@@ -141,44 +190,72 @@ export default function DashboardPage() {
     }
   }
 
-  useEffect(() => { load() }, [viewMode, selectedDate])
+  useEffect(() => { load() }, [])
 
-  const validLeads = leads.filter(l => !['invalid', 'test', 'duplicate', 'deleted'].includes(String(l.status || '').toLowerCase()))
-  const activeLeads = validLeads.filter(l => inRange(l.date, range.activeStart, range.activeEnd))
+  const journeys = useMemo(() => buildLeadJourneys(leads), [leads])
+  const validLeads = useMemo(() => journeys.map(journey => journey.lead), [journeys])
+  const activeJourneys = journeys.filter(journey => inRange(journey.lead.date, range.activeStart, range.activeEnd))
+  const activeLeads = activeJourneys.map(journey => journey.lead)
   const activeSpends = spends.filter(s => inRange(s.date, range.activeStart, range.activeEnd))
-  // CPL은 온라인 광고매체만 기준으로 계산. 외부유입(TU/휴그린/인바운드/직접유입/기타)은 제외.
-  const onlineActiveLeads = activeLeads.filter(l => ONLINE_CHANNELS.has(l.channel))
-  const periodSpend = activeSpends.filter(s => ONLINE_CHANNELS.has(s.channel)).reduce((a, b) => a + b.amount, 0)
-  const totalSpend = spends.filter(s => ONLINE_CHANNELS.has(s.channel)).reduce((a, b) => a + b.amount, 0)
+  const paidSecondLeads = activeLeads.filter(l => isPaidChannel(l.channel) && l.dbTier === 'second')
+  const periodSpend = activeSpends.filter(s => isPaidChannel(s.channel)).reduce((a, b) => a + b.amount, 0)
   const totalDB = activeLeads.length
-  const avgCPL = onlineActiveLeads.length > 0 ? Math.round(periodSpend / onlineActiveLeads.length) : 0
+  const avgCPL = paidSecondLeads.length > 0 ? Math.round(periodSpend / paidSecondLeads.length) : 0
 
-  const channelStats = CHANNELS.map(ch => {
-    const chLeads = activeLeads.filter(l => l.channel === ch)
+  const channelStats = CHANNEL_ROW_DEFINITIONS.map(definition => {
+    const chLeads = activeLeads.filter(definition.matches)
     const db = chLeads.length
-    const spend = ONLINE_CHANNELS.has(ch) ? activeSpends.filter(s => s.channel === ch).reduce((a, b) => a + b.amount, 0) : 0
-    const cpl = db > 0 ? Math.round(spend / db) : 0
-    const detailMap = new Map<string, number>()
+    const spend = definition.spendChannel
+      ? activeSpends.filter(s => s.channel === definition.spendChannel).reduce((a, b) => a + b.amount, 0)
+      : 0
+    const detailMap = new Map<string, { count: number; retarget: number; first: number; second: number }>()
     chLeads.forEach(l => {
-      const label = safeDetailLabel(ch, l.subChannel)
-      detailMap.set(label, (detailMap.get(label) || 0) + 1)
+      const label = isDirectSales(l) ? '직접영업' : safeDetailLabel(l.channel, l.subChannel)
+      const current = detailMap.get(label) || { count: 0, retarget: 0, first: 0, second: 0 }
+      current.count += 1
+      current[l.dbTier as 'retarget' | 'first' | 'second'] += 1
+      detailMap.set(label, current)
     })
     const details = Array.from(detailMap.entries())
-      .map(([label, count]) => ({ label, count }))
+      .map(([label, counts]) => ({ label, ...counts }))
       .sort((a, b) => b.count - a.count)
-    return { ch, label: CHANNEL_LABELS[ch], db, spend, cpl, color: CHANNEL_COLORS[ch], details }
-  })
+    return { ...definition, db, spend, details }
+  }).filter(row => row.db > 0 || row.spend > 0)
   const maxDB = Math.max(...channelStats.map(c => c.db), 1)
 
-  const firstDB = activeLeads.filter(l => l.dbTier === 'first').length
-  const secondDB = activeLeads.filter(l => l.dbTier === 'second').length
-  const firstReentryDB = activeLeads.filter(l => l.dbTier === 'first_reentry').length
-  const secondReentryDB = activeLeads.filter(l => l.dbTier === 'second_reentry').length
-  const firstTotalDB = firstDB + firstReentryDB
-  const secondTotalDB = secondDB + secondReentryDB
-  const conversionRate = firstTotalDB > 0 ? Math.round((secondTotalDB / firstTotalDB) * 100) : 0
+  const retargetOnly = activeJourneys.filter(journey => journey.stage === 'retarget').length
+  const firstOnly = activeJourneys.filter(journey => journey.stage === 'first').length
+  const convertedSecond = activeJourneys.filter(journey => journey.secondType === 'estimate_to_consult').length
+  const directSecond = activeJourneys.filter(journey => journey.secondType === 'direct_consult').length
+  const estimatePool = firstOnly + convertedSecond
+  const conversionRate = estimatePool > 0 ? Math.round((convertedSecond / estimatePool) * 100) : 0
 
   const todayDB = validLeads.filter(l => l.date === today).length
+  const detailPerformanceKeys = new Set<string>()
+  activeLeads.filter(lead => isPaidChannel(lead.channel)).forEach(lead => {
+    detailPerformanceKeys.add(`${lead.channel}__${safeDetailLabel(lead.channel, lead.subChannel)}`)
+  })
+  activeSpends.filter(spend => isPaidChannel(spend.channel)).forEach(spend => {
+    detailPerformanceKeys.add(`${spend.channel}__${safeDetailLabel(spend.channel, spend.subChannel)}`)
+  })
+  const detailPerformance = Array.from(detailPerformanceKeys).map(key => {
+    const [channel, label] = key.split('__')
+    const matchedJourneys = activeJourneys.filter(journey =>
+      journey.lead.channel === channel && safeDetailLabel(journey.lead.channel, journey.lead.subChannel) === label
+    )
+    const second = matchedJourneys.filter(journey => journey.stage === 'second').length
+    const first = matchedJourneys.filter(journey => journey.stage === 'first').length
+    const converted = matchedJourneys.filter(journey => journey.secondType === 'estimate_to_consult').length
+    const spend = activeSpends
+      .filter(row => row.channel === channel && safeDetailLabel(row.channel, row.subChannel) === label)
+      .reduce((sum, row) => sum + row.amount, 0)
+    const cpl = second > 0 ? Math.round(spend / second) : 0
+    const conversion = first + converted > 0 ? Math.round((converted / (first + converted)) * 100) : 0
+    return { key, channel, label, second, spend, cpl, conversion }
+  })
+    .filter(row => row.spend > 0 || row.second > 0)
+    .sort((a, b) => b.second - a.second || a.cpl - b.cpl || b.spend - a.spend)
+    .slice(0, 5)
 
   const periodLabel = viewMode === 'daily'
     ? (range.activeStart === today ? '오늘 DB' : '선택일 DB')
@@ -191,7 +268,7 @@ export default function DashboardPage() {
     { label: periodLabel, value: totalDB, unit: '건', icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
     { label: '누적 DB', value: validLeads.length, unit: '건', icon: Users, color: 'text-teal-600', bg: 'bg-teal-50' },
     { label: viewMode === 'daily' ? '선택일 광고비' : viewMode === 'monthly' ? '이번달 광고비' : '선택연 광고비', value: fmtKRW(periodSpend), unit: '원', icon: DollarSign, color: 'text-violet-600', bg: 'bg-violet-50' },
-    { label: '평균 CPL', value: fmtKRW(avgCPL), unit: '원', icon: TrendingDown, color: 'text-orange-600', bg: 'bg-orange-50' },
+    { label: '2차 DB CPL', value: fmtKRW(avgCPL), unit: '원', icon: TrendingDown, color: 'text-orange-600', bg: 'bg-orange-50' },
     { label: '1→2 전환율', value: conversionRate, unit: '%', icon: TrendingDown, color: 'text-cyan-600', bg: 'bg-cyan-50' },
   ]
 
@@ -259,41 +336,121 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 card p-5">
-          <p className="text-sm font-semibold text-slate-700 mb-4">
-            {viewMode === 'daily' ? '일자별 DB 추이' : viewMode === 'monthly' ? '월별 DB 추이' : '연도별 DB 추이'}
-          </p>
-          <TimeSeriesChart leads={validLeads} spends={spends} viewMode={viewMode} selectedDate={selectedDate} />
+        <div className="lg:col-span-2 card p-5 space-y-5">
+          <div>
+            <p className="text-sm font-semibold text-slate-700 mb-4">
+              {viewMode === 'daily' ? '일자별 DB 추이' : viewMode === 'monthly' ? '월별 DB 추이' : '연도별 DB 추이'}
+            </p>
+            <TimeSeriesChart leads={validLeads} spends={spends} viewMode={viewMode} selectedDate={selectedDate} />
+          </div>
+
+          <div className="border-t border-slate-100 pt-5 grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold text-slate-700">최종 DB 단계 현황</p>
+                <span className="text-[11px] text-slate-400">연락처 중복 제거</span>
+              </div>
+              <div className="space-y-3">
+                {[
+                  { label: '리타겟만', count: retargetOnly, color: 'bg-violet-500', text: 'text-violet-700', bg: 'bg-violet-50' },
+                  { label: '견적만 확인', count: firstOnly, color: 'bg-blue-500', text: 'text-blue-700', bg: 'bg-blue-50' },
+                  { label: '견적 후 상담', count: convertedSecond, color: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50' },
+                  { label: '광고에서 바로 상담', count: directSecond, color: 'bg-cyan-500', text: 'text-cyan-700', bg: 'bg-cyan-50' },
+                ].map(item => {
+                  const pct = totalDB > 0 ? Math.round((item.count / totalDB) * 100) : 0
+                  return (
+                    <div key={item.label}>
+                      <div className="mb-1 flex items-center justify-between text-xs">
+                        <span className={clsx('rounded-md px-2 py-0.5 font-medium', item.bg, item.text)}>{item.label}</span>
+                        <span className="font-semibold text-slate-700">{item.count.toLocaleString()}건 <span className="font-normal text-slate-400">{pct}%</span></span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-slate-100">
+                        <div className={clsx('h-1.5 rounded-full', item.color)} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="mt-4 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs">
+                <span className="text-slate-500">견적 → 상담 전환율</span>
+                <span className="font-bold text-slate-800">{conversionRate}% <span className="font-normal text-slate-400">({convertedSecond}/{estimatePool})</span></span>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold text-slate-700">상세매체 성과 TOP 5</p>
+                <span className="text-[11px] text-slate-400">최종 2차 DB 기준</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-slate-400">
+                      <th className="pb-2 text-left font-medium">상세매체</th>
+                      <th className="pb-2 text-right font-medium">광고비</th>
+                      <th className="pb-2 text-right font-medium">2차</th>
+                      <th className="pb-2 text-right font-medium">CPL</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {detailPerformance.map(row => (
+                      <tr key={row.key}>
+                        <td className="py-2.5 pr-2">
+                          <div className="font-medium text-slate-700">{row.label}</div>
+                          <div className="text-[10px] text-slate-400">전환 {row.conversion}%</div>
+                        </td>
+                        <td className="py-2.5 text-right text-slate-500">{fmtKRW(row.spend)}원</td>
+                        <td className="py-2.5 text-right font-semibold text-emerald-700">{row.second.toLocaleString()}</td>
+                        <td className="py-2.5 text-right font-semibold text-slate-700">{row.second > 0 ? `${fmtKRW(row.cpl)}원` : '-'}</td>
+                      </tr>
+                    ))}
+                    {!detailPerformance.length && (
+                      <tr><td colSpan={4} className="py-10 text-center text-slate-400">표시할 상세매체 데이터가 없습니다.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="card p-5 space-y-3">
+        <div className="card p-5 space-y-3 overflow-auto max-h-[760px]">
           <p className="text-sm font-semibold text-slate-700">유입채널 현황</p>
           {[
-            { title: '온라인 광고', rows: channelStats.filter(c => ONLINE_CHANNELS.has(c.ch)) },
-            { title: '외부 유입', rows: channelStats.filter(c => !ONLINE_CHANNELS.has(c.ch)) },
+            { key: 'paid', title: '온라인 광고', rows: channelStats.filter(c => c.group === 'paid') },
+            { key: 'organic', title: '온라인 직접·자연유입', rows: channelStats.filter(c => c.group === 'organic') },
+            { key: 'external', title: '외부·제휴유입', rows: channelStats.filter(c => c.group === 'external') },
+            { key: 'unclassified', title: '미분류', rows: channelStats.filter(c => c.group === 'unclassified') },
           ].map(group => (
-            <div key={group.title} className="space-y-2">
+            <div key={group.key} className="space-y-2">
               <p className="pt-1 text-[11px] font-semibold text-slate-400">{group.title}</p>
-              {group.rows.map(({ ch, label, db, spend, color, details }) => (
-                <div key={ch} className="space-y-1">
+              {group.rows.map(({ key, label, db, spend, color, details }) => (
+                <div key={key} className="space-y-1">
                   <button
                     type="button"
-                    onClick={() => setExpandedChannel(expandedChannel === ch ? null : ch)}
+                    onClick={() => setExpandedChannel(expandedChannel === key ? null : key)}
                     className="w-full text-left"
                   >
                     <div className="flex items-center gap-1">
                       <div className="flex-1">
                         <ChannelBar label={label} db={db} spend={spend} maxDB={maxDB} color={color} />
                       </div>
-                      <ChevronDown size={13} className={clsx('text-slate-400 transition-transform', expandedChannel === ch && 'rotate-180')} />
+                      <ChevronDown size={13} className={clsx('text-slate-400 transition-transform', expandedChannel === key && 'rotate-180')} />
                     </div>
                   </button>
-                  {expandedChannel === ch && details.length > 0 && (
-                    <div className="ml-5 mr-1 mb-2 rounded-lg bg-slate-50 border border-slate-100 p-2 space-y-1">
+                  {expandedChannel === key && details.length > 0 && (
+                    <div className="ml-5 mr-1 mb-2 rounded-lg bg-slate-50 border border-slate-100 p-2 space-y-2">
                       {details.map(d => (
-                        <div key={d.label} className="flex items-center justify-between text-xs">
-                          <span className="text-slate-500">{d.label}</span>
-                          <span className="font-semibold text-slate-700">{d.count.toLocaleString()}건</span>
+                        <div key={d.label} className="text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-600">{d.label}</span>
+                            <span className="font-semibold text-slate-700">{d.count.toLocaleString()}건</span>
+                          </div>
+                          <div className="mt-1 flex justify-end gap-1 text-[10px]">
+                            <span className="rounded bg-violet-50 px-1.5 py-0.5 text-violet-600">리타겟 {d.retarget}</span>
+                            <span className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-600">1차 {d.first}</span>
+                            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-600">2차 {d.second}</span>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -303,31 +460,6 @@ export default function DashboardPage() {
             </div>
           ))}
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        {[
-          { label: '리타겟 DB', tier: 'retarget', color: 'bg-violet-500', light: 'bg-violet-50 text-violet-700' },
-          { label: '1차 DB', tier: 'first', color: 'bg-blue-500', light: 'bg-blue-50 text-blue-700' },
-          { label: '2차 DB', tier: 'second', color: 'bg-emerald-500', light: 'bg-emerald-50 text-emerald-700' },
-          { label: '1차 재인입', tier: 'first_reentry', color: 'bg-sky-500', light: 'bg-sky-50 text-sky-700' },
-          { label: '2차 재인입', tier: 'second_reentry', color: 'bg-teal-500', light: 'bg-teal-50 text-teal-700' },
-        ].map(({ label, tier, color, light }) => {
-          const count = activeLeads.filter(l => l.dbTier === tier).length
-          const pct = totalDB > 0 ? Math.round((count / totalDB) * 100) : 0
-          return (
-            <div key={tier} className="stat-card">
-              <div className="flex items-center justify-between">
-                <span className={clsx('text-xs font-semibold px-2 py-0.5 rounded-md', light)}>{label}</span>
-                <span className="text-xs text-slate-400">{pct}%</span>
-              </div>
-              <p className="text-xl font-bold text-slate-800">{loading ? '—' : count.toLocaleString()}<span className="text-xs text-slate-400 ml-1">건</span></p>
-              <div className="w-full bg-slate-100 rounded-full h-1.5 mt-1">
-                <div className={clsx('h-1.5 rounded-full transition-all', color)} style={{ width: `${pct}%` }} />
-              </div>
-            </div>
-          )
-        })}
       </div>
     </div>
   )
