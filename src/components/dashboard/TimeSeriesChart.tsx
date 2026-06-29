@@ -4,7 +4,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend
 } from 'recharts'
-import { format, eachDayOfInterval, eachMonthOfInterval, parseISO, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears } from 'date-fns'
+import { format, eachDayOfInterval, eachMonthOfInterval, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfYear, endOfYear, subYears } from 'date-fns'
 import type { LeadRecord, AdSpend, ViewMode } from '../../types'
 import { isPaidChannel, trafficGroup } from '../../lib/leadMetrics'
 
@@ -38,6 +38,23 @@ export default function TimeSeriesChart({ leads, spends, viewMode, selectedDate 
         const unclassifiedDb = matched.filter(l => trafficGroup(l) === 'unclassified').length
         const spend = spends.filter(s => s.date === key && isPaidChannel(s.channel)).reduce((a, b) => a + b.amount, 0)
         return { label: format(d, 'd일'), paidDb, organicDb, externalDb, unclassifiedDb, spend: Math.round(spend / 10000) }
+      })
+    }
+
+    if (viewMode === 'weekly') {
+      const days = eachDayOfInterval({
+        start: startOfWeek(base, { weekStartsOn: 1 }),
+        end: endOfWeek(base, { weekStartsOn: 1 }),
+      })
+      return days.map(d => {
+        const key = format(d, 'yyyy-MM-dd')
+        const matched = leads.filter(l => l.date === key)
+        const paidDb = matched.filter(l => trafficGroup(l) === 'paid').length
+        const organicDb = matched.filter(l => trafficGroup(l) === 'organic').length
+        const externalDb = matched.filter(l => trafficGroup(l) === 'external').length
+        const unclassifiedDb = matched.filter(l => trafficGroup(l) === 'unclassified').length
+        const spend = spends.filter(s => s.date === key && isPaidChannel(s.channel)).reduce((a, b) => a + b.amount, 0)
+        return { label: format(d, 'MM/dd'), paidDb, organicDb, externalDb, unclassifiedDb, spend: Math.round(spend / 10000) }
       })
     }
 

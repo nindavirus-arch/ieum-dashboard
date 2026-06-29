@@ -1,6 +1,6 @@
 // src/pages/DashboardPage.tsx
 import { useEffect, useMemo, useState } from 'react'
-import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, parseISO } from 'date-fns'
+import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfYear, endOfYear, parseISO } from 'date-fns'
 import { Users, DollarSign, TrendingDown, CalendarDays, RefreshCw, ChevronDown } from 'lucide-react'
 import { fetchLeads, fetchAdSpend } from '../lib/dataService'
 import type { LeadRecord, AdSpend, ViewMode } from '../types'
@@ -145,6 +145,16 @@ function rangeByMode(viewMode: ViewMode, selectedDate: string) {
       cardLabel: '선택일 DB',
     }
   }
+  if (viewMode === 'weekly') {
+    return {
+      start: format(startOfWeek(base, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+      end: format(endOfWeek(base, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+      activeStart: format(startOfWeek(base, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+      activeEnd: format(endOfWeek(base, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+      label: `${format(startOfWeek(base, { weekStartsOn: 1 }), 'yyyy년 MM월 dd일')} ~ ${format(endOfWeek(base, { weekStartsOn: 1 }), 'MM월 dd일')}`,
+      cardLabel: '선택주 DB',
+    }
+  }
   if (viewMode === 'monthly') {
     return {
       start: format(startOfYear(base), 'yyyy-MM-dd'),
@@ -260,7 +270,9 @@ export default function DashboardPage() {
 
   const periodLabel = viewMode === 'daily'
     ? (range.activeStart === today ? '오늘 DB' : '선택일 DB')
-    : viewMode === 'monthly'
+    : viewMode === 'weekly'
+      ? '선택주 DB'
+      : viewMode === 'monthly'
       ? (selectedDate.slice(0, 7) === today.slice(0, 7) ? '이번달 DB' : '선택월 DB')
       : (selectedDate.slice(0, 4) === today.slice(0, 4) ? '올해 DB' : '선택연 DB')
 
@@ -268,20 +280,22 @@ export default function DashboardPage() {
     { label: '오늘 DB', value: todayDB, unit: '건', icon: CalendarDays, color: 'text-blue-600', bg: 'bg-blue-50' },
     { label: periodLabel, value: totalDB, unit: '건', icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
     { label: '누적 DB', value: validLeads.length, unit: '건', icon: Users, color: 'text-teal-600', bg: 'bg-teal-50' },
-    { label: viewMode === 'daily' ? '선택일 광고비' : viewMode === 'monthly' ? '이번달 광고비' : '선택연 광고비', value: fmtKRW(periodSpend), unit: '원', icon: DollarSign, color: 'text-violet-600', bg: 'bg-violet-50' },
+    { label: viewMode === 'daily' ? '선택일 광고비' : viewMode === 'weekly' ? '선택주 광고비' : viewMode === 'monthly' ? '이번달 광고비' : '선택연 광고비', value: fmtKRW(periodSpend), unit: '원', icon: DollarSign, color: 'text-violet-600', bg: 'bg-violet-50' },
     { label: '유효 DB CPL', value: fmtKRW(avgCPL), unit: '원', icon: TrendingDown, color: 'text-orange-600', bg: 'bg-orange-50' },
     { label: '1→2 전환율', value: conversionRate, unit: '%', icon: TrendingDown, color: 'text-cyan-600', bg: 'bg-cyan-50' },
   ]
 
   const inputValue = viewMode === 'daily'
     ? selectedDate
+    : viewMode === 'weekly'
+      ? selectedDate
     : viewMode === 'monthly'
       ? selectedDate.slice(0, 7)
       : selectedDate.slice(0, 4)
 
   function handleDateChange(value: string) {
     if (!value) return
-    if (viewMode === 'daily') setSelectedDate(value)
+    if (viewMode === 'daily' || viewMode === 'weekly') setSelectedDate(value)
     else if (viewMode === 'monthly') setSelectedDate(`${value}-01`)
     else setSelectedDate(`${value}-01-01`)
   }
@@ -293,17 +307,17 @@ export default function DashboardPage() {
           <h1 className="text-lg md:text-xl font-bold text-slate-800 whitespace-nowrap">메인 대시보드</h1>
           <p className="text-xs text-slate-500 mt-0.5 whitespace-nowrap">{range.label}</p>
         </div>
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1 md:mx-0 md:px-0 md:pb-0 md:overflow-visible">
-          <div className="flex shrink-0 bg-white border border-slate-200 rounded-lg p-1 gap-0.5">
-            {(['daily','monthly','yearly'] as ViewMode[]).map(m => (
-              <button key={m} onClick={() => setViewMode(m)} className={clsx('tab-btn', viewMode===m && 'active')}>
-                {m === 'daily' ? '일별' : m === 'monthly' ? '월별' : '연별'}
+        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+          <div className="flex max-w-full overflow-x-auto bg-white border border-slate-200 rounded-lg p-1 gap-0.5">
+            {(['daily','weekly','monthly','yearly'] as ViewMode[]).map(m => (
+              <button key={m} onClick={() => setViewMode(m)} className={clsx('tab-btn shrink-0', viewMode===m && 'active')}>
+                {m === 'daily' ? '일별' : m === 'weekly' ? '주별' : m === 'monthly' ? '월별' : '연별'}
               </button>
             ))}
           </div>
 
-          {viewMode === 'daily' && (
-            <input type="date" value={inputValue} onChange={(e) => handleDateChange(e.target.value)} className="h-9 shrink-0 px-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-700" />
+          {(viewMode === 'daily' || viewMode === 'weekly') && (
+            <input type="date" value={inputValue} onChange={(e) => handleDateChange(e.target.value)} className="h-9 min-w-0 flex-1 px-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-700 sm:flex-none" />
           )}
           {viewMode === 'monthly' && (
             <input type="month" value={inputValue} onChange={(e) => handleDateChange(e.target.value)} className="h-9 shrink-0 px-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-700" />
@@ -312,8 +326,8 @@ export default function DashboardPage() {
             <input type="number" min="2020" max="2035" value={inputValue} onChange={(e) => handleDateChange(e.target.value)} className="h-9 w-24 shrink-0 px-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-700" />
           )}
 
-          <button onClick={() => setSelectedDate(today)} className="btn-secondary">오늘</button>
-          <button onClick={load} className="btn-secondary">
+          <button onClick={() => { setSelectedDate(today); setViewMode('daily') }} className="btn-secondary shrink-0">오늘</button>
+          <button onClick={load} className="btn-secondary shrink-0">
             <RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침
           </button>
         </div>
@@ -340,7 +354,7 @@ export default function DashboardPage() {
         <div className="lg:col-span-2 card p-5 space-y-5">
           <div>
             <p className="text-sm font-semibold text-slate-700 mb-4">
-              {viewMode === 'daily' ? '일자별 DB 추이' : viewMode === 'monthly' ? '월별 DB 추이' : '연도별 DB 추이'}
+              {viewMode === 'daily' ? '일자별 DB 추이' : viewMode === 'weekly' ? '주별 DB 추이' : viewMode === 'monthly' ? '월별 DB 추이' : '연도별 DB 추이'}
             </p>
             <TimeSeriesChart leads={validLeads} spends={spends} viewMode={viewMode} selectedDate={selectedDate} />
           </div>

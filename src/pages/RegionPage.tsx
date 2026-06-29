@@ -59,27 +59,27 @@ export default function RegionPage() {
     : []
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 md:p-6 space-y-5 md:space-y-6">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-lg font-bold text-slate-800">지역별 통계</h1>
           <p className="text-xs text-slate-500 mt-0.5">{monthLabel}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
           <input
             type="month"
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(e.target.value)}
-            className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
+            className="h-9 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 sm:flex-none"
           />
           <button onClick={() => setSelectedMonth(format(new Date(), 'yyyy-MM'))} className="btn-secondary">이번달</button>
-          <button onClick={load} className="btn-secondary">
+          <button onClick={load} className="btn-secondary shrink-0">
             <RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Province list */}
         <div className="card overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
@@ -158,7 +158,16 @@ export default function RegionPage() {
         <div className="px-4 py-3 border-b border-slate-100">
           <p className="text-xs font-semibold text-slate-700">전체 지역 집계</p>
         </div>
-        <table className="w-full text-sm">
+        <div className="divide-y divide-slate-50 md:hidden">
+          {provinceStat.map(({ prov, total, retarget, first, second }) => {
+            const pct = leads.length > 0 ? Math.round(total / leads.length * 100) : 0
+            return <div key={prov} className="p-4">
+              <div className="flex items-center justify-between"><span className="font-semibold text-slate-700">{prov}</span><span className="font-bold text-slate-800">{total}건 <span className="text-xs font-normal text-slate-400">{pct}%</span></span></div>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs"><span className="rounded bg-violet-50 py-1 text-violet-700">리타겟 {retarget}</span><span className="rounded bg-blue-50 py-1 text-blue-700">1차 {first}</span><span className="rounded bg-emerald-50 py-1 text-emerald-700">2차 {second}</span></div>
+            </div>
+          })}
+        </div>
+        <table className="hidden w-full text-sm md:table">
           <thead>
             <tr className="bg-slate-50 text-slate-500">
               <th className="text-left px-4 py-2.5 text-xs font-medium">시도</th>

@@ -4,7 +4,7 @@ export type Channel = 'naver' | 'google' | 'meta' | 'youtube' | 'viral' | 'kakao
 export type DBTier = 'retarget' | 'first' | 'second' | 'first_reentry' | 'second_reentry'
 export type DBStatus = 'retarget' | 'first' | 'second' | 'first_reentry' | 'second_reentry' | 'invalid' | 'test' | 'duplicate' | 'deleted' | 'valid'
 export type SourceKind = 'first_raw' | 'second_raw' | 'unknown'
-export type ViewMode = 'daily' | 'monthly' | 'yearly'
+export type ViewMode = 'daily' | 'weekly' | 'monthly' | 'yearly'
 
 export interface LeadRecord {
   id: string

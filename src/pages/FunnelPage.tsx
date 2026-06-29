@@ -78,28 +78,28 @@ export default function FunnelPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-lg font-bold text-slate-800">퍼널 분석</h1>
           <p className="text-xs text-slate-500 mt-0.5">{monthLabel}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
           <input
             type="month"
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(e.target.value)}
-            className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
+            className="h-9 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 sm:flex-none"
           />
           <button onClick={() => setSelectedMonth(format(new Date(), 'yyyy-MM'))} className="btn-secondary">이번달</button>
           <select
             value={filterChannel}
             onChange={e => setFilterChannel(e.target.value)}
-            className="text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="h-9 min-w-0 flex-1 text-xs border border-slate-200 rounded-lg px-3 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:flex-none"
           >
             <option value="all">전체 채널</option>
             {CHANNELS.map(ch => <option key={ch} value={ch}>{CHANNEL_LABELS[ch]}</option>)}
           </select>
-          <button onClick={load} className="btn-secondary">
+          <button onClick={load} className="btn-secondary shrink-0">
             <RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침
           </button>
         </div>
@@ -152,23 +152,35 @@ export default function FunnelPage() {
         {/* Channel bar chart */}
         <div className="lg:col-span-2 card p-5">
           <p className="text-xs font-semibold text-slate-600 mb-4">매체별 DB 등급 분포</p>
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={channelFunnelData} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-              <Tooltip
-                contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
-                formatter={(val: number, name: string) => [
-                  `${val}건`,
-                  name === 'retarget' ? '리타겟' : name === 'first' ? '1차 DB' : '2차 DB'
-                ]}
-              />
-              <Bar dataKey="retarget" stackId="a" fill="#7c3aed" radius={[0,0,0,0]} />
-              <Bar dataKey="first" stackId="a" fill="#3b82f6" radius={[0,0,0,0]} />
-              <Bar dataKey="second" stackId="a" fill="#10b981" radius={[4,4,0,0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <div className="space-y-3 md:hidden">
+            {channelFunnelData.filter(row => row.retarget + row.first + row.second > 0).map(row => <div key={row.ch} className="rounded-lg bg-slate-50 p-3">
+              <div className="flex items-center justify-between"><span className="font-medium text-slate-700">{row.name}</span><span className="text-xs font-bold text-slate-700">{row.retarget + row.first + row.second}건</span></div>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="rounded bg-violet-50 py-1.5 text-violet-700">리타겟 {row.retarget}</div>
+                <div className="rounded bg-blue-50 py-1.5 text-blue-700">1차 {row.first}</div>
+                <div className="rounded bg-emerald-50 py-1.5 text-emerald-700">2차 {row.second}</div>
+              </div>
+            </div>)}
+          </div>
+          <div className="hidden md:block">
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={channelFunnelData} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                  formatter={(val: number, name: string) => [
+                    `${val}건`,
+                    name === 'retarget' ? '리타겟' : name === 'first' ? '1차 DB' : '2차 DB'
+                  ]}
+                />
+                <Bar dataKey="retarget" stackId="a" fill="#7c3aed" radius={[0,0,0,0]} />
+                <Bar dataKey="first" stackId="a" fill="#3b82f6" radius={[0,0,0,0]} />
+                <Bar dataKey="second" stackId="a" fill="#10b981" radius={[4,4,0,0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
           <div className="flex gap-4 mt-2 justify-center">
             {[
               { label: '리타겟', color: '#7c3aed' },
@@ -189,7 +201,13 @@ export default function FunnelPage() {
         <div className="px-4 py-3 border-b border-slate-100">
           <p className="text-xs font-semibold text-slate-700">매체별 퍼널 상세</p>
         </div>
-        <div className="overflow-auto"><table className="w-full text-sm min-w-[760px]">
+        <div className="divide-y divide-slate-50 md:hidden">
+          {channelFunnelData.filter(row => row.retarget + row.first + row.second > 0).map(row => <div key={row.ch} className="p-4">
+            <div className="flex items-center justify-between"><span className="font-semibold text-slate-700">{row.name}</span><span className="text-xs text-slate-400">합계 {row.retarget + row.first + row.second}건</span></div>
+            <div className="mt-2 flex items-center justify-between text-xs"><span className="text-violet-700">리타겟 {row.retarget}</span><span className="text-slate-300">→</span><span className="text-blue-700">1차 {row.first}</span><span className="text-slate-300">→</span><span className="text-emerald-700">2차 {row.second}</span></div>
+          </div>)}
+        </div>
+        <div className="hidden overflow-auto md:block"><table className="w-full text-sm min-w-[760px]">
           <thead>
             <tr className="bg-slate-50 text-slate-500">
               <th className="text-left px-4 py-2.5 text-xs font-medium">매체</th>
