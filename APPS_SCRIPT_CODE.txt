@@ -3,11 +3,19 @@ const SHEETS = {
   adSpend: 'AD_SPEND',
   firstRaw: 'FIRST_DB_RAW',
   secondRaw: 'SECOND_DB_RAW',
-  mapping: 'CHANNEL_MAPPING'
+  mapping: 'CHANNEL_MAPPING',
+  users: 'ADMIN_USERS'
 };
 
 function doGet(e) {
   const type = e.parameter.type;
+  if (type === 'authStatus') return authStatus(e.parameter.token || '');
+
+  const user = sessionUser(e.parameter.token || '');
+  if (!user) return json({ error: 'unauthorized' });
+  const menu = String(e.parameter.menu || '');
+  if (!canAccessMenu(user, menu) || !canReadData(type, menu)) return json({ error: 'forbidden' });
+
   if (type === 'leads') return getSheetData(SHEETS.leads);
   if (type === 'adSpend') return getSheetData(SHEETS.adSpend);
   if (type === 'firstRaw') return getSheetData(SHEETS.firstRaw);
@@ -21,6 +29,19 @@ function doPost(e) {
     const body = JSON.parse(e.postData.contents);
     const type = body.type;
     const rows = body.rows || [];
+
+    if (type === 'authSetup') return authSetup(body);
+    if (type === 'authLogin') return authLogin(body);
+    if (type === 'authLogout') return authLogout(body.token || '');
+
+    const user = sessionUser(body.token || '');
+    if (!user) return json({ error: 'unauthorized' });
+    if (type === 'authListUsers') return authListUsers(user);
+    if (type === 'authCreateUser') return authCreateUser(user, body);
+    if (type === 'authUpdateUser') return authUpdateUser(user, body);
+
+    const menu = String(body.menu || '');
+    if (!canAccessMenu(user, menu) || !canWriteData(type, menu)) return json({ error: 'forbidden' });
 
     if (type === 'leads') return appendRowsUnique(SHEETS.leads, rows, 'leads');
     if (type === 'adSpend') return appendRowsUnique(SHEETS.adSpend, rows, 'adSpend');
@@ -321,6 +342,258 @@ function makeUniqueKey(row, type) {
   }
 
   return '';
+}
+
+const USER_HEADERS = ['id', 'name', 'passwordHash', 'salt', 'role', 'permissions', 'active', 'createdAt', 'updatedAt'];
+const SESSION_TTL_SECONDS = 21600;
+const SALES_SUPPORT_MENUS = ['/db-manage', '/upload-db', '/region'];
+const VALID_MENUS = [
+  '/dashboard', '/channels', '/funnel', '/region', '/db-manage',
+  '/upload-db', '/upload-spend', '/manage-spend', '/admin-users'
+];
+
+function ensureUsersSheet() {
+  const book = SpreadsheetApp.getActive();
+  let sheet = book.getSheetByName(SHEETS.users);
+  if (!sheet) sheet = book.insertSheet(SHEETS.users);
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, USER_HEADERS.length).setValues([USER_HEADERS]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function getUsers() {
+  const sheet = ensureUsersSheet();
+  if (sheet.getLastRow() <= 1) return [];
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, USER_HEADERS.length).getDisplayValues();
+  return values.filter(row => String(row[0] || '').trim()).map((row, index) => {
+    const user = { rowNumber: index + 2 };
+    USER_HEADERS.forEach((header, column) => user[header] = row[column]);
+    user.active = String(user.active).toLowerCase() !== 'false';
+    user.permissions = parsePermissions(user.permissions);
+    return user;
+  });
+}
+
+function findUser(id) {
+  const key = String(id || '').trim().toLowerCase();
+  if (!key) return null;
+  const users = getUsers();
+  for (let i = 0; i < users.length; i++) {
+    if (String(users[i].id || '').trim().toLowerCase() === key) return users[i];
+  }
+  return null;
+}
+
+function parsePermissions(value) {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  return String(value || '').split(/[|,]/).map(value => value.trim()).filter(Boolean);
+}
+
+function normalizedPermissions(role, permissions) {
+  if (role === 'master') return ['*'];
+  if (role === 'sales_support') return SALES_SUPPORT_MENUS.slice();
+  const requested = parsePermissions(permissions);
+  return VALID_MENUS.filter(menu => requested.indexOf(menu) >= 0);
+}
+
+function publicUser(user) {
+  return {
+    id: String(user.id || ''),
+    name: String(user.name || ''),
+    role: String(user.role || 'custom'),
+    permissions: parsePermissions(user.permissions),
+    active: user.active !== false && String(user.active).toLowerCase() !== 'false',
+    createdAt: String(user.createdAt || ''),
+    updatedAt: String(user.updatedAt || '')
+  };
+}
+
+function hashPassword(password, salt) {
+  const bytes = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    String(salt) + ':' + String(password),
+    Utilities.Charset.UTF_8
+  );
+  return Utilities.base64EncodeWebSafe(bytes);
+}
+
+function createSession(userId) {
+  const token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
+  CacheService.getScriptCache().put('admin_session_' + token, String(userId), SESSION_TTL_SECONDS);
+  return token;
+}
+
+function sessionUser(token) {
+  if (!token) return null;
+  const userId = CacheService.getScriptCache().get('admin_session_' + String(token));
+  if (!userId) return null;
+  const user = findUser(userId);
+  if (!user || !publicUser(user).active) {
+    CacheService.getScriptCache().remove('admin_session_' + String(token));
+    return null;
+  }
+  return user;
+}
+
+function authStatus(token) {
+  const users = getUsers();
+  if (users.length === 0) return json({ setupRequired: true });
+  const user = sessionUser(token);
+  return json({ setupRequired: false, user: user ? publicUser(user) : null });
+}
+
+function authSetup(body) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    if (getUsers().length > 0) return json({ error: 'setup already completed' });
+    const id = String(body.id || '').trim();
+    const name = String(body.name || '').trim() || id;
+    const password = String(body.password || '');
+    if (!id) return json({ error: 'id required' });
+    if (password.length < 8) return json({ error: 'password must be at least 8 characters' });
+
+    const now = new Date().toISOString();
+    const salt = Utilities.getUuid();
+    const user = {
+      id: id,
+      name: name,
+      passwordHash: hashPassword(password, salt),
+      salt: salt,
+      role: 'master',
+      permissions: ['*'],
+      active: true,
+      createdAt: now,
+      updatedAt: now
+    };
+    appendUser(user);
+    return json({ success: true, token: createSession(id), user: publicUser(user) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function authLogin(body) {
+  const user = findUser(body.id);
+  if (!user || !publicUser(user).active) return json({ error: 'invalid credentials' });
+  const actual = hashPassword(String(body.password || ''), user.salt);
+  if (actual !== String(user.passwordHash || '')) return json({ error: 'invalid credentials' });
+  return json({ success: true, token: createSession(user.id), user: publicUser(user) });
+}
+
+function authLogout(token) {
+  if (token) CacheService.getScriptCache().remove('admin_session_' + String(token));
+  return json({ success: true });
+}
+
+function appendUser(user) {
+  const sheet = ensureUsersSheet();
+  const row = USER_HEADERS.map(header => {
+    if (header === 'permissions') return parsePermissions(user[header]).join('|');
+    return user[header] === undefined || user[header] === null ? '' : user[header];
+  });
+  sheet.getRange(sheet.getLastRow() + 1, 1, 1, USER_HEADERS.length).setValues([row]);
+}
+
+function requireMaster(user) {
+  return user && String(user.role) === 'master' && publicUser(user).active;
+}
+
+function authListUsers(actor) {
+  if (!requireMaster(actor)) return json({ error: 'forbidden' });
+  return json({ users: getUsers().map(publicUser) });
+}
+
+function authCreateUser(actor, body) {
+  if (!requireMaster(actor)) return json({ error: 'forbidden' });
+  const id = String(body.id || '').trim();
+  const name = String(body.name || '').trim() || id;
+  const password = String(body.password || '');
+  const role = ['master', 'sales_support', 'custom'].indexOf(String(body.role)) >= 0 ? String(body.role) : 'custom';
+  if (!id) return json({ error: 'id required' });
+  if (findUser(id)) return json({ error: 'id already exists' });
+  if (password.length < 8) return json({ error: 'password must be at least 8 characters' });
+
+  const now = new Date().toISOString();
+  const salt = Utilities.getUuid();
+  const user = {
+    id: id,
+    name: name,
+    passwordHash: hashPassword(password, salt),
+    salt: salt,
+    role: role,
+    permissions: normalizedPermissions(role, body.permissions),
+    active: true,
+    createdAt: now,
+    updatedAt: now
+  };
+  appendUser(user);
+  return json({ success: true, user: publicUser(user) });
+}
+
+function authUpdateUser(actor, body) {
+  if (!requireMaster(actor)) return json({ error: 'forbidden' });
+  const user = findUser(body.id);
+  if (!user) return json({ error: 'user not found' });
+
+  const isSelf = String(actor.id).toLowerCase() === String(user.id).toLowerCase();
+  const role = body.role === undefined ? String(user.role) :
+    (['master', 'sales_support', 'custom'].indexOf(String(body.role)) >= 0 ? String(body.role) : 'custom');
+  const active = body.active === undefined ? publicUser(user).active : Boolean(body.active);
+  if (isSelf && (role !== 'master' || !active)) return json({ error: 'cannot remove your own master access' });
+
+  user.name = body.name === undefined ? user.name : (String(body.name || '').trim() || user.id);
+  user.role = role;
+  user.permissions = normalizedPermissions(role, body.permissions === undefined ? user.permissions : body.permissions);
+  user.active = active;
+  user.updatedAt = new Date().toISOString();
+  if (String(body.password || '')) {
+    if (String(body.password).length < 8) return json({ error: 'password must be at least 8 characters' });
+    user.salt = Utilities.getUuid();
+    user.passwordHash = hashPassword(String(body.password), user.salt);
+  }
+
+  const sheet = ensureUsersSheet();
+  const row = USER_HEADERS.map(header => {
+    if (header === 'permissions') return parsePermissions(user[header]).join('|');
+    return user[header] === undefined || user[header] === null ? '' : user[header];
+  });
+  sheet.getRange(user.rowNumber, 1, 1, USER_HEADERS.length).setValues([row]);
+  return json({ success: true, user: publicUser(user) });
+}
+
+function canAccessMenu(user, menu) {
+  if (!user || VALID_MENUS.indexOf(menu) < 0) return false;
+  if (String(user.role) === 'master') return true;
+  const permissions = parsePermissions(user.permissions);
+  return permissions.indexOf('*') >= 0 || permissions.indexOf(menu) >= 0;
+}
+
+function canReadData(type, menu) {
+  const rules = {
+    leads: ['/dashboard', '/channels', '/funnel', '/region', '/db-manage', '/upload-db'],
+    adSpend: ['/dashboard', '/channels', '/upload-spend', '/manage-spend'],
+    firstRaw: ['/dashboard', '/channels', '/funnel', '/db-manage', '/upload-db'],
+    secondRaw: ['/dashboard', '/channels', '/funnel', '/db-manage', '/upload-db'],
+    mapping: ['/dashboard', '/channels', '/funnel', '/region', '/db-manage', '/upload-db', '/upload-spend', '/manage-spend']
+  };
+  return Boolean(rules[type] && rules[type].indexOf(menu) >= 0);
+}
+
+function canWriteData(type, menu) {
+  const rules = {
+    leads: ['/db-manage', '/upload-db'],
+    firstRaw: ['/upload-db'],
+    secondRaw: ['/upload-db'],
+    updateLead: ['/db-manage'],
+    adSpend: ['/upload-spend'],
+    adSpendReplace: ['/upload-spend'],
+    updateAdSpend: ['/manage-spend'],
+    deleteAdSpend: ['/manage-spend']
+  };
+  return Boolean(rules[type] && rules[type].indexOf(menu) >= 0);
 }
 
 function json(data) {

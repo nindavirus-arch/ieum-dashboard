@@ -3,9 +3,11 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Radio, Upload, BadgeDollarSign,
-  MapPin, GitMerge, ChevronRight, Megaphone, Users, Menu, X, ClipboardList
+  MapPin, GitMerge, ChevronRight, Megaphone, Users, Menu, X, ClipboardList, ShieldCheck, LogOut
 } from 'lucide-react'
 import clsx from 'clsx'
+import { useAuth } from '../contexts/AuthContext'
+import { canAccess } from '../lib/auth'
 
 const NAV = [
   { to: '/dashboard',     icon: LayoutDashboard,    label: '메인 대시보드' },
@@ -16,6 +18,7 @@ const NAV = [
   { to: '/upload-db',     icon: Upload,             label: 'DB 업로드' },
   { to: '/upload-spend',  icon: BadgeDollarSign,    label: '광고비 업로드' },
   { to: '/manage-spend',  icon: ClipboardList,      label: '광고비 관리' },
+  { to: '/admin-users',   icon: ShieldCheck,       label: '관리자 계정 관리' },
 ]
 
 function Logo() {
@@ -33,12 +36,13 @@ function Logo() {
 }
 
 function Navigation({ onSelect }: { onSelect?: () => void }) {
+  const { user } = useAuth()
   return (
     <nav className="flex-1 py-3 overflow-y-auto">
       <p className="px-5 pt-2 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
         메뉴
       </p>
-      {NAV.map(({ to, icon: Icon, label }) => (
+      {NAV.filter(item => canAccess(user, item.to)).map(({ to, icon: Icon, label }) => (
         <NavLink
           key={to}
           to={to}
@@ -67,6 +71,7 @@ function Navigation({ onSelect }: { onSelect?: () => void }) {
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const { user, logout } = useAuth()
 
   return (
     <div className="min-h-screen bg-slate-50 md:flex md:h-screen md:overflow-hidden">
@@ -105,8 +110,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </button>
             </div>
             <Navigation onSelect={() => setMobileOpen(false)} />
-            <div className="px-5 py-3 border-t border-slate-700/60">
-              <p className="text-[10px] text-slate-500">© 2024 창호마스터 이음</p>
+            <div className="px-4 py-3 border-t border-slate-700/60">
+              <div className="mb-2 text-xs text-slate-300">{user?.name || user?.id}<span className="ml-1 text-[10px] text-slate-500">{user?.role === 'master' ? '마스터' : '관리자'}</span></div>
+              <button onClick={() => logout()} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-slate-400 hover:bg-slate-800 hover:text-white"><LogOut size={14}/> 로그아웃</button>
             </div>
           </aside>
         </div>
@@ -118,8 +124,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <Logo />
         </div>
         <Navigation />
-        <div className="px-5 py-3 border-t border-slate-700/60">
-          <p className="text-[10px] text-slate-500">© 2024 창호마스터 이음</p>
+        <div className="px-4 py-3 border-t border-slate-700/60">
+          <div className="mb-2 truncate text-xs text-slate-300">{user?.name || user?.id}<span className="ml-1 text-[10px] text-slate-500">{user?.role === 'master' ? '마스터' : '관리자'}</span></div>
+          <button onClick={() => logout()} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-slate-400 hover:bg-slate-800 hover:text-white"><LogOut size={14}/> 로그아웃</button>
         </div>
       </aside>
 

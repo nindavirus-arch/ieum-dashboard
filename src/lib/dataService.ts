@@ -7,11 +7,11 @@
 
 import type { LeadRecord, AdSpend, DBTier, Channel, SourceKind } from '../types'
 import { normalizeDate, normalizePhone, normalizeChannel, inferChannelStrict, inferSubChannel } from './excelParser'
+import { SHEET_API_URL } from './apiConfig'
+import { getAuthToken, setAuthToken } from './auth'
 
 // TODO: Apps Script 배포 후 웹앱 URL을 여기에 붙여넣으세요.
 // 예: const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec'
-const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzbjYEl7YE7ghlc11OYiijmSdKx0AqNIlh1QoaC1iPzfWABB5F1vS7WSKZ3WQeFMuFs0g/exec'
-
 type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping'
 type PostSheetType = Exclude<SheetType, 'mapping'> | 'adSpendReplace'
 export type MappingRow = { raw: string; channel: Channel; subChannel: string }
@@ -21,6 +21,19 @@ const sheetCache = new Map<SheetType, { expires: number; data?: any[]; promise?:
 
 function clearSheetCache() {
   sheetCache.clear()
+}
+
+function handleDataError(data: any) {
+  if (data?.error === 'unauthorized') {
+    setAuthToken('')
+    window.setTimeout(() => window.location.reload(), 0)
+    throw new Error('로그인이 만료되었습니다.')
+  }
+  if (data?.error) throw new Error(data.error)
+}
+
+function currentMenu() {
+  return window.location.pathname || '/dashboard'
 }
 
 export function invalidateDataCache() {
@@ -231,10 +244,10 @@ async function getSheetRows(type: SheetType) {
   if (cached?.promise) return cached.promise
 
   const promise = (async () => {
-    const res = await fetch(`${SHEET_API_URL}?type=${type}`)
+    const res = await fetch(`${SHEET_API_URL}?type=${type}&token=${encodeURIComponent(getAuthToken())}&menu=${encodeURIComponent(currentMenu())}`)
     if (!res.ok) throw new Error('Google Sheets 데이터를 불러오지 못했습니다.')
     const data = await res.json()
-    if (data?.error) throw new Error(data.error)
+    handleDataError(data)
     const rows = Array.isArray(data) ? data : []
     sheetCache.set(type, { data: rows, expires: Date.now() + SHEET_CACHE_TTL_MS })
     return rows
@@ -257,7 +270,7 @@ async function postSheetRows(type: PostSheetType, rows: any[]) {
     method: 'POST',
     // text/plain으로 보내야 Apps Script에서 CORS preflight 문제를 피하기 쉬움
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ type, rows }),
+    body: JSON.stringify({ type, rows, token: getAuthToken(), menu: currentMenu() }),
   })
 
   if (!res.ok) throw new Error('Google Sheets 저장 실패')
@@ -265,7 +278,7 @@ async function postSheetRows(type: PostSheetType, rows: any[]) {
   if (data?.error === 'Invalid type' && type === 'adSpendReplace') {
     throw new Error('교체 저장 기능을 쓰려면 APPS_SCRIPT_CODE.txt를 구글 Apps Script에 다시 붙여넣고 배포해야 합니다.')
   }
-  if (data?.error) throw new Error(data.error)
+  handleDataError(data)
   clearSheetCache()
   return data
 }
@@ -379,6 +392,8 @@ export async function updateLeadAttribution(params: {
   if (SHEET_API_URL.includes('여기에_')) throw new Error('dataService.ts의 SHEET_API_URL에 Apps Script 웹앱 URL을 입력하세요.')
   const body = {
     type: 'updateLead',
+    token: getAuthToken(),
+    menu: currentMenu(),
     phone: normalizePhone(params.phone),
     stage: params.stage,
     date: params.date || '',
@@ -404,7 +419,7 @@ export async function updateLeadAttribution(params: {
   })
   if (!res.ok) throw new Error('Google Sheets 수정 실패')
   const data = await res.json()
-  if (data?.error) throw new Error(data.error)
+  handleDataError(data)
   if (!data?.success || Number(data?.updated || 0) < 1) throw new Error('수정할 DB를 찾지 못했습니다.')
   clearSheetCache()
   window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
@@ -936,6 +951,8 @@ export async function updateAdSpendRecord(original: AdSpend, next: Omit<AdSpend,
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
       type: 'updateAdSpend',
+      token: getAuthToken(),
+      menu: currentMenu(),
       original: adSpendIdentity(original),
       patch: {
         date: normalized.date,
@@ -952,7 +969,7 @@ export async function updateAdSpendRecord(original: AdSpend, next: Omit<AdSpend,
   const data = await res.json()
   if (data?.error === 'Invalid type') throw new Error('광고비 관리 기능을 사용하려면 Apps Script를 최신 코드로 다시 배포해야 합니다.')
   if (data?.error === 'duplicate ad spend') throw new Error('같은 날짜·매체·상세매체·캠페인의 광고비가 이미 있습니다.')
-  if (data?.error) throw new Error(data.error)
+  handleDataError(data)
   clearSheetCache()
   window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
   return data
@@ -962,12 +979,12 @@ export async function deleteAdSpendRecord(original: AdSpend) {
   const res = await fetch(SHEET_API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ type: 'deleteAdSpend', original: adSpendIdentity(original) }),
+    body: JSON.stringify({ type: 'deleteAdSpend', token: getAuthToken(), menu: currentMenu(), original: adSpendIdentity(original) }),
   })
   if (!res.ok) throw new Error('광고비 삭제에 실패했습니다.')
   const data = await res.json()
   if (data?.error === 'Invalid type') throw new Error('광고비 관리 기능을 사용하려면 Apps Script를 최신 코드로 다시 배포해야 합니다.')
-  if (data?.error) throw new Error(data.error)
+  handleDataError(data)
   clearSheetCache()
   window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
   return data
