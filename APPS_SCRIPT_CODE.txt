@@ -25,6 +25,8 @@ function doPost(e) {
     if (type === 'leads') return appendRowsUnique(SHEETS.leads, rows, 'leads');
     if (type === 'adSpend') return appendRowsUnique(SHEETS.adSpend, rows, 'adSpend');
     if (type === 'adSpendReplace') return replaceAdSpendRows(rows);
+    if (type === 'updateAdSpend') return updateAdSpendRow(body);
+    if (type === 'deleteAdSpend') return deleteAdSpendRow(body);
     if (type === 'firstRaw') return appendRowsUnique(SHEETS.firstRaw, rows, 'firstRaw');
     if (type === 'secondRaw') return appendRowsUnique(SHEETS.secondRaw, rows, 'secondRaw');
     if (type === 'updateLead') return updateLeadRow(body);
@@ -127,6 +129,78 @@ function replaceAdSpendRows(rows) {
   appendResult.deleted = deleted;
   appendResult.replaced = true;
   return json(appendResult);
+}
+
+function adSpendRowKey(row) {
+  const date = String(row.date || row['날짜'] || '').slice(0, 10);
+  const channel = String(row.channel || row['매체'] || '').toLowerCase();
+  const subChannel = String(row.subChannel || row['상세매체'] || '').toLowerCase();
+  const campaign = String(row.campaign || row['캠페인'] || '').toLowerCase();
+  return date + '_' + channel + '_' + subChannel + '_' + campaign;
+}
+
+function updateAdSpendRow(body) {
+  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEETS.adSpend);
+  if (!sheet) return json({ error: 'Sheet not found: ' + SHEETS.adSpend });
+
+  const original = body.original || {};
+  const patch = body.patch || {};
+  const originalKey = adSpendRowKey(original);
+  if (!originalKey) return json({ error: 'original ad spend key required' });
+
+  let lastCol = sheet.getLastColumn();
+  let headers = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0].filter(String) : [];
+  Object.keys(patch).forEach(k => { if (headers.indexOf(k) === -1) headers.push(k); });
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+  const values = sheet.getDataRange().getDisplayValues();
+  let targetRow = -1;
+  for (let r = 1; r < values.length; r++) {
+    const row = {};
+    headers.forEach((h, i) => row[h] = values[r][i] || '');
+    if (adSpendRowKey(row) === originalKey) {
+      targetRow = r + 1;
+      break;
+    }
+  }
+  if (targetRow < 0) return json({ error: 'matching ad spend not found' });
+
+  const next = {};
+  headers.forEach((h, i) => next[h] = values[targetRow - 1][i] || '');
+  Object.keys(patch).forEach(k => next[k] = patch[k]);
+  const nextKey = adSpendRowKey(next);
+
+  for (let r = 1; r < values.length; r++) {
+    if (r + 1 === targetRow) continue;
+    const row = {};
+    headers.forEach((h, i) => row[h] = values[r][i] || '');
+    if (adSpendRowKey(row) === nextKey) return json({ error: 'duplicate ad spend' });
+  }
+
+  Object.keys(patch).forEach(k => {
+    sheet.getRange(targetRow, headers.indexOf(k) + 1).setValue(patch[k]);
+  });
+  return json({ success: true, updated: 1 });
+}
+
+function deleteAdSpendRow(body) {
+  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEETS.adSpend);
+  if (!sheet) return json({ error: 'Sheet not found: ' + SHEETS.adSpend });
+
+  const originalKey = adSpendRowKey(body.original || {});
+  if (!originalKey) return json({ error: 'original ad spend key required' });
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
+  const values = sheet.getDataRange().getDisplayValues();
+
+  for (let r = 1; r < values.length; r++) {
+    const row = {};
+    headers.forEach((h, i) => row[h] = values[r][i] || '');
+    if (adSpendRowKey(row) === originalKey) {
+      sheet.deleteRow(r + 1);
+      return json({ success: true, deleted: 1 });
+    }
+  }
+  return json({ error: 'matching ad spend not found' });
 }
 
 

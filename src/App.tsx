@@ -8,6 +8,7 @@ import DBManagePage from './pages/DBManagePage'
 import UploadAdSpendPage from './pages/UploadAdSpendPage'
 import RegionPage from './pages/RegionPage'
 import FunnelPage from './pages/FunnelPage'
+import AdSpendManagePage from './pages/AdSpendManagePage'
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/channels" element={<ChannelsPage />} />
         <Route path="/upload-db" element={<UploadDBPage />} />
         <Route path="/upload-spend" element={<UploadAdSpendPage />} />
+        <Route path="/manage-spend" element={<AdSpendManagePage />} />
         <Route path="/region" element={<RegionPage />} />
         <Route path="/db-manage" element={<DBManagePage />} />
         <Route path="/funnel" element={<FunnelPage />} />

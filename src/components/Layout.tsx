@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Radio, Upload, BadgeDollarSign,
-  MapPin, GitMerge, ChevronRight, Megaphone, Users, Menu, X
+  MapPin, GitMerge, ChevronRight, Megaphone, Users, Menu, X, ClipboardList
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -15,6 +15,7 @@ const NAV = [
   { to: '/db-manage',     icon: Users,              label: 'DB관리' },
   { to: '/upload-db',     icon: Upload,             label: 'DB 업로드' },
   { to: '/upload-spend',  icon: BadgeDollarSign,    label: '광고비 업로드' },
+  { to: '/manage-spend',  icon: ClipboardList,      label: '광고비 관리' },
 ]
 
 function Logo() {

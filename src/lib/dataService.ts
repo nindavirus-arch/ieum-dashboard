@@ -10,7 +10,7 @@ import { normalizeDate, normalizePhone, normalizeChannel, inferChannelStrict, in
 
 // TODO: Apps Script 배포 후 웹앱 URL을 여기에 붙여넣으세요.
 // 예: const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec'
-const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzbjYEl7YE7ghlc11OYiijmSdKx0AqNIlh1QoaC1iPzfWABB5F1vS7WSKZ3WQeFMuFs0g/exec'
+const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbyR5J7t-aN4tGfaDchteSyXv73aqtPTYecBZR_QuxPh4CjtHsNBuCLP1hR2aXkyXd-Edw/exec'
 
 type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping'
 type PostSheetType = Exclude<SheetType, 'mapping'> | 'adSpendReplace'
@@ -399,6 +399,8 @@ export async function updateLeadAttribution(params: {
   if (!res.ok) throw new Error('Google Sheets 수정 실패')
   const data = await res.json()
   if (data?.error) throw new Error(data.error)
+  if (!data?.success || Number(data?.updated || 0) < 1) throw new Error('수정할 DB를 찾지 못했습니다.')
+  clearSheetCache()
   window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
   return data
 }
@@ -829,20 +831,33 @@ function applyReentryClassification(leads: LeadRecord[]): LeadRecord[] {
 }
 
 export async function fetchLeads(startDate?: string, endDate?: string, options: { includeRawMeta?: boolean; includeRawAttribution?: boolean } = {}): Promise<LeadRecord[]> {
-  const [mappings, leadRows] = await Promise.all([fetchMappings(), getSheetRows('leads')])
-
-  // 운영 속도 개선 핵심:
-  // 평소 조회는 DASHBOARD_LEADS만 읽는다.
-  // FIRST_DB_RAW / SECOND_DB_RAW 전체 재계산은 업로드 시점 또는 DASHBOARD_LEADS가 비어 있을 때만 사용한다.
+  let mappings: MappingRow[] = []
+  let leadRows: any[] = []
   let firstRawRows: any[] = []
   let secondRawRows: any[] = []
-  if (options.includeRawMeta || !leadRows || leadRows.length === 0) {
-    ;[firstRawRows, secondRawRows] = await Promise.all([
+
+  if (options.includeRawMeta) {
+    ;[mappings, leadRows, firstRawRows, secondRawRows] = await Promise.all([
+      fetchMappings(),
+      getSheetRows('leads'),
       getSheetRows('firstRaw').catch(() => []),
       getSheetRows('secondRaw').catch(() => []),
     ])
   } else if (options.includeRawAttribution) {
-    secondRawRows = await getSheetRows('secondRaw').catch(() => [])
+    ;[mappings, leadRows, secondRawRows] = await Promise.all([
+      fetchMappings(),
+      getSheetRows('leads'),
+      getSheetRows('secondRaw').catch(() => []),
+    ])
+  } else {
+    ;[mappings, leadRows] = await Promise.all([fetchMappings(), getSheetRows('leads')])
+  }
+
+  if (leadRows.length === 0 && firstRawRows.length === 0 && secondRawRows.length === 0) {
+    ;[firstRawRows, secondRawRows] = await Promise.all([
+      getSheetRows('firstRaw').catch(() => []),
+      getSheetRows('secondRaw').catch(() => []),
+    ])
   }
 
   let sourceRows = leadRows
@@ -897,6 +912,59 @@ export async function uploadAdSpend(records: Omit<AdSpend, 'id'>[], options: { r
 
   if (rows.length > 0) await postSheetRows(options.replaceExisting ? 'adSpendReplace' : 'adSpend', rows)
   window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
+}
+
+function adSpendIdentity(spend: Pick<AdSpend, 'date' | 'channel' | 'subChannel' | 'campaign'>) {
+  return {
+    date: spend.date,
+    channel: spend.channel,
+    subChannel: spend.subChannel || '',
+    campaign: spend.campaign || '',
+  }
+}
+
+export async function updateAdSpendRecord(original: AdSpend, next: Omit<AdSpend, 'id'>) {
+  const normalized = normalizeSpend(next)
+  const res = await fetch(SHEET_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      type: 'updateAdSpend',
+      original: adSpendIdentity(original),
+      patch: {
+        date: normalized.date,
+        channel: normalized.channel,
+        subChannel: normalized.subChannel || '',
+        campaign: normalized.campaign || '',
+        amount: normalized.amount,
+        memo: normalized.memo || '',
+        registrant: normalized.registrant || '',
+      },
+    }),
+  })
+  if (!res.ok) throw new Error('광고비 수정에 실패했습니다.')
+  const data = await res.json()
+  if (data?.error === 'Invalid type') throw new Error('광고비 관리 기능을 사용하려면 Apps Script를 최신 코드로 다시 배포해야 합니다.')
+  if (data?.error === 'duplicate ad spend') throw new Error('같은 날짜·매체·상세매체·캠페인의 광고비가 이미 있습니다.')
+  if (data?.error) throw new Error(data.error)
+  clearSheetCache()
+  window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
+  return data
+}
+
+export async function deleteAdSpendRecord(original: AdSpend) {
+  const res = await fetch(SHEET_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ type: 'deleteAdSpend', original: adSpendIdentity(original) }),
+  })
+  if (!res.ok) throw new Error('광고비 삭제에 실패했습니다.')
+  const data = await res.json()
+  if (data?.error === 'Invalid type') throw new Error('광고비 관리 기능을 사용하려면 Apps Script를 최신 코드로 다시 배포해야 합니다.')
+  if (data?.error) throw new Error(data.error)
+  clearSheetCache()
+  window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
+  return data
 }
 
 export async function fetchAdSpend(startDate?: string, endDate?: string): Promise<AdSpend[]> {
