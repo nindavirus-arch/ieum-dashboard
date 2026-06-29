@@ -204,14 +204,28 @@ function deleteAdSpendRow(body) {
 }
 
 
+function baseLeadStage(v) {
+  const stage = String(v || '').toLowerCase();
+  if (stage === 'first_reentry') return 'first';
+  if (stage === 'second_reentry') return 'second';
+  return stage;
+}
+
+function dateTimeKey(v) {
+  const text = String(v || '').replace('T', ' ').replace('Z', '').trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{1,2})/);
+  return match ? match[1] + ' ' + ('0' + match[2]).slice(-2) + ':' + ('0' + match[3]).slice(-2) : text.slice(0, 16);
+}
+
 function updateLeadRow(body) {
   const sheet = SpreadsheetApp.getActive().getSheetByName(SHEETS.leads);
   if (!sheet) return json({ error: 'Sheet not found: ' + SHEETS.leads });
 
   const phone = normalizePhone(body.phone || '');
-  const stage = String(body.stage || '').toLowerCase();
+  const stage = baseLeadStage(body.stage || '');
   const patch = body.patch || {};
   const targetDate = String(body.date || '').slice(0, 10);
+  const targetRegisteredAt = dateTimeKey(body.registeredAt || '');
   if (!phone || !stage) return json({ error: 'phone/stage required' });
 
   let lastCol = sheet.getLastColumn();
@@ -226,31 +240,41 @@ function updateLeadRow(body) {
   const phoneIdx = h.indexOf('phone');
   const stageIdx = h.indexOf('stage') >= 0 ? h.indexOf('stage') : h.indexOf('dbTier');
   const dateIdx = h.indexOf('date');
+  const registeredAtIdx = h.indexOf('registeredAt');
   if (phoneIdx < 0 || stageIdx < 0) return json({ error: 'phone/stage column not found' });
 
+  let matchedRow = -1;
+  let fallbackRow = -1;
   for (let r = 1; r < values.length; r++) {
     const rowPhone = normalizePhone(values[r][phoneIdx]);
-    const rowStage = String(values[r][stageIdx] || '').toLowerCase();
+    const rowStage = baseLeadStage(values[r][stageIdx]);
     const rowDate = dateIdx >= 0 ? String(values[r][dateIdx] || '').slice(0, 10) : '';
-    if (rowPhone === phone && rowStage === stage && (!targetDate || rowDate === targetDate)) {
-      const now = new Date().toISOString();
-      const operator = patch.operator || patch.updatedBy || '';
-      const historyIdx = headers.indexOf('changeHistory');
-      const oldHistory = historyIdx >= 0 ? String(values[r][historyIdx] || '') : '';
-      const changedKeys = Object.keys(patch).filter(k => k !== 'updatedAt' && k !== 'updatedBy' && patch[k] !== undefined && patch[k] !== null).join(', ');
-      const action = String(patch.status || '').toLowerCase() === 'deleted' ? '삭제' : '수정';
-      const historyLine = '[' + now.replace('T',' ').slice(0,16) + '] ' + (operator || '작업자미상') + ' ' + action + ': ' + changedKeys;
-      patch.updatedAt = now;
-      patch.changeHistory = oldHistory ? oldHistory + '\n' + historyLine : historyLine;
-
-      Object.keys(patch).forEach(k => {
-        const col = h.indexOf(k) >= 0 ? h.indexOf(k) : headers.indexOf(k);
-        sheet.getRange(r + 1, col + 1).setValue(patch[k]);
-      });
-      return json({ success: true, updated: 1 });
+    if (rowPhone !== phone || rowStage !== stage || (targetDate && rowDate !== targetDate)) continue;
+    fallbackRow = r;
+    const rowRegisteredAt = registeredAtIdx >= 0 ? dateTimeKey(values[r][registeredAtIdx]) : '';
+    if (!targetRegisteredAt || (rowRegisteredAt && rowRegisteredAt === targetRegisteredAt)) {
+      matchedRow = r;
+      break;
     }
   }
-  return json({ success: false, updated: 0, error: 'matching lead not found' });
+  if (matchedRow < 0) matchedRow = fallbackRow;
+  if (matchedRow < 0) return json({ success: false, updated: 0, error: 'matching lead not found' });
+
+  const now = new Date().toISOString();
+  const operator = patch.operator || patch.updatedBy || '';
+  const historyIdx = headers.indexOf('changeHistory');
+  const oldHistory = historyIdx >= 0 ? String(values[matchedRow][historyIdx] || '') : '';
+  const changedKeys = Object.keys(patch).filter(k => k !== 'updatedAt' && k !== 'updatedBy' && patch[k] !== undefined && patch[k] !== null).join(', ');
+  const action = String(patch.status || '').toLowerCase() === 'deleted' ? '삭제' : '수정';
+  const historyLine = '[' + now.replace('T',' ').slice(0,16) + '] ' + (operator || '작업자미상') + ' ' + action + ': ' + changedKeys;
+  patch.updatedAt = now;
+  patch.changeHistory = oldHistory ? oldHistory + '\n' + historyLine : historyLine;
+
+  Object.keys(patch).forEach(k => {
+    const col = h.indexOf(k) >= 0 ? h.indexOf(k) : headers.indexOf(k);
+    sheet.getRange(matchedRow + 1, col + 1).setValue(patch[k]);
+  });
+  return json({ success: true, updated: 1 });
 }
 
 function buildExistingKeySet(sheet, headers, type) {

@@ -197,6 +197,11 @@ export default function DBManagePage() {
     } finally { setLoading(false) }
   }
   useEffect(() => { load() }, [])
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(null), 3500)
+    return () => window.clearTimeout(timer)
+  }, [notice])
 
   const subChannelOptions = useMemo(() => {
     const fromMap = mappings.map(m => m.subChannel)
@@ -244,10 +249,10 @@ export default function DBManagePage() {
     setSaving(true)
     setNotice(null)
     try {
-      await updateLeadAttribution({ phone: row.phone, stage: row.dbTier, date: row.date, ...next })
+      await updateLeadAttribution({ phone: row.phone, stage: row.dbTier, date: row.date, registeredAt: row.registeredAt, ...next })
       setEditing(null)
-      await load()
       setNotice({ type: 'success', text: 'DB 정보가 수정되었습니다.' })
+      await load()
     } catch (err) {
       setNotice({ type: 'error', text: err instanceof Error ? err.message : 'DB 수정에 실패했습니다.' })
     } finally {
@@ -263,6 +268,7 @@ export default function DBManagePage() {
         phone: row.phone,
         stage: row.dbTier,
         date: row.date,
+        registeredAt: row.registeredAt,
         channel: row.channel,
         subChannel: row.subChannel || '',
         sourceRaw: (row as any).source_raw || '',
@@ -271,19 +277,32 @@ export default function DBManagePage() {
         operator: (row as any).operator || '',
         status: 'deleted',
       })
-      await load()
       setNotice({ type: 'success', text: '삭제되었습니다.' })
+      await load()
     } catch (err) {
       setNotice({ type: 'error', text: err instanceof Error ? err.message : '삭제 처리에 실패했습니다.' })
     } finally {
       setSaving(false)
     }
   }
-  async function saveManual(form: any) { setSaving(true); try { await createManualLead(form); setManualOpen(false); await load() } finally { setSaving(false) } }
+  async function saveManual(form: any) {
+    setSaving(true)
+    setNotice(null)
+    try {
+      await createManualLead(form)
+      setManualOpen(false)
+      setNotice({ type: 'success', text: 'DB가 등록되었습니다.' })
+      await load()
+    } catch (err) {
+      setNotice({ type: 'error', text: err instanceof Error ? err.message : 'DB 등록에 실패했습니다.' })
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return <div className="p-4 md:p-6 space-y-5">
     <div className="flex flex-col md:flex-row md:items-start justify-between gap-4"><div><h1 className="text-lg font-bold text-slate-800">DB관리</h1><p className="text-xs text-slate-500 mt-0.5">DB 리스트 조회, 상담결과/유입경로 수정, 인바운드 수기등록을 관리합니다.</p></div><div className="flex gap-2"><button onClick={() => setManualOpen(true)} className="btn-primary"><Plus size={14}/> 수기등록</button><button onClick={load} className="btn-secondary"><RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침</button></div></div>
-    {notice && <div className={clsx('rounded-lg border px-4 py-3 text-sm', notice.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700')}>{notice.text}</div>}
+    {notice && <div className={clsx('fixed right-4 top-4 z-[70] min-w-[280px] max-w-[min(420px,calc(100vw-2rem))] rounded-lg border px-4 py-3 text-sm shadow-lg', notice.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700')}>{notice.text}</div>}
     <div className="card p-4 space-y-4"><div className="flex flex-wrap items-center gap-2">{[
       ['all','현재 상담대상',counts.all],
       ...STAGES.map(s => [s, STAGE_LABELS[s], counts[s]]),
