@@ -1,7 +1,7 @@
 // src/pages/ChannelsPage.tsx
 import { useEffect, useState } from 'react'
 import { endOfMonth, endOfYear, format, parseISO, startOfMonth, startOfYear, subDays } from 'date-fns'
-import { RefreshCw, TrendingUp } from 'lucide-react'
+import { HelpCircle, RefreshCw, TrendingUp } from 'lucide-react'
 import { Bar, CartesianGrid, ComposedChart, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { fetchLeads, fetchAdSpend } from '../lib/dataService'
 import type { LeadRecord, AdSpend, ViewMode } from '../types'
@@ -43,6 +43,36 @@ function fmtKRW(n: number) {
   if (n >= 100_000_000) return `${(n/100_000_000).toFixed(1)}억`
   if (n >= 10_000) return `${Math.round(n/10_000)}만`
   return n.toLocaleString()
+}
+
+function MetricExplain({ children, lines, align = 'right', className }: {
+  children: React.ReactNode
+  lines: string[]
+  align?: 'left' | 'right'
+  className?: string
+}) {
+  return (
+    <span className="group/metric relative inline-flex max-w-full">
+      <button
+        type="button"
+        title={lines.join('\n')}
+        aria-label={`계산식 보기: ${lines.join(' ')}`}
+        className={clsx('inline-flex cursor-help items-center gap-1 rounded focus:outline-none focus:ring-2 focus:ring-blue-200', className)}
+      >
+        {children}
+        <HelpCircle size={12} className="shrink-0 text-slate-400" />
+      </button>
+      <span
+        role="tooltip"
+        className={clsx(
+          'pointer-events-none invisible absolute top-full z-40 mt-2 w-72 max-w-[80vw] rounded-lg bg-slate-900 px-3 py-2.5 text-left text-[11px] font-normal leading-5 text-white opacity-0 shadow-xl transition group-hover/metric:visible group-hover/metric:opacity-100 group-focus-within/metric:visible group-focus-within/metric:opacity-100',
+          align === 'right' ? 'right-0' : 'left-0'
+        )}
+      >
+        {lines.map((line, index) => <span key={`${line}_${index}`} className="block">{line}</span>)}
+      </span>
+    </span>
+  )
 }
 
 function detailLabel(ch: string, subChannel?: string) {
@@ -105,13 +135,17 @@ export default function ChannelsPage() {
           : ch === 'etc' && channelScope === 'unclassified'
             ? '미분류'
             : CHANNEL_LABELS[ch]
-    return { ch, label, color: CHANNEL_COLORS[ch], spend, cFunnel, firstDB, validDB, secondDB, cpl, convRate }
+    const estimateBase = firstDB + converted
+    const directSecond = Math.max(secondDB - converted, 0)
+    return { ch, label, color: CHANNEL_COLORS[ch], spend, cFunnel, firstDB, validDB, secondDB, cpl, converted, estimateBase, directSecond, convRate }
   })
 
   const totalStatSpend = baseStats.reduce((sum, row) => sum + row.spend, 0)
   const totalStatDB = baseStats.reduce((sum, row) => sum + row.validDB, 0)
   const stats = baseStats.map(row => ({
     ...row,
+    spendShare: totalStatSpend > 0 ? (row.spend / totalStatSpend) * 100 : 0,
+    dbShare: totalStatDB > 0 ? (row.validDB / totalStatDB) * 100 : 0,
     efficiency: row.spend > 0 && row.validDB > 0 && totalStatSpend > 0 && totalStatDB > 0
       ? Math.round(((row.validDB / totalStatDB) / (row.spend / totalStatSpend)) * 100)
       : 0,
@@ -238,16 +272,45 @@ export default function ChannelsPage() {
         {stats.map(row => <div key={row.ch} className="card p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: row.color }} /><span className="font-semibold text-slate-700">{row.label}</span></div>
-            <span className={clsx('rounded-md px-2 py-1 text-xs font-semibold', row.efficiency >= 100 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600')}>광고 효율 {row.efficiency > 0 ? `${row.efficiency}%` : '-'}</span>
+            <MetricExplain
+              lines={row.efficiency > 0 ? [
+                `DB 점유율 ${row.dbShare.toFixed(1)}% ÷ 광고비 점유율 ${row.spendShare.toFixed(1)}% × 100`,
+                `유효 DB ${row.validDB}건 ÷ 전체 ${totalStatDB}건`,
+                `광고비 ${fmtKRW(row.spend)}원 ÷ 전체 ${fmtKRW(totalStatSpend)}원`,
+                `결과: 광고효율 ${row.efficiency}% (100%가 전체 평균)`,
+              ] : ['광고비 또는 유효 DB가 없어 광고효율을 계산하지 않습니다.']}
+            >
+              <span className={clsx('rounded-md px-2 py-1 text-xs font-semibold', row.efficiency >= 100 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600')}>광고 효율 {row.efficiency > 0 ? `${row.efficiency}%` : '-'}</span>
+            </MetricExplain>
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2 text-center">
             <div className="rounded-lg bg-violet-50 px-2 py-2"><div className="text-[10px] text-violet-500">광고비</div><div className="mt-0.5 text-sm font-bold text-violet-700">{fmtKRW(row.spend)}원</div></div>
             <div className="rounded-lg bg-blue-50 px-2 py-2"><div className="text-[10px] text-blue-500">유효 DB</div><div className="mt-0.5 text-sm font-bold text-blue-700">{row.validDB}건</div></div>
-            <div className="rounded-lg bg-orange-50 px-2 py-2"><div className="text-[10px] text-orange-500">CPL</div><div className="mt-0.5 text-sm font-bold text-orange-700">{row.validDB > 0 ? `${fmtKRW(row.cpl)}원` : '-'}</div></div>
+            <MetricExplain
+              align="left"
+              className="w-full justify-center"
+              lines={row.validDB > 0 ? [
+                `광고비 ${row.spend.toLocaleString()}원 ÷ 유효 DB ${row.validDB}건`,
+                `유효 DB = 1차 ${row.firstDB}건 + 2차 ${row.secondDB}건`,
+                `리타겟 ${row.cFunnel}건은 CPL에서 제외`,
+                `결과: 건당 ${row.cpl.toLocaleString()}원`,
+              ] : ['유효 DB가 없어 CPL을 계산하지 않습니다.']}
+            >
+              <span className="w-full rounded-lg bg-orange-50 px-2 py-2"><span className="block text-[10px] text-orange-500">CPL</span><span className="mt-0.5 block text-sm font-bold text-orange-700">{row.validDB > 0 ? `${fmtKRW(row.cpl)}원` : '-'}</span></span>
+            </MetricExplain>
           </div>
           <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
             <span>리타겟 {row.cFunnel} · 1차 {row.firstDB} · 2차 {row.secondDB}</span>
-            <span>견적→상담 {row.convRate}%</span>
+            <MetricExplain
+              lines={row.estimateBase > 0 ? [
+                `1차→2차 전환 ${row.converted}명 ÷ 전체 견적 진입 ${row.estimateBase}명 × 100`,
+                `전체 견적 진입 = 현재 1차 ${row.firstDB}명 + 전환 ${row.converted}명`,
+                `전체 2차 ${row.secondDB}명 중 바로 상담 ${row.directSecond}명은 제외`,
+                `결과: ${row.convRate}%`,
+              ] : ['1차DB를 거친 고객이 없어 견적→상담 전환율을 계산하지 않습니다.']}
+            >
+              <span className="text-right">견적→상담 {row.convRate}%<span className="block text-[10px] text-slate-400">전환 {row.converted} / 견적 {row.estimateBase}</span></span>
+            </MetricExplain>
           </div>
         </div>)}
       </div>
@@ -268,7 +331,7 @@ export default function ChannelsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {stats.map(({ ch, label, color, spend, cFunnel, firstDB, secondDB, cpl, convRate, efficiency }) => (
+            {stats.map(({ ch, label, color, spend, cFunnel, firstDB, validDB, secondDB, cpl, converted, estimateBase, directSecond, convRate, spendShare, dbShare, efficiency }) => (
               <tr key={ch} className="hover:bg-slate-50/60 transition-colors">
                 <td className="px-4 py-3.5">
                   <div className="flex items-center gap-2.5">
@@ -294,15 +357,43 @@ export default function ChannelsPage() {
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-3.5 text-right font-medium text-slate-700">{fmtKRW(cpl)}원</td>
-                <td className="px-4 py-3.5 text-right"><span className={clsx('rounded-md px-2 py-1 text-xs font-semibold', efficiency >= 100 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600')}>{efficiency > 0 ? `${efficiency}%` : '-'}</span></td>
+                <td className="px-4 py-3.5 text-right font-medium text-slate-700">
+                  <MetricExplain lines={validDB > 0 ? [
+                    `광고비 ${spend.toLocaleString()}원 ÷ 유효 DB ${validDB}건`,
+                    `유효 DB = 1차 ${firstDB}건 + 2차 ${secondDB}건`,
+                    `리타겟 ${cFunnel}건은 CPL에서 제외`,
+                    `결과: 건당 ${cpl.toLocaleString()}원`,
+                  ] : ['유효 DB가 없어 CPL을 계산하지 않습니다.']}>
+                    <span>{validDB > 0 ? `${fmtKRW(cpl)}원` : '-'}</span>
+                  </MetricExplain>
+                </td>
                 <td className="px-4 py-3.5 text-right">
-                  <span className={clsx(
-                    'inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-md',
-                    Number(convRate) >= 50 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'
-                  )}>
-                    <TrendingUp size={10} /> {convRate}%
-                  </span>
+                  <MetricExplain lines={efficiency > 0 ? [
+                    `DB 점유율 ${dbShare.toFixed(1)}% ÷ 광고비 점유율 ${spendShare.toFixed(1)}% × 100`,
+                    `유효 DB ${validDB}건 ÷ 전체 ${totalStatDB}건`,
+                    `광고비 ${fmtKRW(spend)}원 ÷ 전체 ${fmtKRW(totalStatSpend)}원`,
+                    `결과: 광고효율 ${efficiency}% (100%가 전체 평균)`,
+                  ] : ['광고비 또는 유효 DB가 없어 광고효율을 계산하지 않습니다.']}>
+                    <span className={clsx('rounded-md px-2 py-1 text-xs font-semibold', efficiency >= 100 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600')}>{efficiency > 0 ? `${efficiency}%` : '-'}</span>
+                  </MetricExplain>
+                </td>
+                <td className="px-4 py-3.5 text-right">
+                  <MetricExplain lines={estimateBase > 0 ? [
+                    `1차→2차 전환 ${converted}명 ÷ 전체 견적 진입 ${estimateBase}명 × 100`,
+                    `전체 견적 진입 = 현재 1차 ${firstDB}명 + 전환 ${converted}명`,
+                    `전체 2차 ${secondDB}명 중 바로 상담 ${directSecond}명은 제외`,
+                    `결과: ${convRate}%`,
+                  ] : ['1차DB를 거친 고객이 없어 견적→상담 전환율을 계산하지 않습니다.']}>
+                    <span className="inline-flex flex-col items-end">
+                      <span className={clsx(
+                        'inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-md',
+                        Number(convRate) >= 50 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                      )}>
+                        <TrendingUp size={10} /> {convRate}%
+                      </span>
+                      <span className="mt-1 text-[10px] font-normal text-slate-400">전환 {converted} / 견적 {estimateBase}</span>
+                    </span>
+                  </MetricExplain>
                 </td>
               </tr>
             ))}
@@ -324,17 +415,33 @@ export default function ChannelsPage() {
                 {stats.reduce((a,b)=>a+b.secondDB,0).toLocaleString()}
               </td>
               <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">
-                {(() => {
-                  const totalDB = stats.reduce((a,b)=>a+b.validDB,0)
-                  const totalSpend = stats.reduce((a,b)=>a+b.spend,0)
-                  return totalDB > 0 ? `${fmtKRW(Math.round(totalSpend/totalDB))}원` : '-'
-                })()}
+                <MetricExplain lines={totalStatDB > 0 ? [
+                  `전체 광고비 ${totalStatSpend.toLocaleString()}원 ÷ 전체 유효 DB ${totalStatDB}건`,
+                  `유효 DB = 1차 ${stats.reduce((a,b)=>a+b.firstDB,0)}건 + 2차 ${stats.reduce((a,b)=>a+b.secondDB,0)}건`,
+                  `결과: 건당 ${Math.round(totalStatSpend/totalStatDB).toLocaleString()}원`,
+                ] : ['유효 DB가 없어 CPL을 계산하지 않습니다.']}>
+                  <span>{totalStatDB > 0 ? `${fmtKRW(Math.round(totalStatSpend/totalStatDB))}원` : '-'}</span>
+                </MetricExplain>
               </td>
-              <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">{totalStatSpend > 0 && totalStatDB > 0 ? '100%' : '-'}</td>
               <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">
-                {(() => {
-                  return totalFirstOnly + totalConverted > 0 ? `${((totalConverted/(totalFirstOnly+totalConverted))*100).toFixed(1)}%` : '-'
-                })()}
+                <MetricExplain lines={totalStatSpend > 0 && totalStatDB > 0 ? [
+                  '전체 DB 점유율 100% ÷ 전체 광고비 점유율 100% × 100',
+                  '전체 합계는 광고효율 비교 기준이므로 항상 100%입니다.',
+                ] : ['광고비 또는 유효 DB가 없어 광고효율을 계산하지 않습니다.']}>
+                  <span>{totalStatSpend > 0 && totalStatDB > 0 ? '100%' : '-'}</span>
+                </MetricExplain>
+              </td>
+              <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">
+                <MetricExplain lines={totalFirstOnly + totalConverted > 0 ? [
+                  `1차→2차 전환 ${totalConverted}명 ÷ 전체 견적 진입 ${totalFirstOnly + totalConverted}명 × 100`,
+                  `전체 견적 진입 = 현재 1차 ${totalFirstOnly}명 + 전환 ${totalConverted}명`,
+                  `결과: ${((totalConverted/(totalFirstOnly+totalConverted))*100).toFixed(1)}%`,
+                ] : ['1차DB를 거친 고객이 없어 견적→상담 전환율을 계산하지 않습니다.']}>
+                  <span className="inline-flex flex-col items-end">
+                    <span>{totalFirstOnly + totalConverted > 0 ? `${((totalConverted/(totalFirstOnly+totalConverted))*100).toFixed(1)}%` : '-'}</span>
+                    <span className="mt-1 text-[10px] font-normal text-slate-400">전환 {totalConverted} / 견적 {totalFirstOnly + totalConverted}</span>
+                  </span>
+                </MetricExplain>
               </td>
             </tr>
           </tfoot>
@@ -350,7 +457,14 @@ export default function ChannelsPage() {
           {detailStats.map(row => <div key={row.key} className="p-4">
             <div className="flex items-center justify-between gap-3">
               <div><div className="text-xs text-slate-400">{row.channelLabel}</div><div className="font-semibold text-slate-700">{row.label}</div></div>
-              <div className="text-right"><div className="text-[10px] text-slate-400">CPL</div><div className="font-bold text-slate-800">{row.validDB > 0 ? `${fmtKRW(row.cpl)}원` : '-'}</div></div>
+              <MetricExplain lines={row.validDB > 0 ? [
+                `광고비 ${row.spend.toLocaleString()}원 ÷ 유효 DB ${row.validDB}건`,
+                `유효 DB = 1차 ${row.firstDB}건 + 2차 ${row.secondDB}건`,
+                `리타겟 ${row.cFunnel}건은 CPL에서 제외`,
+                `결과: 건당 ${row.cpl.toLocaleString()}원`,
+              ] : ['유효 DB가 없어 CPL을 계산하지 않습니다.']}>
+                <span className="text-right"><span className="block text-[10px] text-slate-400">CPL</span><span className="block font-bold text-slate-800">{row.validDB > 0 ? `${fmtKRW(row.cpl)}원` : '-'}</span></span>
+              </MetricExplain>
             </div>
             <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs">
               <div><div className="text-[10px] text-slate-400">광고비</div><div className="font-medium text-slate-700">{fmtKRW(row.spend)}원</div></div>
@@ -388,7 +502,16 @@ export default function ChannelsPage() {
                   <td className="px-4 py-3 text-right text-slate-600">{cFunnel.toLocaleString()}</td>
                   <td className="px-4 py-3 text-right font-semibold text-blue-700">{firstDB.toLocaleString()}</td>
                   <td className="px-4 py-3 text-right text-emerald-700 font-medium">{secondDB.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-slate-800">{firstDB + secondDB > 0 ? `${fmtKRW(cpl)}원` : '-'}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-800">
+                    <MetricExplain lines={firstDB + secondDB > 0 ? [
+                      `광고비 ${spend.toLocaleString()}원 ÷ 유효 DB ${firstDB + secondDB}건`,
+                      `유효 DB = 1차 ${firstDB}건 + 2차 ${secondDB}건`,
+                      `리타겟 ${cFunnel}건은 CPL에서 제외`,
+                      `결과: 건당 ${cpl.toLocaleString()}원`,
+                    ] : ['유효 DB가 없어 CPL을 계산하지 않습니다.']}>
+                      <span>{firstDB + secondDB > 0 ? `${fmtKRW(cpl)}원` : '-'}</span>
+                    </MetricExplain>
+                  </td>
                 </tr>
               ))}
               {!detailStats.length && (
