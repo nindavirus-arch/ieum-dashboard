@@ -62,6 +62,7 @@ async function parseResponse(res: Response) {
     'setup already completed': '마스터 계정 설정이 이미 완료되었습니다.',
     'cannot remove your own master access': '현재 로그인한 마스터 계정의 권한은 해제할 수 없습니다.',
     'password must be at least 8 characters': '비밀번호는 8자리 이상이어야 합니다.',
+    'Invalid type': 'Apps Script 연결 주소 또는 배포 버전이 올바르지 않습니다.',
   }
   if (data?.error) throw new Error(messages[data.error] || data.error)
   return data
