@@ -55,7 +55,6 @@ function MetricExplain({ children, lines, align = 'right', className }: {
     <span className="group/metric relative inline-flex max-w-full">
       <button
         type="button"
-        title={lines.join('\n')}
         aria-label={`계산식 보기: ${lines.join(' ')}`}
         className={clsx('inline-flex cursor-help items-center gap-1 rounded focus:outline-none focus:ring-2 focus:ring-blue-200', className)}
       >
