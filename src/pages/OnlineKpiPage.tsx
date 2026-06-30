@@ -13,7 +13,7 @@ import {
   fetchAdSpend, fetchKpiTargets, fetchLeads, saveKpiTarget,
   type KpiTarget,
 } from '../lib/dataService'
-import { baseStage, buildLeadJourneys, isPaidChannel } from '../lib/leadMetrics'
+import { baseStage, buildLeadJourneys, isPaidChannel, trafficGroup } from '../lib/leadMetrics'
 import type { AdSpend, LeadRecord } from '../types'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -29,9 +29,11 @@ const CHANNEL_LABELS: Record<string, string> = {
   viral: '바이럴',
   kakao_search: '카카오 검색광고',
   kakao_moment: '카카오모먼트',
+  direct: '온라인 직접유입',
+  etc: '온라인 기타',
 }
 
-const CHANNEL_ORDER = ['naver', 'google', 'meta', 'youtube', 'viral', 'kakao_search', 'kakao_moment']
+const CHANNEL_ORDER = ['naver', 'google', 'meta', 'youtube', 'viral', 'kakao_search', 'kakao_moment', 'direct', 'etc']
 
 type Acquisition = {
   date: string
@@ -58,6 +60,8 @@ function defaultDetail(channel: string) {
   if (channel === 'viral') return '바이럴'
   if (channel === 'kakao_search') return '카카오 검색광고'
   if (channel === 'kakao_moment') return '카카오모먼트'
+  if (channel === 'direct') return '홈페이지 직접유입'
+  if (channel === 'etc') return '온라인 기타'
   return '기타'
 }
 
@@ -65,15 +69,20 @@ function detailLabel(lead: Pick<LeadRecord, 'channel' | 'subChannel'>) {
   return String(lead.subChannel || '').trim() || defaultDetail(lead.channel)
 }
 
+function isOnlineKpiLead(lead: LeadRecord) {
+  const group = trafficGroup(lead)
+  return group === 'paid' || group === 'organic'
+}
+
 function buildOnlineKpiData(leads: LeadRecord[]) {
   const acquisitions: Acquisition[] = []
   const conversions: ConversionEvent[] = []
 
   buildLeadJourneys(leads).forEach(journey => {
-    const paidValid = journey.records
-      .filter(record => isPaidChannel(record.channel) && baseStage(record.dbTier) !== 'retarget')
+    const onlineValid = journey.records
+      .filter(record => isOnlineKpiLead(record) && baseStage(record.dbTier) !== 'retarget')
       .sort((a, b) => recordDate(a).localeCompare(recordDate(b)))
-    const acquired = paidValid[0]
+    const acquired = onlineValid[0]
     if (!acquired) return
 
     const acquisitionStage = baseStage(acquired.dbTier)
@@ -84,7 +93,7 @@ function buildOnlineKpiData(leads: LeadRecord[]) {
       stage: acquisitionStage === 'second' ? 'second' : 'first',
     })
 
-    const firstRecord = paidValid.find(record => baseStage(record.dbTier) === 'first')
+    const firstRecord = onlineValid.find(record => baseStage(record.dbTier) === 'first')
     if (!firstRecord) return
     const firstDate = recordDate(firstRecord)
     const secondRecord = journey.records
@@ -196,9 +205,11 @@ export default function OnlineKpiPage() {
   const monthConversions = conversions.filter(row => row.date >= monthStart && row.date <= monthEnd)
   const monthSpends = spends.filter(row => isPaidChannel(row.channel) && row.date >= monthStart && row.date <= monthEnd)
   const totalDb = monthAcquisitions.length
+  const attributedDb = monthAcquisitions.filter(row => isPaidChannel(row.channel)).length
+  const unattributedOnlineDb = totalDb - attributedDb
   const todayDb = selectedMonth === currentMonth ? acquisitions.filter(row => row.date === today).length : 0
   const totalSpend = monthSpends.reduce((sum, row) => sum + row.amount, 0)
-  const cpl = totalDb > 0 ? Math.round(totalSpend / totalDb) : 0
+  const cpl = attributedDb > 0 ? Math.round(totalSpend / attributedDb) : 0
   const minMonthly = minDaily * daysInMonth
   const stretchMonthly = stretchDaily * daysInMonth
   const minExpected = minDaily * elapsedDays
@@ -243,6 +254,7 @@ export default function OnlineKpiPage() {
         .filter(row => row.channel === channel && (String(row.subChannel || '').trim() || defaultDetail(row.channel)) === subChannel)
         .reduce((sum, row) => sum + row.amount, 0)
       const converted = monthConversions.filter(row => row.channel === channel && row.subChannel === subChannel).length
+      const attributed = isPaidChannel(channel)
       return {
         key,
         channel,
@@ -252,8 +264,9 @@ export default function OnlineKpiPage() {
         directSecond: dbRows.filter(row => row.stage === 'second').length,
         db: dbRows.length,
         converted,
+        attributed,
         spend,
-        cpl: dbRows.length > 0 ? Math.round(spend / dbRows.length) : 0,
+        cpl: attributed && dbRows.length > 0 ? Math.round(spend / dbRows.length) : 0,
         share: totalDb > 0 ? (dbRows.length / totalDb) * 100 : 0,
       }
     }).sort((a, b) => {
@@ -274,7 +287,7 @@ export default function OnlineKpiPage() {
     if (lastTwo.length === 2 && lastTwo.every(row => row.db < minDaily)) {
       result.push({ tone: 'warn', text: '최근 2일 연속 기본 목표에 미달했습니다.' })
     }
-    detailStats.filter(row => row.spend > 0 && row.db === 0).slice(0, 2).forEach(row => {
+    detailStats.filter(row => isPaidChannel(row.channel) && row.spend > 0 && row.db === 0).slice(0, 2).forEach(row => {
       result.push({ tone: 'warn', text: `${row.subChannel}: 광고비가 집행됐지만 유효DB가 없습니다.` })
     })
     if (totalDb >= minExpected && elapsedDays > 0) {
@@ -326,7 +339,7 @@ export default function OnlineKpiPage() {
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <h1 className="text-lg font-bold text-slate-800">온라인광고 KPI</h1>
-          <p className="mt-0.5 text-xs text-slate-500">외부제휴·직접유입을 제외한 온라인광고 유효DB만 집계합니다.</p>
+          <p className="mt-0.5 text-xs text-slate-500">온라인광고와 온라인 직접·자연유입을 포함하고 외부제휴는 제외합니다.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -342,13 +355,14 @@ export default function OnlineKpiPage() {
 
       {notice && <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700">{notice}</div>}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 2xl:grid-cols-7">
         <StatCard label="오늘 온라인광고 DB" value={todayDb} suffix="건" sub={`기본 ${minDaily} · 상향 ${stretchDaily}건`} icon={CalendarDays} tone="blue" />
         <StatCard label={`${selectedMonth.slice(5, 7)}월 누적 DB`} value={totalDb} suffix="건" sub={`월 기본 목표 ${minMonthly.toLocaleString()}건`} icon={Target} tone="green" />
         <StatCard label="기본 목표 달성률" value={percent(minMonthly > 0 ? (totalDb / minMonthly) * 100 : 0)} sub={`경과 목표 ${minExpected.toLocaleString()}건`} icon={Gauge} tone="violet" />
         <StatCard label="현재 일평균" value={dailyAverage.toFixed(1)} suffix="건" sub={`월말 예상 ${forecast.toLocaleString()}건`} icon={TrendingUp} tone="cyan" />
         <StatCard label="필요 일평균" value={neededDaily} suffix="건" sub={`남은 ${remainingDays}일 · 기본 목표 기준`} icon={AlertTriangle} tone="orange" />
-        <StatCard label="광고비 / CPL" value={fmtMoney(totalSpend)} sub={totalDb > 0 ? `유효DB CPL ${fmtMoney(cpl)}` : '유효DB 집계 전'} icon={DollarSign} tone="slate" />
+        <StatCard label="온라인 직접·자연" value={unattributedOnlineDb} suffix="건" sub="총 KPI 포함 · 매체 CPL 제외" icon={Gauge} tone="slate" />
+        <StatCard label="광고비 / 매체확인 CPL" value={fmtMoney(totalSpend)} sub={attributedDb > 0 ? `매체확인 DB ${attributedDb}건 · CPL ${fmtMoney(cpl)}` : '매체확인 DB 집계 전'} icon={DollarSign} tone="slate" />
       </div>
 
       <div className="card p-4">
@@ -476,7 +490,7 @@ export default function OnlineKpiPage() {
       <div className="card overflow-hidden">
         <div className="border-b border-slate-100 px-4 py-3">
           <p className="text-sm font-semibold text-slate-700">온라인광고 상세매체 기여도</p>
-          <p className="mt-0.5 text-[11px] text-slate-400">외부제휴·직접유입·자연유입·미분류는 포함하지 않습니다.</p>
+          <p className="mt-0.5 text-[11px] text-slate-400">온라인 직접·자연유입은 총 KPI에 포함하되, 매체 미확인으로 CPL에서는 제외합니다. 외부제휴는 포함하지 않습니다.</p>
         </div>
         <div className="divide-y divide-slate-50 md:hidden">
           {detailStats.map(row => (
@@ -489,7 +503,7 @@ export default function OnlineKpiPage() {
                 <div><p className="text-[10px] text-slate-400">1차</p><p className="font-semibold text-blue-700">{row.first}</p></div>
                 <div><p className="text-[10px] text-slate-400">바로상담</p><p className="font-semibold text-emerald-700">{row.directSecond}</p></div>
                 <div><p className="text-[10px] text-slate-400">광고비</p><p className="font-semibold text-slate-700">{fmtMoney(row.spend)}</p></div>
-                <div><p className="text-[10px] text-slate-400">CPL</p><p className="font-semibold text-slate-700">{row.db > 0 ? fmtMoney(row.cpl) : '-'}</p></div>
+                <div><p className="text-[10px] text-slate-400">CPL</p><p className="font-semibold text-slate-700">{row.attributed && row.db > 0 ? fmtMoney(row.cpl) : '-'}</p></div>
               </div>
             </div>
           ))}
@@ -513,7 +527,7 @@ export default function OnlineKpiPage() {
                 <td className="px-4 py-3 text-right text-slate-600">{row.converted}</td>
                 <td className="px-4 py-3 text-right text-slate-600">{percent(row.share)}</td>
                 <td className="px-4 py-3 text-right font-medium text-slate-700">{fmtMoney(row.spend)}</td>
-                <td className="px-4 py-3 text-right font-semibold text-slate-800">{row.db > 0 ? fmtMoney(row.cpl) : '-'}</td>
+                <td className="px-4 py-3 text-right font-semibold text-slate-800">{row.attributed && row.db > 0 ? fmtMoney(row.cpl) : '-'}</td>
               </tr>)}
               {!detailStats.length && <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-400">선택한 달의 온라인광고 데이터가 없습니다.</td></tr>}
             </tbody>
