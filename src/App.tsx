@@ -9,6 +9,7 @@ import RegionPage from './pages/RegionPage'
 import FunnelPage from './pages/FunnelPage'
 import AdSpendManagePage from './pages/AdSpendManagePage'
 import AdminUsersPage from './pages/AdminUsersPage'
+import OnlineKpiPage from './pages/OnlineKpiPage'
 import AuthPage from './pages/AuthPage'
 import { useAuth } from './contexts/AuthContext'
 import { canAccess, defaultPath } from './lib/auth'
@@ -28,6 +29,7 @@ export default function App() {
       <Route path="/" element={<Navigate to={home} replace />} />
       {allowed('/dashboard', <DashboardPage />)}
       {allowed('/channels', <ChannelsPage />)}
+      {allowed('/kpi', <OnlineKpiPage />)}
       {allowed('/funnel', <FunnelPage />)}
       {allowed('/region', <RegionPage />)}
       {allowed('/db-manage', <DBManagePage />)}

@@ -4,7 +4,8 @@ const SHEETS = {
   firstRaw: 'FIRST_DB_RAW',
   secondRaw: 'SECOND_DB_RAW',
   mapping: 'CHANNEL_MAPPING',
-  users: 'ADMIN_USERS'
+  users: 'ADMIN_USERS',
+  kpiTargets: 'KPI_TARGETS'
 };
 
 function doGet(e) {
@@ -21,6 +22,7 @@ function doGet(e) {
   if (type === 'firstRaw') return getSheetData(SHEETS.firstRaw);
   if (type === 'secondRaw') return getSheetData(SHEETS.secondRaw);
   if (type === 'mapping') return getSheetData(SHEETS.mapping);
+  if (type === 'kpiTargets') return getKpiTargetData();
   return json({ error: 'Invalid type' });
 }
 
@@ -51,6 +53,7 @@ function doPost(e) {
     if (type === 'firstRaw') return appendRowsUnique(SHEETS.firstRaw, rows, 'firstRaw');
     if (type === 'secondRaw') return appendRowsUnique(SHEETS.secondRaw, rows, 'secondRaw');
     if (type === 'updateLead') return updateLeadRow(body);
+    if (type === 'saveKpiTarget') return saveKpiTarget(body, user);
 
     return json({ error: 'Invalid type' });
   } catch (err) {
@@ -74,6 +77,67 @@ function getSheetData(sheetName) {
     });
 
   return json(result);
+}
+
+function ensureKpiTargetSheet() {
+  const book = SpreadsheetApp.getActive();
+  let sheet = book.getSheetByName(SHEETS.kpiTargets);
+  if (!sheet) sheet = book.insertSheet(SHEETS.kpiTargets);
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, 5).setValues([['month', 'minDaily', 'stretchDaily', 'updatedBy', 'updatedAt']]);
+    sheet.setFrozenRows(1);
+  }
+  if (sheet.getLastRow() === 1) {
+    sheet.getRange(2, 1, 1, 5).setValues([['2026-07', 40, 60, 'system', new Date().toISOString()]]);
+  }
+  return sheet;
+}
+
+function getKpiTargetData() {
+  const sheet = ensureKpiTargetSheet();
+  const values = sheet.getDataRange().getDisplayValues();
+  if (!values || values.length <= 1) return json([]);
+  const headers = values.shift();
+  return json(values.filter(row => row.some(Boolean)).map(row => {
+    const item = {};
+    headers.forEach((header, index) => item[header] = row[index]);
+    return item;
+  }));
+}
+
+function saveKpiTarget(body, user) {
+  if (!requireMaster(user)) return json({ error: 'forbidden' });
+  const target = body.target || {};
+  const month = String(target.month || '').slice(0, 7);
+  const minDaily = Math.max(0, Math.round(Number(target.minDaily) || 0));
+  const stretchDaily = Math.max(minDaily, Math.round(Number(target.stretchDaily) || 0));
+  if (!/^\d{4}-\d{2}$/.test(month)) return json({ error: 'invalid target month' });
+  if (minDaily <= 0 || stretchDaily <= 0) return json({ error: 'invalid target value' });
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sheet = ensureKpiTargetSheet();
+    const values = sheet.getDataRange().getDisplayValues();
+    let rowNumber = -1;
+    for (let row = 1; row < values.length; row++) {
+      if (String(values[row][0] || '').slice(0, 7) === month) {
+        rowNumber = row + 1;
+        break;
+      }
+    }
+    const output = [[month, minDaily, stretchDaily, String(user.name || user.id || ''), new Date().toISOString()]];
+    if (rowNumber > 0) sheet.getRange(rowNumber, 1, 1, 5).setValues(output);
+    else sheet.getRange(sheet.getLastRow() + 1, 1, 1, 5).setValues(output);
+    return json({ success: true, target: {
+      month: month,
+      minDaily: minDaily,
+      stretchDaily: stretchDaily,
+      updatedBy: String(user.name || user.id || '')
+    }});
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function appendRowsUnique(sheetName, rows, type) {
@@ -348,7 +412,7 @@ const USER_HEADERS = ['id', 'name', 'passwordHash', 'salt', 'role', 'permissions
 const SESSION_TTL_SECONDS = 21600;
 const SALES_SUPPORT_MENUS = ['/db-manage', '/upload-db', '/region'];
 const VALID_MENUS = [
-  '/dashboard', '/channels', '/funnel', '/region', '/db-manage',
+  '/dashboard', '/channels', '/kpi', '/funnel', '/region', '/db-manage',
   '/upload-db', '/upload-spend', '/manage-spend', '/admin-users'
 ];
 
@@ -573,11 +637,12 @@ function canAccessMenu(user, menu) {
 
 function canReadData(type, menu) {
   const rules = {
-    leads: ['/dashboard', '/channels', '/funnel', '/region', '/db-manage', '/upload-db'],
-    adSpend: ['/dashboard', '/channels', '/upload-spend', '/manage-spend'],
+    leads: ['/dashboard', '/channels', '/kpi', '/funnel', '/region', '/db-manage', '/upload-db'],
+    adSpend: ['/dashboard', '/channels', '/kpi', '/upload-spend', '/manage-spend'],
     firstRaw: ['/dashboard', '/channels', '/funnel', '/db-manage', '/upload-db'],
     secondRaw: ['/dashboard', '/channels', '/funnel', '/db-manage', '/upload-db'],
-    mapping: ['/dashboard', '/channels', '/funnel', '/region', '/db-manage', '/upload-db', '/upload-spend', '/manage-spend']
+    mapping: ['/dashboard', '/channels', '/kpi', '/funnel', '/region', '/db-manage', '/upload-db', '/upload-spend', '/manage-spend'],
+    kpiTargets: ['/kpi']
   };
   return Boolean(rules[type] && rules[type].indexOf(menu) >= 0);
 }
@@ -591,7 +656,8 @@ function canWriteData(type, menu) {
     adSpend: ['/upload-spend'],
     adSpendReplace: ['/upload-spend'],
     updateAdSpend: ['/manage-spend'],
-    deleteAdSpend: ['/manage-spend']
+    deleteAdSpend: ['/manage-spend'],
+    saveKpiTarget: ['/kpi']
   };
   return Boolean(rules[type] && rules[type].indexOf(menu) >= 0);
 }

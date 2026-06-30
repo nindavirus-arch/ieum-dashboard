@@ -12,9 +12,16 @@ import { getAuthToken, setAuthToken } from './auth'
 
 // TODO: Apps Script 배포 후 웹앱 URL을 여기에 붙여넣으세요.
 // 예: const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec'
-type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping'
+type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping' | 'kpiTargets'
 type PostSheetType = Exclude<SheetType, 'mapping'> | 'adSpendReplace'
 export type MappingRow = { raw: string; channel: Channel; subChannel: string }
+export type KpiTarget = {
+  month: string
+  minDaily: number
+  stretchDaily: number
+  updatedBy?: string
+  updatedAt?: string
+}
 const EXCLUDED_LEAD_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted'])
 const SHEET_CACHE_TTL_MS = 10_000
 const sheetCache = new Map<SheetType, { expires: number; data?: any[]; promise?: Promise<any[]> }>()
@@ -996,4 +1003,37 @@ export async function fetchAdSpend(startDate?: string, endDate?: string): Promis
     .map((row, i) => normalizeSpend(row, i, mappings))
     .filter((r: AdSpend) => inRange(r.date, startDate, endDate))
     .sort((a: AdSpend, b: AdSpend) => b.date.localeCompare(a.date))
+}
+
+export async function fetchKpiTargets(): Promise<KpiTarget[]> {
+  const rows = await getSheetRows('kpiTargets')
+  return rows
+    .map(row => ({
+      month: String(row.month || '').slice(0, 7),
+      minDaily: Number(String(row.minDaily || '').replace(/[^0-9.]/g, '')) || 0,
+      stretchDaily: Number(String(row.stretchDaily || '').replace(/[^0-9.]/g, '')) || 0,
+      updatedBy: String(row.updatedBy || ''),
+      updatedAt: String(row.updatedAt || ''),
+    }))
+    .filter(row => /^\d{4}-\d{2}$/.test(row.month))
+}
+
+export async function saveKpiTarget(target: KpiTarget) {
+  const res = await fetch(SHEET_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      type: 'saveKpiTarget',
+      token: getAuthToken(),
+      menu: currentMenu(),
+      target,
+    }),
+  })
+  if (!res.ok) throw new Error('KPI 목표 저장에 실패했습니다.')
+  const data = await res.json()
+  if (data?.error === 'Invalid type') throw new Error('KPI 목표 저장 기능을 사용하려면 최신 Apps Script를 배포해야 합니다.')
+  handleDataError(data)
+  sheetCache.delete('kpiTargets')
+  window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
+  return data
 }

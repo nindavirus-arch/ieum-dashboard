@@ -5,6 +5,7 @@ export const AUTH_TOKEN_KEY = 'ieum-admin-token'
 export const MENU_PERMISSIONS = [
   { key: '/dashboard', label: '메인 대시보드' },
   { key: '/channels', label: '매체별 성과' },
+  { key: '/kpi', label: '온라인광고 KPI' },
   { key: '/funnel', label: '퍼널 분석' },
   { key: '/region', label: '지역별 통계' },
   { key: '/db-manage', label: 'DB관리' },
