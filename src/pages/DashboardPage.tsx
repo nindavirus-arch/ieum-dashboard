@@ -6,6 +6,7 @@ import { fetchLeads, fetchAdSpend } from '../lib/dataService'
 import type { LeadRecord, AdSpend, ViewMode } from '../types'
 import TimeSeriesChart from '../components/dashboard/TimeSeriesChart'
 import ChannelBar from '../components/channels/ChannelBar'
+import DataUpdatedAt from '../components/DataUpdatedAt'
 import clsx from 'clsx'
 import { buildLeadJourneys, isDirectSales, isPaidChannel, trafficGroup, type TrafficGroup } from '../lib/leadMetrics'
 
@@ -328,6 +329,7 @@ export default function DashboardPage() {
           )}
 
           <button onClick={() => { setSelectedDate(today); setViewMode('daily') }} className="btn-secondary shrink-0">오늘</button>
+          <DataUpdatedAt />
           <button onClick={load} className="btn-secondary shrink-0">
             <RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침
           </button>
@@ -433,13 +435,20 @@ export default function DashboardPage() {
         <div className="card p-5 space-y-3 overflow-auto max-h-[760px]">
           <p className="text-sm font-semibold text-slate-700">유입채널 현황</p>
           {[
-            { key: 'paid', title: '온라인 광고', rows: channelStats.filter(c => c.group === 'paid') },
+            { key: 'paid', title: '온라인 광고', showTotal: true, rows: channelStats.filter(c => c.group === 'paid') },
             { key: 'organic', title: '온라인 직접·자연유입', rows: channelStats.filter(c => c.group === 'organic') },
-            { key: 'external', title: '외부·제휴유입', rows: channelStats.filter(c => c.group === 'external') },
+            { key: 'external', title: '외부·제휴유입', showTotal: true, rows: channelStats.filter(c => c.group === 'external') },
             { key: 'unclassified', title: '미분류', rows: channelStats.filter(c => c.group === 'unclassified') },
           ].map(group => (
             <div key={group.key} className="space-y-2">
-              <p className="pt-1 text-[11px] font-semibold text-slate-400">{group.title}</p>
+              <div className="flex items-center justify-between pt-1 text-[11px] font-semibold text-slate-400">
+                <span>{group.title}</span>
+                {group.showTotal && (
+                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-slate-600">
+                    합계 {group.rows.reduce((sum, row) => sum + row.db, 0).toLocaleString()}건
+                  </span>
+                )}
+              </div>
               {group.rows.map(({ key, label, db, spend, color, details }) => (
                 <div key={key} className="space-y-1">
                   <button

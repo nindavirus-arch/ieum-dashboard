@@ -7,6 +7,7 @@ import { fetchLeads, fetchAdSpend } from '../lib/dataService'
 import type { LeadRecord, AdSpend, ViewMode } from '../types'
 import clsx from 'clsx'
 import { buildLeadJourneys, isPaidChannel, trafficGroup, type TrafficGroup } from '../lib/leadMetrics'
+import DataUpdatedAt from '../components/DataUpdatedAt'
 
 const CHANNELS = ['naver','google','meta','youtube','viral','kakao_search','kakao_moment','direct','tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','inbound_call','etc'] as const
 const CHANNEL_LABELS: Record<string, string> = {
@@ -231,6 +232,7 @@ export default function ChannelsPage() {
           {viewMode === 'monthly' && <input type="month" value={inputValue} onChange={event => changeDate(event.target.value)} className="h-9 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 sm:flex-none" />}
           {viewMode === 'yearly' && <input type="number" min="2020" max="2035" value={inputValue} onChange={event => changeDate(event.target.value)} className="h-9 w-24 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700" />}
           <button onClick={() => { setSelectedDate(today); setViewMode('daily') }} className="btn-secondary shrink-0">오늘</button>
+          <DataUpdatedAt />
           <button onClick={load} className="btn-secondary shrink-0">
             <RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침
           </button>

@@ -25,6 +25,11 @@ export type KpiTarget = {
 const EXCLUDED_LEAD_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted'])
 const SHEET_CACHE_TTL_MS = 10_000
 const sheetCache = new Map<SheetType, { expires: number; data?: any[]; promise?: Promise<any[]> }>()
+export const DATA_UPDATED_EVENT = 'ieum:data-updated'
+
+function notifyDataUpdated() {
+  window.dispatchEvent(new Event(DATA_UPDATED_EVENT))
+}
 
 function clearSheetCache() {
   sheetCache.clear()
@@ -257,6 +262,7 @@ async function getSheetRows(type: SheetType) {
     handleDataError(data)
     const rows = Array.isArray(data) ? data : []
     sheetCache.set(type, { data: rows, expires: Date.now() + SHEET_CACHE_TTL_MS })
+    notifyDataUpdated()
     return rows
   })()
 
@@ -287,7 +293,18 @@ async function postSheetRows(type: PostSheetType, rows: any[]) {
   }
   handleDataError(data)
   clearSheetCache()
+  notifyDataUpdated()
   return data
+}
+
+export async function fetchDataUpdatedAt(): Promise<string> {
+  const res = await fetch(`${SHEET_API_URL}?type=dataUpdatedAt&token=${encodeURIComponent(getAuthToken())}&menu=${encodeURIComponent(currentMenu())}`)
+  if (!res.ok) throw new Error('업데이트 시간을 확인하지 못했습니다.')
+  const data = await res.json()
+  handleDataError(data)
+  const updatedAt = String(data?.updatedAt || '')
+  if (!updatedAt) throw new Error('업데이트 시간이 없습니다.')
+  return updatedAt
 }
 
 export async function fetchMappings(): Promise<MappingRow[]> {
@@ -429,7 +446,7 @@ export async function updateLeadAttribution(params: {
   handleDataError(data)
   if (!data?.success || Number(data?.updated || 0) < 1) throw new Error('수정할 DB를 찾지 못했습니다.')
   clearSheetCache()
-  window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
+  notifyDataUpdated()
   return data
 }
 
@@ -505,7 +522,7 @@ export async function createManualLead(params: {
     uploadedAt: now,
   }
   await postSheetRows('leads', [row])
-  window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
+  notifyDataUpdated()
   return lead
 }
 
@@ -742,7 +759,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
   // 대시보드용 정제 데이터 저장. phone + stage 기준 신규만 저장.
   if (dashboardToAppend.length) await postSheetRows('leads', dashboardRowsFromLeads(dashboardToAppend))
 
-  window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
+  notifyDataUpdated()
   return changed
 }
 
@@ -939,7 +956,7 @@ export async function uploadAdSpend(records: Omit<AdSpend, 'id'>[], options: { r
   })
 
   if (rows.length > 0) await postSheetRows(options.replaceExisting ? 'adSpendReplace' : 'adSpend', rows)
-  window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
+  notifyDataUpdated()
 }
 
 function adSpendIdentity(spend: Pick<AdSpend, 'date' | 'channel' | 'subChannel' | 'campaign'>) {
@@ -978,7 +995,7 @@ export async function updateAdSpendRecord(original: AdSpend, next: Omit<AdSpend,
   if (data?.error === 'duplicate ad spend') throw new Error('같은 날짜·매체·상세매체·캠페인의 광고비가 이미 있습니다.')
   handleDataError(data)
   clearSheetCache()
-  window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
+  notifyDataUpdated()
   return data
 }
 
@@ -993,7 +1010,7 @@ export async function deleteAdSpendRecord(original: AdSpend) {
   if (data?.error === 'Invalid type') throw new Error('광고비 관리 기능을 사용하려면 Apps Script를 최신 코드로 다시 배포해야 합니다.')
   handleDataError(data)
   clearSheetCache()
-  window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
+  notifyDataUpdated()
   return data
 }
 
@@ -1034,6 +1051,6 @@ export async function saveKpiTarget(target: KpiTarget) {
   if (data?.error === 'Invalid type') throw new Error('KPI 목표 저장 기능을 사용하려면 최신 Apps Script를 배포해야 합니다.')
   handleDataError(data)
   sheetCache.delete('kpiTargets')
-  window.dispatchEvent(new Event('ieum-dashboard-data-updated'))
+  notifyDataUpdated()
   return data
 }

@@ -6,6 +6,7 @@ import { fetchLeads } from '../lib/dataService'
 import type { LeadRecord } from '../types'
 import clsx from 'clsx'
 import { finalLeads } from '../lib/leadMetrics'
+import DataUpdatedAt from '../components/DataUpdatedAt'
 
 const PROVINCES = [
   '서울','부산','대구','인천','광주','대전','울산','세종',
@@ -73,6 +74,7 @@ export default function RegionPage() {
             className="h-9 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 sm:flex-none"
           />
           <button onClick={() => setSelectedMonth(format(new Date(), 'yyyy-MM'))} className="btn-secondary">이번달</button>
+          <DataUpdatedAt />
           <button onClick={load} className="btn-secondary shrink-0">
             <RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침
           </button>

@@ -6,6 +6,7 @@ import clsx from 'clsx'
 import { createManualLead, fetchLeads, fetchMappings, invalidateDataCache, updateLeadAttribution, type MappingRow } from '../lib/dataService'
 import type { Channel, DBTier, LeadRecord } from '../types'
 import { baseStage, buildLeadJourneys } from '../lib/leadMetrics'
+import DataUpdatedAt from '../components/DataUpdatedAt'
 
 const CHANNELS: Channel[] = ['naver', 'google', 'meta', 'youtube', 'viral', 'kakao_search', 'kakao_moment', 'direct', 'tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'inbound_call', 'etc']
 const CHANNEL_LABELS: Record<Channel, string> = {
@@ -357,7 +358,7 @@ export default function DBManagePage() {
   }
 
   return <div className="p-4 md:p-6 space-y-5">
-    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4"><div><h1 className="text-lg font-bold text-slate-800">DB관리</h1><p className="text-xs text-slate-500 mt-0.5">DB 리스트 조회, 상담결과/유입경로 수정, 인바운드 수기등록을 관리합니다.</p></div><div className="flex gap-2"><button onClick={() => setManualOpen(true)} className="btn-primary"><Plus size={14}/> 수기등록</button><button onClick={() => load(true)} className="btn-secondary"><RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침</button></div></div>
+    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4"><div><h1 className="text-lg font-bold text-slate-800">DB관리</h1><p className="text-xs text-slate-500 mt-0.5">DB 리스트 조회, 상담결과/유입경로 수정, 인바운드 수기등록을 관리합니다.</p></div><div className="flex flex-wrap items-center justify-end gap-2"><DataUpdatedAt /><button onClick={() => setManualOpen(true)} className="btn-primary"><Plus size={14}/> 수기등록</button><button onClick={() => load(true)} className="btn-secondary"><RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침</button></div></div>
     {notice && <div className={clsx('fixed right-4 top-4 z-[70] min-w-[280px] max-w-[min(420px,calc(100vw-2rem))] rounded-lg border px-4 py-3 text-sm shadow-lg', notice.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700')}>{notice.text}</div>}
     <div className="card p-4 space-y-4"><div className="flex flex-wrap items-center gap-2">{[
       ['all','현재 상담대상',counts.all],

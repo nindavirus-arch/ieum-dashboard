@@ -16,6 +16,7 @@ import {
 import { baseStage, buildLeadJourneys, isPaidChannel, trafficGroup } from '../lib/leadMetrics'
 import type { AdSpend, LeadRecord } from '../types'
 import { useAuth } from '../contexts/AuthContext'
+import DataUpdatedAt from '../components/DataUpdatedAt'
 
 const today = format(new Date(), 'yyyy-MM-dd')
 const currentMonth = today.slice(0, 7)
@@ -349,6 +350,7 @@ export default function OnlineKpiPage() {
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
           />
           {user?.role === 'master' && <button onClick={openSettings} className="btn-secondary"><Settings size={14} /> 목표 설정</button>}
+          <DataUpdatedAt />
           <button onClick={load} className="btn-secondary"><RefreshCw size={14} className={clsx(loading && 'animate-spin')} /> 새로고침</button>
         </div>
       </div>

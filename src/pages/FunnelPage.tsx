@@ -8,6 +8,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell
 } from 'recharts'
+import DataUpdatedAt from '../components/DataUpdatedAt'
 import clsx from 'clsx'
 import { buildLeadJourneys } from '../lib/leadMetrics'
 
@@ -99,6 +100,7 @@ export default function FunnelPage() {
             <option value="all">전체 채널</option>
             {CHANNELS.map(ch => <option key={ch} value={ch}>{CHANNEL_LABELS[ch]}</option>)}
           </select>
+          <DataUpdatedAt />
           <button onClick={load} className="btn-secondary shrink-0">
             <RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침
           </button>

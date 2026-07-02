@@ -4,6 +4,7 @@ import { Pencil, RefreshCw, Search, Trash2, X } from 'lucide-react'
 import clsx from 'clsx'
 import { deleteAdSpendRecord, fetchAdSpend, updateAdSpendRecord } from '../lib/dataService'
 import type { AdSpend, Channel } from '../types'
+import DataUpdatedAt from '../components/DataUpdatedAt'
 
 const CHANNELS: Channel[] = ['naver', 'google', 'meta', 'youtube', 'viral', 'kakao_search', 'kakao_moment']
 const CHANNEL_LABELS: Record<string, string> = {
@@ -96,7 +97,10 @@ export default function AdSpendManagePage() {
         <h1 className="text-lg font-bold text-slate-800">광고비 관리</h1>
         <p className="mt-0.5 text-xs text-slate-500">AD_SPEND에 등록된 일자별 광고비를 조회하고 수정합니다.</p>
       </div>
-      <button onClick={load} className="btn-secondary self-start"><RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침</button>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <DataUpdatedAt />
+        <button onClick={load} className="btn-secondary"><RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침</button>
+      </div>
     </div>
 
     {notice && <div className={clsx('rounded-lg border px-4 py-3 text-sm', notice.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700')}>{notice.text}</div>}
