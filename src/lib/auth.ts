@@ -48,6 +48,21 @@ export function defaultPath(user: AdminUser) {
   return found?.key || '/db-manage'
 }
 
+async function fetchAuth(input: RequestInfo | URL, init?: RequestInit) {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 15_000)
+  try {
+    return await fetch(input, { ...init, signal: controller.signal })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('인증 서버 응답이 늦습니다. 잠시 후 다시 시도해주세요.')
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
 async function parseResponse(res: Response) {
   if (!res.ok) throw new Error('인증 서버에 연결하지 못했습니다.')
   const data = await res.json()
@@ -70,7 +85,7 @@ async function parseResponse(res: Response) {
 }
 
 async function authPost(type: string, payload: Record<string, unknown> = {}) {
-  const res = await fetch(SHEET_API_URL, {
+  const res = await fetchAuth(SHEET_API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ type, token: getAuthToken(), ...payload }),
@@ -80,7 +95,7 @@ async function authPost(type: string, payload: Record<string, unknown> = {}) {
 
 export async function fetchAuthStatus() {
   const token = getAuthToken()
-  const res = await fetch(`${SHEET_API_URL}?type=authStatus&token=${encodeURIComponent(token)}`)
+  const res = await fetchAuth(`${SHEET_API_URL}?type=authStatus&token=${encodeURIComponent(token)}`)
   return parseResponse(res) as Promise<{ setupRequired: boolean; user?: AdminUser }>
 }
 

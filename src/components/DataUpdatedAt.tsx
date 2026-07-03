@@ -40,10 +40,13 @@ export default function DataUpdatedAt() {
   }, [])
 
   useEffect(() => {
-    load()
+    const initialTimer = window.setTimeout(load, 1_200)
     const handleUpdated = () => load()
     window.addEventListener(DATA_UPDATED_EVENT, handleUpdated)
-    return () => window.removeEventListener(DATA_UPDATED_EVENT, handleUpdated)
+    return () => {
+      window.clearTimeout(initialTimer)
+      window.removeEventListener(DATA_UPDATED_EVENT, handleUpdated)
+    }
   }, [load])
 
   return (

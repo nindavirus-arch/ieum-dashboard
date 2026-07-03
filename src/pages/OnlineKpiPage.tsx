@@ -196,17 +196,17 @@ export default function OnlineKpiPage() {
     setNotice('')
     try {
       if (force) invalidateDataCache()
-      const [leadRows, spendRows] = await Promise.all([
+      const [leadRows, spendRows, targetResult] = await Promise.all([
         fetchLeads(),
         fetchAdSpend(),
+        fetchKpiTargets()
+          .then(value => ({ value, error: null as unknown }))
+          .catch(error => ({ value: null, error })),
       ])
       setLeads(leadRows)
       setSpends(spendRows)
-      try {
-        setTargets(await fetchKpiTargets())
-      } catch (error) {
-        setNotice(error instanceof Error ? error.message : 'KPI 목표를 불러오지 못했습니다.')
-      }
+      if (targetResult.value) setTargets(targetResult.value)
+      else if (targetResult.error) setNotice(targetResult.error instanceof Error ? targetResult.error.message : 'KPI 목표를 불러오지 못했습니다.')
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'KPI 데이터를 불러오지 못했습니다.')
     } finally {

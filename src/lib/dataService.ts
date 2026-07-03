@@ -26,8 +26,11 @@ const EXCLUDED_LEAD_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted
 const SHEET_CACHE_TTL_MS = 10_000
 const sheetCache = new Map<SheetType, { expires: number; data?: any[]; promise?: Promise<any[]> }>()
 export const DATA_UPDATED_EVENT = 'ieum:data-updated'
+let updatedAtCache: { expires: number; value: string } | null = null
+let updatedAtPromise: Promise<string> | null = null
 
 function notifyDataUpdated() {
+  updatedAtCache = null
   window.dispatchEvent(new Event(DATA_UPDATED_EVENT))
 }
 
@@ -268,7 +271,6 @@ async function getSheetRows(type: SheetType) {
     handleDataError(data)
     const rows = Array.isArray(data) ? data : []
     sheetCache.set(type, { data: rows, expires: Date.now() + SHEET_CACHE_TTL_MS })
-    notifyDataUpdated()
     return rows
   })()
 
@@ -304,13 +306,25 @@ async function postSheetRows(type: PostSheetType, rows: any[]) {
 }
 
 export async function fetchDataUpdatedAt(): Promise<string> {
-  const res = await fetch(`${SHEET_API_URL}?type=dataUpdatedAt&token=${encodeURIComponent(getAuthToken())}&menu=${encodeURIComponent(currentMenu())}`)
-  if (!res.ok) throw new Error('업데이트 시간을 확인하지 못했습니다.')
-  const data = await res.json()
-  handleDataError(data)
-  const updatedAt = String(data?.updatedAt || '')
-  if (!updatedAt) throw new Error('업데이트 시간이 없습니다.')
-  return updatedAt
+  if (updatedAtCache && updatedAtCache.expires > Date.now()) return updatedAtCache.value
+  if (updatedAtPromise) return updatedAtPromise
+
+  updatedAtPromise = (async () => {
+    const res = await fetch(`${SHEET_API_URL}?type=dataUpdatedAt&token=${encodeURIComponent(getAuthToken())}&menu=${encodeURIComponent(currentMenu())}`)
+    if (!res.ok) throw new Error('업데이트 시간을 확인하지 못했습니다.')
+    const data = await res.json()
+    handleDataError(data)
+    const updatedAt = String(data?.updatedAt || '')
+    if (!updatedAt) throw new Error('업데이트 시간이 없습니다.')
+    updatedAtCache = { value: updatedAt, expires: Date.now() + 60_000 }
+    return updatedAt
+  })()
+
+  try {
+    return await updatedAtPromise
+  } finally {
+    updatedAtPromise = null
+  }
 }
 
 export async function fetchMappings(): Promise<MappingRow[]> {
