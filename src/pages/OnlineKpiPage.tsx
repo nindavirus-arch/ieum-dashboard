@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { endOfMonth, format, getDay, getDaysInMonth, parseISO } from 'date-fns'
 import {
-  AlertTriangle, CalendarDays, CheckCircle2, DollarSign, Gauge,
+  AlertTriangle, CalendarDays, CheckCircle2, DollarSign, FileDown, Gauge,
   RefreshCw, Settings, Target, TrendingUp, X,
 } from 'lucide-react'
 import {
@@ -18,6 +18,7 @@ import type { AdSpend, LeadRecord } from '../types'
 import { useAuth } from '../contexts/AuthContext'
 import DataUpdatedAt from '../components/DataUpdatedAt'
 import { normalizeDate } from '../lib/excelParser'
+import OnlineKpiReport from '../components/kpi/OnlineKpiReport'
 
 const today = format(new Date(), 'yyyy-MM-dd')
 const currentMonth = today.slice(0, 7)
@@ -185,6 +186,7 @@ export default function OnlineKpiPage() {
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
   const [draftMin, setDraftMin] = useState(40)
   const [draftStretch, setDraftStretch] = useState(60)
   const [saving, setSaving] = useState(false)
@@ -382,6 +384,7 @@ export default function OnlineKpiPage() {
             onChange={event => setSelectedMonth(event.target.value)}
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
           />
+          <button onClick={() => setReportOpen(true)} className="btn-secondary"><FileDown size={14} /> PDF 리포트</button>
           {user?.role === 'master' && <button onClick={openSettings} className="btn-secondary"><Settings size={14} /> 목표 설정</button>}
           <DataUpdatedAt />
           <button onClick={() => load(true)} className="btn-secondary"><RefreshCw size={14} className={clsx(loading && 'animate-spin')} /> 새로고침</button>
@@ -594,6 +597,16 @@ export default function OnlineKpiPage() {
             </div>
           </div>
         </div>
+      )}
+      {reportOpen && (
+        <OnlineKpiReport
+          acquisitions={acquisitions}
+          conversions={conversions}
+          spends={spends}
+          targets={targets}
+          initialMonth={selectedMonth}
+          onClose={() => setReportOpen(false)}
+        />
       )}
     </div>
   )

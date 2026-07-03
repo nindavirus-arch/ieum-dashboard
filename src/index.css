@@ -16,6 +16,54 @@
   ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 }
 
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  body {
+    background: white !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .kpi-report-print-root,
+  .kpi-report-print-root * {
+    visibility: visible !important;
+  }
+
+  .kpi-report-print-root {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .report-sheet {
+    min-height: 185mm;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .report-sheet:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+}
+
 @layer components {
   .card {
     @apply bg-white rounded-xl border border-slate-100 shadow-sm;
