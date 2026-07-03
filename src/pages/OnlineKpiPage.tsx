@@ -10,13 +10,14 @@ import {
 } from 'recharts'
 import clsx from 'clsx'
 import {
-  fetchAdSpend, fetchKpiTargets, fetchLeads, saveKpiTarget,
+  fetchAdSpend, fetchKpiTargets, fetchLeads, invalidateDataCache, saveKpiTarget,
   type KpiTarget,
 } from '../lib/dataService'
 import { baseStage, buildLeadJourneys, isPaidChannel, trafficGroup } from '../lib/leadMetrics'
 import type { AdSpend, LeadRecord } from '../types'
 import { useAuth } from '../contexts/AuthContext'
 import DataUpdatedAt from '../components/DataUpdatedAt'
+import { normalizeDate } from '../lib/excelParser'
 
 const today = format(new Date(), 'yyyy-MM-dd')
 const currentMonth = today.slice(0, 7)
@@ -51,7 +52,10 @@ type ConversionEvent = {
 }
 
 function recordDate(lead: LeadRecord) {
-  return String(lead.registeredAt || lead.date || lead.uploadedAt || '').slice(0, 10)
+  const fallback = /^\d{4}-\d{2}-\d{2}$/.test(lead.date)
+    ? new Date(`${lead.date}T00:00:00`)
+    : new Date(lead.uploadedAt)
+  return normalizeDate(lead.registeredAt || lead.date || lead.uploadedAt, fallback)
 }
 
 function defaultDetail(channel: string) {
@@ -185,10 +189,11 @@ export default function OnlineKpiPage() {
   const [draftStretch, setDraftStretch] = useState(60)
   const [saving, setSaving] = useState(false)
 
-  async function load() {
+  async function load(force = false) {
     setLoading(true)
     setNotice('')
     try {
+      if (force) invalidateDataCache()
       const [leadRows, spendRows] = await Promise.all([
         fetchLeads(),
         fetchAdSpend(),
@@ -200,6 +205,8 @@ export default function OnlineKpiPage() {
       } catch (error) {
         setNotice(error instanceof Error ? error.message : 'KPI 목표를 불러오지 못했습니다.')
       }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'KPI 데이터를 불러오지 못했습니다.')
     } finally {
       setLoading(false)
     }
@@ -377,7 +384,7 @@ export default function OnlineKpiPage() {
           />
           {user?.role === 'master' && <button onClick={openSettings} className="btn-secondary"><Settings size={14} /> 목표 설정</button>}
           <DataUpdatedAt />
-          <button onClick={load} className="btn-secondary"><RefreshCw size={14} className={clsx(loading && 'animate-spin')} /> 새로고침</button>
+          <button onClick={() => load(true)} className="btn-secondary"><RefreshCw size={14} className={clsx(loading && 'animate-spin')} /> 새로고침</button>
         </div>
       </div>
 
