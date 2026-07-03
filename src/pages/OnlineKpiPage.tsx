@@ -28,13 +28,14 @@ const CHANNEL_LABELS: Record<string, string> = {
   meta: '메타',
   youtube: '유튜브',
   viral: '바이럴',
+  danggeun: '당근',
   kakao_search: '카카오 검색광고',
   kakao_moment: '카카오모먼트',
   direct: '온라인 직접유입',
   etc: '온라인 기타',
 }
 
-const CHANNEL_ORDER = ['naver', 'google', 'meta', 'youtube', 'viral', 'kakao_search', 'kakao_moment', 'direct', 'etc']
+const CHANNEL_ORDER = ['naver', 'google', 'meta', 'youtube', 'viral', 'danggeun', 'kakao_search', 'kakao_moment', 'direct', 'etc']
 
 type Acquisition = {
   date: string
@@ -59,6 +60,7 @@ function defaultDetail(channel: string) {
   if (channel === 'meta') return '메타'
   if (channel === 'youtube') return '유튜브'
   if (channel === 'viral') return '바이럴'
+  if (channel === 'danggeun') return '당근'
   if (channel === 'kakao_search') return '카카오 검색광고'
   if (channel === 'kakao_moment') return '카카오모먼트'
   if (channel === 'direct') return '홈페이지 직접유입'
@@ -68,6 +70,24 @@ function defaultDetail(channel: string) {
 
 function detailLabel(lead: Pick<LeadRecord, 'channel' | 'subChannel'>) {
   return String(lead.subChannel || '').trim() || defaultDetail(lead.channel)
+}
+
+function kpiDetailGroup(channel: string, subChannel: string) {
+  const detail = String(subChannel || '').trim() || defaultDetail(channel)
+  const normalized = detail.toLowerCase().replace(/[\s_\-\/()\[\].]/g, '')
+  const isGoogleDisplayOrYoutube = channel === 'google' && (
+    normalized.includes('디스커버리')
+    || normalized.includes('디맨드')
+    || normalized.includes('demand')
+    || normalized.includes('discovery')
+    || normalized.includes('gdn')
+    || normalized.includes('유튜브')
+    || normalized.includes('youtube')
+  )
+  if (isGoogleDisplayOrYoutube) {
+    return { channel: 'google', subChannel: '구글 디스커버리/GDN·유튜브' }
+  }
+  return { channel, subChannel: detail }
 }
 
 function isOnlineKpiLead(lead: LeadRecord) {
@@ -245,16 +265,22 @@ export default function OnlineKpiPage() {
   }, [daysInMonth, minDaily, monthAcquisitions, monthSpends, selectedMonth, stretchDaily])
 
   const detailStats = useMemo(() => {
+    const groupedAcquisitions = monthAcquisitions.map(row => ({ ...row, ...kpiDetailGroup(row.channel, row.subChannel) }))
+    const groupedConversions = monthConversions.map(row => ({ ...row, ...kpiDetailGroup(row.channel, row.subChannel) }))
+    const groupedSpends = monthSpends.map(row => ({
+      ...row,
+      ...kpiDetailGroup(row.channel, String(row.subChannel || '').trim() || defaultDetail(row.channel)),
+    }))
     const keys = new Set<string>()
-    monthAcquisitions.forEach(row => keys.add(`${row.channel}__${row.subChannel}`))
-    monthSpends.forEach(row => keys.add(`${row.channel}__${String(row.subChannel || '').trim() || defaultDetail(row.channel)}`))
+    groupedAcquisitions.forEach(row => keys.add(`${row.channel}__${row.subChannel}`))
+    groupedSpends.forEach(row => keys.add(`${row.channel}__${row.subChannel}`))
     return Array.from(keys).map(key => {
       const [channel, subChannel] = key.split('__')
-      const dbRows = monthAcquisitions.filter(row => row.channel === channel && row.subChannel === subChannel)
-      const spend = monthSpends
-        .filter(row => row.channel === channel && (String(row.subChannel || '').trim() || defaultDetail(row.channel)) === subChannel)
+      const dbRows = groupedAcquisitions.filter(row => row.channel === channel && row.subChannel === subChannel)
+      const spend = groupedSpends
+        .filter(row => row.channel === channel && row.subChannel === subChannel)
         .reduce((sum, row) => sum + row.amount, 0)
-      const converted = monthConversions.filter(row => row.channel === channel && row.subChannel === subChannel).length
+      const converted = groupedConversions.filter(row => row.channel === channel && row.subChannel === subChannel).length
       const attributed = isPaidChannel(channel)
       return {
         key,

@@ -14,7 +14,7 @@ export interface LeadJourney {
   secondType: 'estimate_to_consult' | 'direct_consult' | null
 }
 
-const PAID_CHANNELS = new Set(['naver', 'google', 'meta', 'youtube', 'viral', 'kakao_search', 'kakao_moment'])
+const PAID_CHANNELS = new Set(['naver', 'google', 'meta', 'youtube', 'viral', 'danggeun', 'kakao_search', 'kakao_moment'])
 const EXTERNAL_CHANNELS = new Set(['tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'inbound_call'])
 const EXCLUDED_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted'])
 

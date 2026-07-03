@@ -9,13 +9,13 @@ import clsx from 'clsx'
 type Stage = 'idle' | 'parsing' | 'preview' | 'uploading' | 'done' | 'error'
 
 const CHANNEL_LABELS: Record<string, string> = {
-  naver:'네이버', google:'구글', meta:'메타', youtube:'유튜브', viral:'바이럴', direct:'직접유입',
+  naver:'네이버', google:'구글', meta:'메타', youtube:'유튜브', viral:'바이럴', danggeun:'당근', direct:'직접유입',
   kakao_search:'카카오 검색광고', kakao_moment:'카카오모먼트',
   tu_albarich:'TU-알바리치', tu_youtube:'TU-유튜브', tu_danggeun:'TU-당근',
   hugreen_danggeun:'휴그린-당근', hugreen_mail:'휴그린-메일', inbound_call:'인바운드-인입콜', etc:'기타'
 }
-const AD_CHANNELS: Channel[] = ['naver', 'google', 'meta', 'youtube', 'viral', 'kakao_search', 'kakao_moment']
-const SUB_CHANNELS = ['네이버 SA', '네이버 GFA', '네이버 브랜드검색', '구글 검색광고', '구글 디맨드젠', '구글 디스커버리/GDN', '메타', '유튜브', '바이럴', '카카오 검색광고', '카카오모먼트']
+const AD_CHANNELS: Channel[] = ['naver', 'google', 'meta', 'youtube', 'viral', 'danggeun', 'kakao_search', 'kakao_moment']
+const SUB_CHANNELS = ['네이버 SA', '네이버 GFA', '네이버 브랜드검색', '구글 검색광고', '구글 디맨드젠', '구글 디스커버리/GDN', '구글 유튜브', '메타', '유튜브', '바이럴', '당근', '카카오 검색광고', '카카오모먼트']
 
 function fmtKRW(n: number) {
   return n.toLocaleString() + '원'

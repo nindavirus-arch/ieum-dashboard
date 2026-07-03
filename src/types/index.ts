@@ -1,6 +1,6 @@
 // src/types/index.ts
 
-export type Channel = 'naver' | 'google' | 'meta' | 'youtube' | 'viral' | 'kakao_search' | 'kakao_moment' | 'direct' | 'tu_albarich' | 'tu_youtube' | 'tu_danggeun' | 'hugreen_danggeun' | 'hugreen_mail' | 'inbound_call' | 'etc'
+export type Channel = 'naver' | 'google' | 'meta' | 'youtube' | 'viral' | 'danggeun' | 'kakao_search' | 'kakao_moment' | 'direct' | 'tu_albarich' | 'tu_youtube' | 'tu_danggeun' | 'hugreen_danggeun' | 'hugreen_mail' | 'inbound_call' | 'etc'
 export type DBTier = 'retarget' | 'first' | 'second' | 'first_reentry' | 'second_reentry'
 export type DBStatus = 'retarget' | 'first' | 'second' | 'first_reentry' | 'second_reentry' | 'invalid' | 'test' | 'duplicate' | 'deleted' | 'valid'
 export type SourceKind = 'first_raw' | 'second_raw' | 'unknown'

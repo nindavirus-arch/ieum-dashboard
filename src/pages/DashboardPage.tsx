@@ -11,16 +11,16 @@ import clsx from 'clsx'
 import { buildLeadJourneys, isDirectSales, isPaidChannel, trafficGroup, type TrafficGroup } from '../lib/leadMetrics'
 
 const today = format(new Date(), 'yyyy-MM-dd')
-const PAID_CHANNEL_LIST = ['naver','google','meta','youtube','viral','kakao_search','kakao_moment'] as const
+const PAID_CHANNEL_LIST = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment'] as const
 const EXTERNAL_CHANNEL_LIST = ['tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','inbound_call'] as const
 const CHANNEL_LABELS: Record<string, string> = {
-  naver:'네이버', google:'구글', meta:'메타', youtube:'유튜브', viral:'바이럴', direct:'직접유입',
+  naver:'네이버', google:'구글', meta:'메타', youtube:'유튜브', viral:'바이럴', danggeun:'당근', direct:'직접유입',
   kakao_search:'카카오 검색광고', kakao_moment:'카카오모먼트',
   tu_albarich:'TU-알바리치', tu_youtube:'TU-유튜브', tu_danggeun:'TU-당근',
   hugreen_danggeun:'휴그린-당근', hugreen_mail:'휴그린-메일', inbound_call:'인바운드-인입콜', etc:'기타'
 }
 const CHANNEL_COLORS: Record<string, string> = {
-  naver:'#03C75A', google:'#4285F4', meta:'#1877F2', youtube:'#FF0000', viral:'#7C3AED', kakao_search:'#FEE500', kakao_moment:'#111827', direct:'#64748B',
+  naver:'#03C75A', google:'#4285F4', meta:'#1877F2', youtube:'#FF0000', viral:'#7C3AED', danggeun:'#FF6F0F', kakao_search:'#FEE500', kakao_moment:'#111827', direct:'#64748B',
   tu_albarich:'#0EA5E9', tu_youtube:'#EF4444', tu_danggeun:'#F97316',
   hugreen_danggeun:'#22C55E', hugreen_mail:'#14B8A6', inbound_call:'#334155', etc:'#94A3B8'
 }
@@ -31,6 +31,7 @@ function defaultSubChannelForChannel(ch: string) {
   if (ch === 'meta') return '메타'
   if (ch === 'youtube') return '유튜브'
   if (ch === 'viral') return '바이럴'
+  if (ch === 'danggeun') return '당근'
   if (ch === 'kakao_search') return '카카오 검색광고'
   if (ch === 'kakao_moment') return '카카오모먼트'
   if (ch === 'direct') return '홈페이지 직접유입'
@@ -58,6 +59,7 @@ function channelFromSubChannel(label?: string) {
   if (t.includes('tu유튜브') || t.includes('tu유투브')) return 'tu_youtube'
   if (t.includes('tu당근')) return 'tu_danggeun'
   if (t.includes('휴그린당근')) return 'hugreen_danggeun'
+  if (t.includes('당근') || t.includes('carrot') || t.includes('karrot')) return 'danggeun'
   if (t.includes('휴그린메일') || t.includes('휴그린본사')) return 'hugreen_mail'
   if (t.includes('인바운드') || t.includes('인입콜')) return 'inbound_call'
   return ''

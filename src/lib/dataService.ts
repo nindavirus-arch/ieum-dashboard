@@ -127,6 +127,11 @@ function applyChannelMapping(input: {
   utm_content?: unknown
   utm_term?: unknown
 }, mappings: MappingRow[]): { channel: Channel; subChannel: string } {
+  const explicitSubChannel = String(input.subChannel || '').trim()
+  if (subChannelImpliesChannel(explicitSubChannel) === 'danggeun') {
+    return { channel: 'danggeun', subChannel: '당근' }
+  }
+
   const candidates = [input.utm_source, input.source_raw, input.utm_medium, input.utm_campaign, input.utm_content, input.utm_term]
     .map(v => String(v ?? '').trim())
     .filter(Boolean)
@@ -168,6 +173,7 @@ function subChannelImpliesChannel(label?: string): Channel | '' {
   if (t.includes('tu유튜브') || t.includes('tu유투브')) return 'tu_youtube'
   if (t.includes('tu당근')) return 'tu_danggeun'
   if (t.includes('휴그린당근')) return 'hugreen_danggeun'
+  if (t.includes('당근') || t.includes('carrot') || t.includes('karrot')) return 'danggeun'
   if (t.includes('휴그린메일') || t.includes('휴그린본사')) return 'hugreen_mail'
   if (t.includes('인바운드') || t.includes('인입콜')) return 'inbound_call'
   return ''

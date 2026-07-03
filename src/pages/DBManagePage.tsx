@@ -8,9 +8,9 @@ import type { Channel, DBTier, LeadRecord } from '../types'
 import { baseStage, buildLeadJourneys } from '../lib/leadMetrics'
 import DataUpdatedAt from '../components/DataUpdatedAt'
 
-const CHANNELS: Channel[] = ['naver', 'google', 'meta', 'youtube', 'viral', 'kakao_search', 'kakao_moment', 'direct', 'tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'inbound_call', 'etc']
+const CHANNELS: Channel[] = ['naver', 'google', 'meta', 'youtube', 'viral', 'danggeun', 'kakao_search', 'kakao_moment', 'direct', 'tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'inbound_call', 'etc']
 const CHANNEL_LABELS: Record<Channel, string> = {
-  naver: '네이버', google: '구글', meta: '메타', youtube: '유튜브', viral: '바이럴', direct: '직접유입',
+  naver: '네이버', google: '구글', meta: '메타', youtube: '유튜브', viral: '바이럴', danggeun: '당근', direct: '직접유입',
   kakao_search: '카카오 검색광고', kakao_moment: '카카오모먼트',
   tu_albarich: 'TU-알바리치', tu_youtube: 'TU-유튜브', tu_danggeun: 'TU-당근',
   hugreen_danggeun: '휴그린-당근', hugreen_mail: '휴그린-메일', inbound_call: '인바운드-인입콜', etc: '기타'

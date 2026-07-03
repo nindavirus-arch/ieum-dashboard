@@ -100,7 +100,8 @@ const CHANNEL_MAP: Record<string, Channel> = {
   '구글': 'google', '구글sa': 'google', '구글검색': 'google', '구글검색광고': 'google', '구글디맨드젠': 'google', '디맨드젠': 'google', '디스커버리': 'google', 'gdn': 'google', 'google': 'google', 'googlesa': 'google', 'demand': 'google', 'demandgen': 'google', 'googleslink': 'google',
   '메타': 'meta', '인스타': 'meta', '인스타그램': 'meta', '페이스북': 'meta', 'facebook': 'meta', 'fb': 'meta', 'ig': 'meta', 'instagram': 'meta', 'meta': 'meta',
   '유튜브': 'youtube', 'youtube': 'youtube', 'yt': 'youtube', '구글유튜브': 'youtube',
-  '바이럴': 'viral', '블로그': 'viral', '레뷰': 'viral', 'revu': 'viral', 'viral': 'viral', '카페': 'viral', '당근': 'viral',
+  '바이럴': 'viral', '블로그': 'viral', '레뷰': 'viral', 'revu': 'viral', 'viral': 'viral', '카페': 'viral',
+  '당근': 'danggeun', '당근마켓': 'danggeun', 'carrot': 'danggeun', 'karrot': 'danggeun',
   '카카오검색광고': 'kakao_search', '카카오검색': 'kakao_search', '카카오키워드': 'kakao_search', 'kakaosearch': 'kakao_search', 'kakao_sa': 'kakao_search', 'kakaosa': 'kakao_search',
   '카카오모먼트': 'kakao_moment', '카카오모멘트': 'kakao_moment', '카카오moment': 'kakao_moment', 'kakaomoment': 'kakao_moment',
   'tu': 'tu_albarich', 'tu알바리치': 'tu_albarich', 'tu-albarich': 'tu_albarich', 'tualbarich': 'tu_albarich', '알바리치': 'tu_albarich',
@@ -141,8 +142,9 @@ export function normalizeChannel(raw: unknown): Channel {
     if (original.includes('당근') || original.includes('carrot')) return 'hugreen_danggeun'
     return 'hugreen_mail'
   }
+  if (original.includes('당근') || original.includes('carrot') || original.includes('karrot')) return 'danggeun'
   if (original.includes('인바운드') || original.includes('인입콜') || original.includes('inbound') || original.includes('call')) return 'inbound_call'
-  if (original.includes('blog') || original.includes('블로그') || original.includes('revu') || original.includes('레뷰') || original.includes('viral') || original.includes('카페') || original.includes('당근')) return 'viral'
+  if (original.includes('blog') || original.includes('블로그') || original.includes('revu') || original.includes('레뷰') || original.includes('viral') || original.includes('카페')) return 'viral'
   if (original.includes('홈페이지') || original.includes('공식홈') || original.includes('직접영업') || original.includes('direct') || original.includes('homepage') || original.includes('website')) return 'direct'
   return 'etc'
 }
@@ -185,9 +187,9 @@ export function inferSubChannel(fields: { channel: Channel; source?: unknown; so
     if (text.includes('블로그') || k.includes('blog')) return '블로그'
     if (text.includes('레뷰') || k.includes('revu')) return '레뷰'
     if (text.includes('카페')) return '카페'
-    if (text.includes('당근')) return '당근'
     return '바이럴'
   }
+  if (fields.channel === 'danggeun') return '당근'
   if (fields.channel === 'kakao_search') return '카카오 검색광고'
   if (fields.channel === 'kakao_moment') return '카카오모먼트'
   if (fields.channel === 'direct') {
