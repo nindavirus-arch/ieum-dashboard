@@ -138,6 +138,64 @@ function shortAddress(row: LeadRecord) {
   return addr || building || '-'
 }
 
+function addressParts(row: LeadRecord) {
+  const address = String((row as any).address || '').replace(/\s+/g, ' ').trim()
+  const region = String(row.region || '').trim()
+  const district = String(row.district || '').trim()
+  const locality = address
+    .split(' ')
+    .find(part => /(?:읍|면|동|리)$/.test(part) && part !== region && part !== district) || ''
+  const buildingFromAddress = address.match(/((?:[가-힣A-Za-z0-9·-]+\s*){0,2}(?:아파트|오피스텔|빌라|팰리스|타운|주공|힐스테이트|푸르지오|자이)(?:\s*\d+차)?)/)?.[1]?.trim() || ''
+  const building = String((row as any).building || '').trim() || buildingFromAddress
+  const location = uniq([region, district, locality])
+  const detail = address
+    ? address.replace(building, '').replace(/\s+/g, ' ').trim()
+    : ''
+  return {
+    location: location.length ? location : ['지역 미입력'],
+    building,
+    detail: detail || (building ? '' : '-'),
+  }
+}
+
+const MEDIA_BRANDS: Partial<Record<Channel, { label: string; domain?: string; tone: string; mark: string }[]>> = {
+  naver: [{ label: '네이버', domain: 'naver.com', tone: 'bg-emerald-50 text-emerald-700', mark: 'N' }],
+  google: [{ label: '구글', domain: 'google.com', tone: 'bg-blue-50 text-blue-700', mark: 'G' }],
+  meta: [{ label: '메타', domain: 'meta.com', tone: 'bg-blue-50 text-blue-700', mark: 'M' }],
+  youtube: [{ label: '유튜브', domain: 'youtube.com', tone: 'bg-red-50 text-red-700', mark: 'Y' }],
+  danggeun: [{ label: '당근', domain: 'daangn.com', tone: 'bg-orange-50 text-orange-700', mark: '당' }],
+  kakao_search: [{ label: '카카오', domain: 'kakao.com', tone: 'bg-yellow-50 text-slate-800', mark: 'K' }],
+  kakao_moment: [{ label: '카카오', domain: 'kakao.com', tone: 'bg-yellow-50 text-slate-800', mark: 'K' }],
+  tu_albarich: [{ label: 'TU', tone: 'bg-sky-50 text-sky-700', mark: 'TU' }],
+  tu_youtube: [{ label: 'TU', tone: 'bg-sky-50 text-sky-700', mark: 'TU' }, { label: '유튜브', domain: 'youtube.com', tone: 'bg-red-50 text-red-700', mark: 'Y' }],
+  tu_danggeun: [{ label: 'TU', tone: 'bg-sky-50 text-sky-700', mark: 'TU' }, { label: '당근', domain: 'daangn.com', tone: 'bg-orange-50 text-orange-700', mark: '당' }],
+  hugreen_danggeun: [{ label: '휴그린', domain: 'hugreen.kr', tone: 'bg-emerald-50 text-emerald-700', mark: '휴' }, { label: '당근', domain: 'daangn.com', tone: 'bg-orange-50 text-orange-700', mark: '당' }],
+  hugreen_mail: [{ label: '휴그린', domain: 'hugreen.kr', tone: 'bg-emerald-50 text-emerald-700', mark: '휴' }],
+}
+
+function MediaBrand({ row }: { row: LeadRecord }) {
+  const brands = MEDIA_BRANDS[row.channel] || [{
+    label: mediaLabel(row),
+    tone: 'bg-slate-100 text-slate-600',
+    mark: mediaLabel(row).slice(0, 2),
+  }]
+  return <div className="flex items-center gap-1.5" title={brands.map(brand => brand.label).join(' · ')}>
+    <span className="flex -space-x-1">
+      {brands.map((brand, index) => <span key={`${brand.label}_${index}`} className={clsx('relative flex h-6 w-6 items-center justify-center overflow-hidden rounded-md border border-white text-[9px] font-bold shadow-sm', brand.tone)}>
+        {brand.mark}
+        {brand.domain && <img
+          src={`https://www.google.com/s2/favicons?domain=${brand.domain}&sz=64`}
+          alt=""
+          className="absolute inset-0 h-full w-full bg-white object-contain p-0.5"
+          loading="lazy"
+          onError={event => { event.currentTarget.style.display = 'none' }}
+        />}
+      </span>)}
+    </span>
+    <span className="font-medium text-slate-700">{mediaLabel(row)}</span>
+  </div>
+}
+
 function mediaLabel(row: LeadRecord) {
   if (row.channel === 'tu_albarich' || row.channel === 'tu_youtube' || row.channel === 'tu_danggeun') return 'TU'
   if (row.channel === 'hugreen_danggeun' || row.channel === 'hugreen_mail') return '휴그린'
@@ -167,6 +225,9 @@ function applyLeadPatch(row: LeadRecord, patch: any): LeadRecord {
     ...row,
     name: patch.name ?? row.name,
     address: patch.address ?? row.address,
+    region: patch.region ?? row.region,
+    district: patch.district ?? row.district,
+    building: patch.building ?? row.building,
     channel: patch.channel ?? row.channel,
     subChannel: patch.subChannel ?? row.subChannel,
     source_raw: patch.sourceRaw ?? row.source_raw,
@@ -375,10 +436,30 @@ export default function DBManagePage() {
         const quotes = quoteRows(l)
         const history = String((l as any).changeHistory || '')
         const previousRows = stage === 'history' ? [] : (previousByPhone.get(l.phone) || [])
+        const address = addressParts(l)
         return <div key={key} className="card p-4 space-y-3">
           <div className="flex items-start justify-between gap-3"><div><div className="text-[11px] text-slate-400">DB 유입/신청일시</div><div className="text-xs text-slate-500">{fmtDateTime(l)}</div><div className="font-semibold text-slate-800 mt-1">{l.name || '-'}</div><div className="text-sm text-slate-500">{formatPhone(l.phone)}</div></div><span className={clsx('px-2 py-0.5 rounded-md border text-xs font-medium whitespace-nowrap', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span></div>
           {(l as any).memo && <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-800"><b>메모</b> {(l as any).memo}</div>}
-          <div className="grid grid-cols-2 gap-2 text-xs text-slate-600"><div><b>지역</b><br/>{l.region} {l.district}</div><div><b>상담결과</b><br/>{(l as any).consultationResult || '-'}</div><div className="col-span-2"><b>주소</b><br/>{shortAddress(l)}</div><div><b>매체</b><br/>{mediaLabel(l)}</div><div><b>상세매체</b><br/>{detailLabel(l)}</div><div><b>작업자</b><br/>{(l as any).operator || '-'}</div><div><b>상태</b><br/>{l.status || 'valid'}</div></div>
+          <div className="grid grid-cols-2 gap-3 text-xs text-slate-600">
+            <div className="col-span-2">
+              <b className="text-slate-700">지역</b>
+              <div className="mt-1 flex flex-wrap items-center gap-1">
+                {address.location.map((part, partIndex) => <span key={`${part}_${partIndex}`} className="inline-flex items-center gap-1">
+                  {partIndex > 0 && <span className="text-slate-300">›</span>}
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5">{part}</span>
+                </span>)}
+              </div>
+            </div>
+            <div className="col-span-2 rounded-lg bg-slate-50 px-3 py-2">
+              <b className="text-slate-700">주소</b>
+              {address.building && <div className="mt-1 font-semibold text-slate-700">{address.building}</div>}
+              <div className={clsx('leading-5 text-slate-500', address.building && 'mt-0.5')}>{address.detail}</div>
+            </div>
+            <div><b>상담결과</b><br/>{(l as any).consultationResult || '-'}</div>
+            <div><b>작업자</b><br/>{(l as any).operator || '-'}</div>
+            <div><b>매체</b><div className="mt-1"><MediaBrand row={l} /></div></div>
+            <div><b>상세매체</b><br/><span className="leading-5">{detailLabel(l)}</span></div>
+          </div>
           {quotes.length > 0 && <details className="group"><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-blue-600 text-sm font-medium"><ChevronDown size={14} className="transition-transform group-open:rotate-180" /> 외부창 견적</summary><QuotePanel rows={quotes} /></details>}
           {previousRows.length > 0 && <details className="group"><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-slate-600 text-sm font-medium"><History size={13}/> 이전 단계 이력 {previousRows.length}건</summary><StageHistoryPanel rows={previousRows} /></details>}
           {history && <details><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-slate-500 text-sm font-medium"><History size={13}/> 수정이력</summary><pre className="mt-2 p-2 rounded-lg bg-slate-50 text-slate-500 whitespace-pre-wrap text-xs">{history}</pre></details>}
@@ -396,7 +477,7 @@ export default function DBManagePage() {
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-slate-50 z-10 border-b border-slate-100">
             <tr className="text-slate-500">
-              {['DB 유입/신청일시','DB유형','고객정보','지역','주소','상담결과','작업자','매체','상세매체','유입경로 원본','상태','관리'].map(h => <th key={h} className="text-left px-3 py-2 font-semibold whitespace-nowrap">{h}</th>)}
+              {['DB 유입/신청일시','DB유형','고객정보','지역','주소 · 아파트/건물','상담결과','작업자','매체','상세매체','유입경로 원본','관리'].map(h => <th key={h} className="text-left px-3 py-2 font-semibold whitespace-nowrap">{h}</th>)}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
@@ -405,6 +486,7 @@ export default function DBManagePage() {
               const quotes = quoteRows(l)
               const history = String((l as any).changeHistory || '')
               const previousRows = stage === 'history' ? [] : (previousByPhone.get(l.phone) || [])
+              const address = addressParts(l)
               return <tr key={key} className="align-top hover:bg-slate-50/70">
                 <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{fmtDateTime(l)}</td>
                 <td className="px-3 py-3 whitespace-nowrap"><span className={clsx('px-2 py-0.5 rounded-md border font-medium', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span></td>
@@ -416,18 +498,27 @@ export default function DBManagePage() {
                   {previousRows.length > 0 && <details className="mt-2"><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-slate-600 font-medium"><History size={12}/> 이전 단계 이력 {previousRows.length}건</summary><StageHistoryPanel rows={previousRows} /></details>}
                   {history && <details className="mt-2"><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-slate-500 font-medium"><History size={12}/> 수정이력</summary><pre className="mt-2 p-2 rounded-lg bg-slate-50 text-slate-500 whitespace-pre-wrap max-w-[520px]">{history}</pre></details>}
                 </td>
-                <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{l.region} {l.district}</td>
-                <td className="px-3 py-3 text-slate-500 max-w-[240px] whitespace-normal">{shortAddress(l)}</td>
+                <td className="px-3 py-3 min-w-[150px]">
+                  <div className="flex flex-wrap items-center gap-1 text-slate-600">
+                    {address.location.map((part, partIndex) => <span key={`${part}_${partIndex}`} className="inline-flex items-center gap-1">
+                      {partIndex > 0 && <span className="text-slate-300">›</span>}
+                      <span>{part}</span>
+                    </span>)}
+                  </div>
+                </td>
+                <td className="px-3 py-3 min-w-[220px] max-w-[300px] whitespace-normal">
+                  {address.building && <div className="font-semibold text-slate-700">{address.building}</div>}
+                  <div className={clsx('leading-5 text-slate-500', address.building && 'mt-0.5')}>{address.detail}</div>
+                </td>
                 <td className="px-3 py-3 text-slate-700 whitespace-nowrap">{(l as any).consultationResult || '-'}</td>
                 <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{(l as any).operator || '-'}</td>
-                <td className="px-3 py-3 text-slate-700 whitespace-nowrap">{mediaLabel(l)}</td>
+                <td className="px-3 py-3 whitespace-nowrap"><MediaBrand row={l} /></td>
                 <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{detailLabel(l)}</td>
                 <td className="px-3 py-3 text-slate-500 max-w-[180px] truncate" title={(l as any).source_raw}>{(l as any).source_raw || '-'}</td>
-                <td className="px-3 py-3 text-slate-500 whitespace-nowrap">{l.status || 'valid'}</td>
                 <td className="px-3 py-3 whitespace-nowrap"><div className="flex gap-1"><button onClick={() => setEditing(l)} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-600"><Pencil size={12}/> 수정</button><button onClick={() => deleteLead(l)} disabled={saving} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-red-100 hover:bg-red-50 text-red-600"><Trash2 size={12}/> 삭제</button></div></td>
               </tr>
             })}
-            {!filtered.length && <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-400">조회된 DB가 없습니다.</td></tr>}
+            {!filtered.length && <tr><td colSpan={11} className="px-4 py-10 text-center text-slate-400">조회된 DB가 없습니다.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -447,6 +538,9 @@ export default function DBManagePage() {
 
 function EditModalWithAddress({ row, subChannelOptions, onClose, onSave, saving }: any) {
   const [name, setName] = useState(row.name || '')
+  const [region, setRegion] = useState(row.region || '')
+  const [district, setDistrict] = useState(row.district || '')
+  const [building, setBuilding] = useState(row.building || '')
   const [address, setAddress] = useState(row.address || '')
   const [channel, setChannel] = useState<Channel>(row.channel)
   const [subChannel, setSubChannel] = useState(row.subChannel || '')
@@ -466,7 +560,10 @@ function EditModalWithAddress({ row, subChannelOptions, onClose, onSave, saving 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <label className="space-y-1 text-xs text-slate-500">이름<input value={name} onChange={e => setName(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
         <label className="space-y-1 text-xs text-slate-500">작업자<input value={operator} onChange={e => setOperator(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
-        <label className="space-y-1 text-xs text-slate-500 md:col-span-2">주소<input value={address} onChange={e => setAddress(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
+        <label className="space-y-1 text-xs text-slate-500">시/도<input value={region} onChange={e => setRegion(e.target.value)} placeholder="예: 경기" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
+        <label className="space-y-1 text-xs text-slate-500">시/군/구<input value={district} onChange={e => setDistrict(e.target.value)} placeholder="예: 김포시" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
+        <label className="space-y-1 text-xs text-slate-500 md:col-span-2">아파트/건물명<input value={building} onChange={e => setBuilding(e.target.value)} placeholder="예: 대림아파트" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
+        <label className="space-y-1 text-xs text-slate-500 md:col-span-2">전체 주소(읍·면·동/도로명/번지/동·호수)<input value={address} onChange={e => setAddress(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
         <label className="space-y-1 text-xs text-slate-500">상담결과<select value={consultationResult} onChange={e => setConsultationResult(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="">선택</option>{CONSULT_RESULTS.map(v => <option key={v} value={v}>{v}</option>)}</select></label>
         <label className="space-y-1 text-xs text-slate-500">매체<select value={channel} onChange={e => setChannel(e.target.value as Channel)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">{CHANNELS.map(c => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</select></label>
         <label className="space-y-1 text-xs text-slate-500">상세매체<input list="subchannels" value={subChannel} onChange={e => setSubChannel(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /><datalist id="subchannels">{subChannelOptions.map((s: string) => <option key={s} value={s}/>)}</datalist></label>
@@ -476,7 +573,7 @@ function EditModalWithAddress({ row, subChannelOptions, onClose, onSave, saving 
       </div>
       <div className="flex justify-end gap-2">
         <button onClick={onClose} className="btn-secondary">취소</button>
-        <button onClick={() => onSave(row, { name, address, channel, subChannel, sourceRaw, consultationResult, memo, operator, status })} className="btn-primary" disabled={saving}><Save size={14}/> 저장</button>
+        <button onClick={() => onSave(row, { name, region, district, building, address, channel, subChannel, sourceRaw, consultationResult, memo, operator, status })} className="btn-primary" disabled={saving}><Save size={14}/> 저장</button>
       </div>
     </div>
   </div>

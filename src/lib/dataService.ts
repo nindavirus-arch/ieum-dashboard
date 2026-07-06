@@ -430,6 +430,9 @@ export async function updateLeadAttribution(params: {
   registeredAt?: string
   name?: string
   address?: string
+  region?: string
+  district?: string
+  building?: string
   channel: Channel
   subChannel?: string
   sourceRaw?: string
@@ -451,6 +454,9 @@ export async function updateLeadAttribution(params: {
       channel: params.channel,
       name: params.name,
       address: params.address,
+      region: params.region,
+      district: params.district,
+      building: params.building,
       subChannel: params.subChannel || '',
       source_raw: params.sourceRaw || '',
       consultationResult: params.consultationResult || '',
