@@ -47,6 +47,11 @@ function defaultSubChannelForChannel(ch: string) {
 function channelFromSubChannel(label?: string) {
   const t = String(label || '').toLowerCase().replace(/[\s_\-\/()\[\].]/g, '')
   if (!t) return ''
+  if (t.includes('tu유튜브') || t.includes('tu유투브') || t.includes('tuyoutube')) return 'tu_youtube'
+  if (t.includes('tu당근') || t.includes('tucarrot')) return 'tu_danggeun'
+  if (t.includes('tu알바리치') || t.includes('tualbarich') || t === 'tu') return 'tu_albarich'
+  if (t.includes('휴그린당근') || t.includes('hugreendanggeun')) return 'hugreen_danggeun'
+  if (t.includes('휴그린메일') || t.includes('hugreenmail')) return 'hugreen_mail'
   if (t.includes('네이버') || t.includes('naver') || t.includes('gfa') || t.includes('브랜드검색')) return 'naver'
   if (t.includes('구글') || t.includes('google') || t.includes('디맨드') || t.includes('demand') || t.includes('gdn')) return 'google'
   if (t.includes('메타') || t.includes('인스타') || t.includes('facebook') || t.includes('meta')) return 'meta'
@@ -55,12 +60,7 @@ function channelFromSubChannel(label?: string) {
   if (t.includes('카카오검색') || t.includes('kakaosearch') || t.includes('kakaosa')) return 'kakao_search'
   if (t.includes('카카오모먼트') || t.includes('카카오모멘트') || t.includes('kakaomoment')) return 'kakao_moment'
   if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('직접영업') || t.includes('direct')) return 'direct'
-  if (t.includes('tu알바리치') || t === 'tu') return 'tu_albarich'
-  if (t.includes('tu유튜브') || t.includes('tu유투브')) return 'tu_youtube'
-  if (t.includes('tu당근')) return 'tu_danggeun'
-  if (t.includes('휴그린당근')) return 'hugreen_danggeun'
   if (t.includes('당근') || t.includes('carrot') || t.includes('karrot')) return 'danggeun'
-  if (t.includes('휴그린메일') || t.includes('휴그린본사')) return 'hugreen_mail'
   if (t.includes('인바운드') || t.includes('인입콜')) return 'inbound_call'
   return ''
 }

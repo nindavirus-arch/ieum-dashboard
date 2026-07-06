@@ -129,15 +129,15 @@ export function normalizeChannel(raw: unknown): Channel {
     if (original.includes('moment') || original.includes('모먼트') || original.includes('모멘트')) return 'kakao_moment'
     return 'kakao_search'
   }
-  if (original.includes('youtube') || original.includes('youtu') || original.includes('유튜브')) return 'youtube'
-  if (original.includes('naver') || original.includes('네이버') || original.includes('gfa') || original.includes('파워링크') || original.includes('브랜드검색')) return 'naver'
-  if (original.includes('google') || original.includes('구글') || original.includes('gdn') || original.includes('demand') || original.includes('discovery') || original.includes('디맨드') || original.includes('디스커버리')) return 'google'
-  if (original.includes('instagram') || original.includes('insta') || original.includes('facebook') || original.includes('meta') || original.includes('fb') || original.includes('ig') || original.includes('인스타') || original.includes('메타') || original.includes('페이스북')) return 'meta'
   if (original.includes('tu') || original.includes('알바리치')) {
     if (original.includes('유튜브') || original.includes('유투브') || original.includes('youtube')) return 'tu_youtube'
     if (original.includes('당근') || original.includes('carrot')) return 'tu_danggeun'
     return 'tu_albarich'
   }
+  if (original.includes('naver') || original.includes('네이버') || original.includes('gfa') || original.includes('파워링크') || original.includes('브랜드검색')) return 'naver'
+  if (original.includes('google') || original.includes('구글') || original.includes('gdn') || original.includes('demand') || original.includes('discovery') || original.includes('디맨드') || original.includes('디스커버리')) return 'google'
+  if (original.includes('instagram') || original.includes('insta') || original.includes('facebook') || original.includes('meta') || original.includes('fb') || original.includes('ig') || original.includes('인스타') || original.includes('메타') || original.includes('페이스북')) return 'meta'
+  if (original.includes('youtube') || original.includes('youtu') || original.includes('유튜브')) return 'youtube'
   if (original.includes('휴그린') || original.includes('hugreen')) {
     if (original.includes('당근') || original.includes('carrot')) return 'hugreen_danggeun'
     return 'hugreen_mail'

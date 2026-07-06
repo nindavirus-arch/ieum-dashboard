@@ -131,8 +131,13 @@ function applyChannelMapping(input: {
   utm_term?: unknown
 }, mappings: MappingRow[]): { channel: Channel; subChannel: string } {
   const explicitSubChannel = String(input.subChannel || '').trim()
-  if (subChannelImpliesChannel(explicitSubChannel) === 'danggeun') {
-    return { channel: 'danggeun', subChannel: '당근' }
+  const explicitChannel = subChannelImpliesChannel(explicitSubChannel)
+  const protectedChannels: Channel[] = ['tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'inbound_call', 'danggeun']
+  if (explicitChannel && protectedChannels.includes(explicitChannel)) {
+    return {
+      channel: explicitChannel,
+      subChannel: inferSubChannel({ channel: explicitChannel, source: input.utm_source, sourceRaw: explicitSubChannel || input.source_raw }),
+    }
   }
 
   const candidates = [input.utm_source, input.source_raw, input.utm_medium, input.utm_campaign, input.utm_content, input.utm_term]
@@ -164,6 +169,12 @@ function applyChannelMapping(input: {
 function subChannelImpliesChannel(label?: string): Channel | '' {
   const t = String(label || '').toLowerCase().replace(/[\s_\-\/()\[\].]/g, '')
   if (!t) return ''
+  if (t.includes('tu유튜브') || t.includes('tu유투브') || t.includes('tuyoutube')) return 'tu_youtube'
+  if (t.includes('tu당근') || t.includes('tucarrot')) return 'tu_danggeun'
+  if (t.includes('tu알바리치') || t.includes('tualbarich') || t === 'tu') return 'tu_albarich'
+  if (t.includes('휴그린당근') || t.includes('hugreendanggeun')) return 'hugreen_danggeun'
+  if (t.includes('휴그린메일') || t.includes('휴그린본사') || t.includes('hugreenmail')) return 'hugreen_mail'
+  if (t.includes('인바운드') || t.includes('인입콜')) return 'inbound_call'
   if (t.includes('네이버') || t.includes('naver') || t.includes('gfa') || t.includes('브랜드검색')) return 'naver'
   if (t.includes('구글') || t.includes('google') || t.includes('디맨드') || t.includes('demand') || t.includes('gdn')) return 'google'
   if (t.includes('메타') || t.includes('인스타') || t.includes('facebook') || t.includes('meta')) return 'meta'
@@ -172,13 +183,7 @@ function subChannelImpliesChannel(label?: string): Channel | '' {
   if (t.includes('카카오검색') || t.includes('kakaosearch') || t.includes('kakaosa')) return 'kakao_search'
   if (t.includes('카카오모먼트') || t.includes('카카오모멘트') || t.includes('kakaomoment')) return 'kakao_moment'
   if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('직접영업') || t.includes('direct')) return 'direct'
-  if (t.includes('tu알바리치') || t === 'tu') return 'tu_albarich'
-  if (t.includes('tu유튜브') || t.includes('tu유투브')) return 'tu_youtube'
-  if (t.includes('tu당근')) return 'tu_danggeun'
-  if (t.includes('휴그린당근')) return 'hugreen_danggeun'
   if (t.includes('당근') || t.includes('carrot') || t.includes('karrot')) return 'danggeun'
-  if (t.includes('휴그린메일') || t.includes('휴그린본사')) return 'hugreen_mail'
-  if (t.includes('인바운드') || t.includes('인입콜')) return 'inbound_call'
   return ''
 }
 
