@@ -105,19 +105,23 @@ function buildOnlineKpiData(leads: LeadRecord[]) {
   const conversions: ConversionEvent[] = []
 
   buildLeadJourneys(leads).forEach(journey => {
-    const onlineValid = journey.records
-      .filter(record => isOnlineKpiLead(record) && baseStage(record.dbTier) !== 'retarget')
-      .sort((a, b) => recordDate(a).localeCompare(recordDate(b)))
-    const acquired = onlineValid[0]
-    if (!acquired) return
+    // Dashboard and KPI must count the same final, deduplicated lead on the
+    // date its current stage was received. An earlier first-stage date would
+    // otherwise make today's KPI smaller when that lead converts to second.
+    const acquired = journey.lead
+    if (!isOnlineKpiLead(acquired) || baseStage(acquired.dbTier) === 'retarget') return
 
     const acquisitionStage = baseStage(acquired.dbTier)
     acquisitions.push({
-      date: recordDate(acquired),
+      date: acquired.date,
       channel: acquired.channel,
       subChannel: detailLabel(acquired),
       stage: acquisitionStage === 'second' ? 'second' : 'first',
     })
+
+    const onlineValid = journey.records
+      .filter(record => isOnlineKpiLead(record) && baseStage(record.dbTier) !== 'retarget')
+      .sort((a, b) => recordDate(a).localeCompare(recordDate(b)))
 
     const firstRecord = onlineValid.find(record => baseStage(record.dbTier) === 'first')
     if (!firstRecord) return
@@ -197,7 +201,7 @@ export default function OnlineKpiPage() {
     try {
       if (force) invalidateDataCache()
       const [leadRows, spendRows, targetResult] = await Promise.all([
-        fetchLeads(),
+        fetchLeads(undefined, undefined, { includeRawAttribution: true }),
         fetchAdSpend(),
         fetchKpiTargets()
           .then(value => ({ value, error: null as unknown }))
@@ -237,7 +241,10 @@ export default function OnlineKpiPage() {
   const totalDb = monthAcquisitions.length
   const attributedDb = monthAcquisitions.filter(row => isPaidChannel(row.channel)).length
   const unattributedOnlineDb = totalDb - attributedDb
-  const todayDb = selectedMonth === currentMonth ? acquisitions.filter(row => row.date === today).length : 0
+  const todayRows = selectedMonth === currentMonth ? acquisitions.filter(row => row.date === today) : []
+  const todayPaidDb = todayRows.filter(row => isPaidChannel(row.channel)).length
+  const todayOrganicDb = todayRows.length - todayPaidDb
+  const todayDb = todayRows.length
   const totalSpend = monthSpends.reduce((sum, row) => sum + row.amount, 0)
   const cpl = attributedDb > 0 ? Math.round(totalSpend / attributedDb) : 0
   const minMonthly = minDaily * daysInMonth
@@ -394,7 +401,14 @@ export default function OnlineKpiPage() {
       {notice && <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700">{notice}</div>}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 2xl:grid-cols-7">
-        <StatCard label="오늘 온라인광고 DB" value={todayDb} suffix="건" sub={`기본 ${minDaily} · 상향 ${stretchDaily}건`} icon={CalendarDays} tone="blue" />
+        <StatCard
+          label="오늘 온라인 DB"
+          value={todayDb}
+          suffix="건"
+          sub={`광고 ${todayPaidDb} · 직접·자연 ${todayOrganicDb} · 목표 ${minDaily}~${stretchDaily}건`}
+          icon={CalendarDays}
+          tone="blue"
+        />
         <StatCard label={`${selectedMonth.slice(5, 7)}월 누적 DB`} value={totalDb} suffix="건" sub={`월 기본 목표 ${minMonthly.toLocaleString()}건`} icon={Target} tone="green" />
         <StatCard label="기본 목표 달성률" value={percent(minMonthly > 0 ? (totalDb / minMonthly) * 100 : 0)} sub={`경과 목표 ${minExpected.toLocaleString()}건`} icon={Gauge} tone="violet" />
         <StatCard label="현재 일평균" value={dailyAverage.toFixed(1)} suffix="건" sub={`월말 예상 ${forecast.toLocaleString()}건`} icon={TrendingUp} tone="cyan" />
