@@ -377,10 +377,16 @@ export default function DashboardPage() {
                 </div>
                 <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-7 md:grid-cols-10 xl:grid-cols-16">
                   {dailyTotalSummary.map(item => (
-                    <div
+                    <button
                       key={item.key}
+                      type="button"
+                      onClick={() => {
+                        setSelectedDate(item.key)
+                        setViewMode('daily')
+                      }}
+                      title={`${item.key} 유입채널 현황 보기`}
                       className={clsx(
-                        'rounded-lg border px-2 py-1.5 text-center',
+                        'rounded-lg border px-2 py-1.5 text-center transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100',
                         item.active
                           ? 'border-blue-200 bg-blue-50 shadow-sm'
                           : item.total > 0
@@ -392,7 +398,7 @@ export default function DashboardPage() {
                       <div className={clsx('mt-0.5 text-sm font-bold', item.total > 0 ? 'text-slate-800' : 'text-slate-300')}>
                         {item.total.toLocaleString()}건
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
