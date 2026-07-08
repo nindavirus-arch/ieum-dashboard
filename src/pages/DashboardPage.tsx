@@ -1,6 +1,6 @@
 // src/pages/DashboardPage.tsx
 import { useEffect, useMemo, useState } from 'react'
-import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, parseISO, subDays } from 'date-fns'
+import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, parseISO, subDays, eachDayOfInterval } from 'date-fns'
 import { Users, DollarSign, TrendingDown, CalendarDays, RefreshCw, ChevronDown } from 'lucide-react'
 import { fetchLeads, fetchAdSpend } from '../lib/dataService'
 import type { LeadRecord, AdSpend, ViewMode } from '../types'
@@ -184,7 +184,7 @@ function inRange(date: string, start: string, end: string) {
 }
 
 export default function DashboardPage() {
-  const [viewMode, setViewMode] = useState<ViewMode>('monthly')
+  const [viewMode, setViewMode] = useState<ViewMode>('daily')
   const [selectedDate, setSelectedDate] = useState(today)
   const [leads, setLeads] = useState<LeadRecord[]>([])
   const [spends, setSpends] = useState<AdSpend[]>([])
@@ -245,6 +245,21 @@ export default function DashboardPage() {
   const conversionRate = estimatePool > 0 ? Math.round((convertedSecond / estimatePool) * 100) : 0
 
   const todayDB = validLeads.filter(l => l.date === today).length
+  const yesterday = format(subDays(safeDate(today), 1), 'yyyy-MM-dd')
+  const yesterdayDB = validLeads.filter(l => l.date === yesterday).length
+  const dailyTotalSummary = useMemo(() => {
+    const base = safeDate(selectedDate)
+    const days = eachDayOfInterval({ start: startOfMonth(base), end: endOfMonth(base) })
+    return days.map(day => {
+      const key = format(day, 'yyyy-MM-dd')
+      return {
+        key,
+        day: format(day, 'd일'),
+        total: validLeads.filter(lead => lead.date === key).length,
+        active: key === selectedDate,
+      }
+    })
+  }, [selectedDate, validLeads])
   const detailPerformanceKeys = new Set<string>()
   activeLeads.filter(lead => isPaidChannel(lead.channel)).forEach(lead => {
     detailPerformanceKeys.add(`${lead.channel}__${safeDetailLabel(lead.channel, lead.subChannel)}`)
@@ -272,19 +287,11 @@ export default function DashboardPage() {
     .sort((a, b) => b.validDB - a.validDB || a.cpl - b.cpl || b.spend - a.spend)
     .slice(0, 5)
 
-  const periodLabel = viewMode === 'daily'
-    ? (range.activeStart === today ? '오늘 DB' : '선택일 DB')
-    : viewMode === 'weekly'
-      ? '최근 7일 DB'
-      : viewMode === 'monthly'
-      ? (selectedDate.slice(0, 7) === today.slice(0, 7) ? '이번달 DB' : '선택월 DB')
-      : (selectedDate.slice(0, 4) === today.slice(0, 4) ? '올해 DB' : '선택연 DB')
-
   const STAT_CARDS = [
     { label: '오늘 DB', value: todayDB, unit: '건', icon: CalendarDays, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: periodLabel, value: totalDB, unit: '건', icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { label: '어제 DB', value: yesterdayDB, unit: '건', icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
     { label: '누적 DB', value: validLeads.length, unit: '건', icon: Users, color: 'text-teal-600', bg: 'bg-teal-50' },
-    { label: viewMode === 'daily' ? '선택일 광고비' : viewMode === 'weekly' ? '최근 7일 광고비' : viewMode === 'monthly' ? '이번달 광고비' : '선택연 광고비', value: fmtKRW(periodSpend), unit: '원', icon: DollarSign, color: 'text-violet-600', bg: 'bg-violet-50' },
+    { label: '선택일 광고비', value: fmtKRW(periodSpend), unit: '원', icon: DollarSign, color: 'text-violet-600', bg: 'bg-violet-50' },
     { label: '유효 DB CPL', value: fmtKRW(avgCPL), unit: '원', icon: TrendingDown, color: 'text-orange-600', bg: 'bg-orange-50' },
     { label: '1→2 전환율', value: conversionRate, unit: '%', icon: TrendingDown, color: 'text-cyan-600', bg: 'bg-cyan-50' },
   ]
@@ -362,6 +369,34 @@ export default function DashboardPage() {
               {viewMode === 'daily' ? '일자별 DB 추이' : viewMode === 'weekly' ? '최근 7일 DB 추이' : viewMode === 'monthly' ? '월별 DB 추이' : '연도별 DB 추이'}
             </p>
             <TimeSeriesChart leads={validLeads} spends={spends} viewMode={viewMode} selectedDate={selectedDate} />
+            {viewMode === 'daily' && (
+              <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-slate-700">일별 최종 DB 합계</p>
+                  <span className="text-[11px] text-slate-400">연락처 중복 제거 기준</span>
+                </div>
+                <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-7 md:grid-cols-10 xl:grid-cols-16">
+                  {dailyTotalSummary.map(item => (
+                    <div
+                      key={item.key}
+                      className={clsx(
+                        'rounded-lg border px-2 py-1.5 text-center',
+                        item.active
+                          ? 'border-blue-200 bg-blue-50 shadow-sm'
+                          : item.total > 0
+                            ? 'border-slate-200 bg-white'
+                            : 'border-slate-100 bg-white/60'
+                      )}
+                    >
+                      <div className={clsx('text-[10px] font-medium', item.active ? 'text-blue-600' : 'text-slate-400')}>{item.day}</div>
+                      <div className={clsx('mt-0.5 text-sm font-bold', item.total > 0 ? 'text-slate-800' : 'text-slate-300')}>
+                        {item.total.toLocaleString()}건
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="border-t border-slate-100 pt-5 grid grid-cols-1 xl:grid-cols-2 gap-6">
