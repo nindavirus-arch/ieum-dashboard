@@ -213,6 +213,17 @@ function detailLabel(row: LeadRecord) {
   return row.subChannel || '-'
 }
 
+function defaultSubChannelForManual(channel: Channel) {
+  if (channel === 'tu_albarich') return 'TU-알바리치'
+  if (channel === 'tu_youtube') return 'TU-유튜브'
+  if (channel === 'tu_danggeun') return 'TU-당근'
+  if (channel === 'hugreen_danggeun') return '휴그린-당근'
+  if (channel === 'hugreen_mail') return '휴그린-메일'
+  if (channel === 'inbound_call') return '인바운드콜'
+  if (channel === 'direct') return '홈페이지 직접유입'
+  return CHANNEL_LABELS[channel]
+}
+
 function sameLeadIdentity(row: LeadRecord, target: LeadRecord) {
   if (row.phone !== target.phone || row.date !== target.date) return false
   if (baseStage(row.dbTier) !== baseStage(target.dbTier)) return false
@@ -311,7 +322,7 @@ export default function DBManagePage() {
 
   const subChannelOptions = useMemo(() => {
     const fromMap = mappings.map(m => m.subChannel)
-    const base = ['네이버 SA', '네이버 GFA', '네이버 브랜드검색', '구글 검색광고', '구글 디맨드젠', '구글 디스커버리/GDN', '메타', '유튜브', '블로그', '카페', '레뷰', '박람회', '카카오 검색광고', '카카오모먼트', '휴그린본사', 'TU', '홈페이지 직접유입', '인바운드콜', '직접영업', '기타']
+    const base = ['네이버 SA', '네이버 GFA', '네이버 브랜드검색', '구글 검색광고', '구글 디맨드젠', '구글 디스커버리/GDN', '메타', '유튜브', '블로그', '카페', '레뷰', '박람회', '카카오 검색광고', '카카오모먼트', '휴그린본사', '휴그린-당근', 'TU-알바리치', 'TU-유튜브', 'TU-당근', '홈페이지 직접유입', '인바운드콜', '직접영업', '기타']
     return uniq([...fromMap, ...base])
   }, [mappings])
 
@@ -407,7 +418,11 @@ export default function DBManagePage() {
     setSaving(true)
     setNotice(null)
     try {
-      const created = await createManualLead(form)
+      const channel = form.channel as Channel
+      const subChannel = form.subChannel && form.subChannel !== '인바운드콜'
+        ? form.subChannel
+        : defaultSubChannelForManual(channel)
+      const created = await createManualLead({ ...form, channel, subChannel })
       setLeads(current => [created, ...current])
       setManualOpen(false)
       setNotice({ type: 'success', text: 'DB가 등록되었습니다.' })
@@ -590,7 +605,7 @@ function EditModal({ row, subChannelOptions, onClose, onSave, saving }: any) {
   return <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4"><div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[92vh] overflow-auto p-5 space-y-4"><div className="flex items-center justify-between"><h2 className="font-bold text-slate-800">DB 수정</h2><button onClick={onClose}><X size={18}/></button></div><div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">{row.name} · {formatPhone(row.phone)} · {STAGE_LABELS[row.dbTier as DBTier]}</div><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><label className="space-y-1 text-xs text-slate-500">상담결과<select value={consultationResult} onChange={e => setConsultationResult(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="">선택</option>{CONSULT_RESULTS.map(v => <option key={v} value={v}>{v}</option>)}</select></label><label className="space-y-1 text-xs text-slate-500">작업자<input value={operator} onChange={e => setOperator(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label><label className="space-y-1 text-xs text-slate-500">매체<select value={channel} onChange={e => setChannel(e.target.value as Channel)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">{CHANNELS.map(c => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</select></label><label className="space-y-1 text-xs text-slate-500">상세매체<input list="subchannels" value={subChannel} onChange={e => setSubChannel(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /><datalist id="subchannels">{subChannelOptions.map((s: string) => <option key={s} value={s}/>)}</datalist></label><label className="space-y-1 text-xs text-slate-500 md:col-span-2">메모(특이사항)<textarea value={memo} onChange={e => setMemo(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm min-h-[80px]" /></label><label className="space-y-1 text-xs text-slate-500">유입경로 원본<input value={sourceRaw} onChange={e => setSourceRaw(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label><label className="space-y-1 text-xs text-slate-500">상태<input value={status} onChange={e => setStatus(e.target.value)} placeholder="valid / 재인입 등" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label></div><div className="flex justify-end gap-2"><button onClick={onClose} className="btn-secondary">취소</button><button onClick={() => onSave(row, { channel, subChannel, sourceRaw, consultationResult, memo, operator, status })} className="btn-primary" disabled={saving}><Save size={14}/> 저장</button></div></div></div>
 }
 function ManualModal({ subChannelOptions, onClose, onSave, saving }: any) {
-  const [form, setForm] = useState<any>({ date: today(), dbTier: 'second', channel: 'direct', subChannel: '인바운드콜', consultationResult: '', name: '', phone: '', region: '', district: '', address: '', memo: '', operator: '' })
+  const [form, setForm] = useState<any>({ date: today(), dbTier: 'second', channel: 'inbound_call', subChannel: '인바운드콜', consultationResult: '', name: '', phone: '', region: '', district: '', address: '', memo: '', operator: '' })
   const set = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }))
   return <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4"><div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[92vh] overflow-auto p-5 space-y-4"><div className="flex items-center justify-between"><h2 className="font-bold text-slate-800">수기 DB 등록</h2><button onClick={onClose}><X size={18}/></button></div><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><input type="date" value={form.date} onChange={e => set('date', e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" /><select value={form.dbTier} onChange={e => set('dbTier', e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="first">1차DB</option><option value="second">2차DB</option><option value="retarget">리타겟DB</option><option value="first_reentry">1차 재인입</option><option value="second_reentry">2차 재인입</option></select><input placeholder="이름" value={form.name} onChange={e => set('name', e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" /><input placeholder="연락처" value={form.phone} onChange={e => set('phone', e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" /><select value={form.consultationResult} onChange={e => set('consultationResult', e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="">상담결과 선택</option>{CONSULT_RESULTS.map(v => <option key={v} value={v}>{v}</option>)}</select><input placeholder="작업자" value={form.operator} onChange={e => set('operator', e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" /><select value={form.channel} onChange={e => set('channel', e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">{CHANNELS.map(c => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</select><input list="manual-subchannels" placeholder="상세매체" value={form.subChannel} onChange={e => set('subChannel', e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" /><datalist id="manual-subchannels">{subChannelOptions.map((s: string) => <option key={s} value={s}/>)}</datalist><input placeholder="시도" value={form.region} onChange={e => set('region', e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" /><input placeholder="시군구" value={form.district} onChange={e => set('district', e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" /><input placeholder="주소" value={form.address} onChange={e => set('address', e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" /><textarea placeholder="메모(특이사항)" value={form.memo} onChange={e => set('memo', e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm min-h-[80px]" /></div><div className="flex justify-end gap-2"><button onClick={onClose} className="btn-secondary">취소</button><button onClick={() => onSave(form)} disabled={!form.name || !form.phone || saving} className="btn-primary"><Save size={14}/> 저장</button></div></div></div>
 }

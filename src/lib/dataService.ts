@@ -133,6 +133,19 @@ function applyChannelMapping(input: {
   const explicitSubChannel = String(input.subChannel || '').trim()
   const explicitChannel = subChannelImpliesChannel(explicitSubChannel)
   const protectedChannels: Channel[] = ['tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'inbound_call', 'danggeun']
+  if (input.channel && protectedChannels.includes(input.channel)) {
+    return {
+      channel: input.channel,
+      subChannel: sanitizeSubChannelForChannel(input.channel, explicitSubChannel, {
+        source: input.utm_source,
+        sourceRaw: input.source_raw,
+        medium: input.utm_medium,
+        campaign: input.utm_campaign,
+        content: input.utm_content,
+        term: input.utm_term,
+      }),
+    }
+  }
   if (explicitChannel && protectedChannels.includes(explicitChannel)) {
     return {
       channel: explicitChannel,
@@ -211,6 +224,11 @@ function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRe
   const baseChannel = normalizeChannel(row.channel ?? row.최종매체 ?? row.매체 ?? row._parsed_channel ?? '')
   const mapped = applyChannelMapping({ channel: baseChannel, subChannel: String(row.subChannel ?? row.상세매체 ?? ''), utm_source, source_raw, utm_medium, utm_campaign, utm_content, utm_term }, mappings)
   const safeSubChannel = sanitizeSubChannelForChannel(mapped.channel, mapped.subChannel, { source: utm_source, sourceRaw: source_raw, medium: utm_medium, campaign: utm_campaign, content: utm_content, term: utm_term })
+  const sourceFile = String(row.source_file ?? row.sourceFile ?? '')
+  const sourceRawChannel = subChannelImpliesChannel(source_raw)
+  const safeSourceRaw = sourceFile.toLowerCase() === 'manual' && sourceRawChannel && sourceRawChannel !== mapped.channel
+    ? safeSubChannel
+    : source_raw
 
   return {
     id: String(row.id ?? phone ?? makeId('lead')),
@@ -228,13 +246,13 @@ function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRe
     utm_campaign,
     utm_content,
     utm_term,
-    source_raw,
+    source_raw: safeSourceRaw,
     params: String(row.params ?? ''),
     address: String(row.address ?? row.주소 ?? ''),
     building: String(row.building ?? row.건물명 ?? row.아파트명 ?? ''),
     brand: String(row.brand ?? row.브랜드 ?? ''),
     pyeong: String(row.pyeong ?? row.평형 ?? row.평수 ?? ''),
-    source_file: String(row.source_file ?? row.sourceFile ?? ''),
+    source_file: sourceFile,
     registeredAt: String(row.registeredAt ?? row['등록일시'] ?? row['등록 일시'] ?? row.접수일시 ?? row.uploadedAt ?? uploadedAt),
     consultationResult: String(row.consultationResult ?? row['상담결과'] ?? row['상담 결과'] ?? ''),
     memo: String(row.memo ?? row['메모'] ?? row['특이사항'] ?? row['메모(특이사항)'] ?? ''),
