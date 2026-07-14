@@ -13,7 +13,7 @@ import { getAuthToken, setAuthToken } from './auth'
 // TODO: Apps Script 배포 후 웹앱 URL을 여기에 붙여넣으세요.
 // 예: const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec'
 type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping' | 'kpiTargets'
-type PostSheetType = Exclude<SheetType, 'mapping'> | 'adSpendReplace'
+type PostSheetType = Exclude<SheetType, 'mapping'> | 'adSpendReplace' | 'leadCorrections'
 export type MappingRow = { raw: string; channel: Channel; subChannel: string }
 export type KpiTarget = {
   month: string
@@ -798,6 +798,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
 
   const now = new Date().toISOString()
   const dashboardToAppend: LeadRecord[] = []
+  const correctionRows: any[] = []
   let changed = 0
 
   const firstRaw: Omit<LeadRecord, 'id' | 'uploadedAt'>[] = []
@@ -877,31 +878,35 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
           source_raw: (normalizedLead as any).source_raw || (correctionTarget as any).source_raw || '',
           updatedAt: now,
         } as LeadRecord
-        await updateLeadAttribution({
+        correctionRows.push({
           phone: correctionTarget.phone,
           stage: correctionTarget.dbTier,
           matchDate: correctionTarget.date,
           registeredAt: (correctionTarget as any).registeredAt,
-          date: corrected.date,
-          originalDate: corrected.originalDate,
-          dateOverride: corrected.dateOverride,
-          dateOverrideReason: corrected.dateOverrideReason,
-          dateOverrideBy: corrected.dateOverrideBy,
-          dateOverrideAt: corrected.dateOverrideAt,
           consultingNumber: corrected.consultingNumber,
-          name: corrected.name,
-          address: corrected.address,
-          region: corrected.region,
-          district: corrected.district,
-          building: corrected.building,
-          channel: corrected.channel,
-          subChannel: corrected.subChannel,
-          sourceRaw: corrected.source_raw,
-          consultationResult: corrected.consultationResult,
-          memo: corrected.memo,
-          operator: corrected.operator,
-          status: corrected.status || 'valid',
-          menu: '/db-manage',
+          patch: {
+            date: corrected.date,
+            originalDate: corrected.originalDate,
+            dateOverride: corrected.dateOverride,
+            dateOverrideReason: corrected.dateOverrideReason,
+            dateOverrideBy: corrected.dateOverrideBy,
+            dateOverrideAt: corrected.dateOverrideAt,
+            consultingNumber: corrected.consultingNumber,
+            name: corrected.name,
+            address: corrected.address,
+            region: corrected.region,
+            district: corrected.district,
+            building: corrected.building,
+            channel: corrected.channel,
+            subChannel: corrected.subChannel,
+            source_raw: corrected.source_raw,
+            consultationResult: corrected.consultationResult,
+            memo: corrected.memo,
+            operator: corrected.operator,
+            status: corrected.status || 'valid',
+            updatedBy: corrected.operator || '',
+            updatedAt: now,
+          },
         })
         byPhoneStageDate.delete(`${correctionTarget.phone}_${correctionTarget.dbTier}_${correctionTarget.date}`)
         byPhoneStageDate.delete(`${correctionTarget.phone}_${baseTier(correctionTarget.dbTier)}_${correctionTarget.date}`)
@@ -938,6 +943,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
   // 1차/2차 원본 RAW 누적 저장. RAW도 Apps Script에서 중복 차단함.
   if (firstRaw.length) await postSheetRows('firstRaw', rawRowsFromLeads(firstRaw))
   if (secondRaw.length) await postSheetRows('secondRaw', rawRowsFromLeads(secondRaw))
+  if (correctionRows.length) await postSheetRows('leadCorrections', correctionRows)
 
   // 대시보드용 정제 데이터 저장. phone + stage 기준 신규만 저장.
   if (dashboardToAppend.length) await postSheetRows('leads', dashboardRowsFromLeads(dashboardToAppend))

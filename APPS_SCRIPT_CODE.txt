@@ -59,6 +59,7 @@ function doPost(e) {
     if (type === 'deleteAdSpend') return deleteAdSpendRow(body);
     if (type === 'firstRaw') return appendRowsUnique(SHEETS.firstRaw, rows, 'firstRaw');
     if (type === 'secondRaw') return appendRowsUnique(SHEETS.secondRaw, rows, 'secondRaw');
+    if (type === 'leadCorrections') return updateLeadCorrections(body);
     if (type === 'updateLead') return updateLeadRow(body);
     if (type === 'saveKpiTarget') return saveKpiTarget(body, user);
 
@@ -369,6 +370,87 @@ function updateLeadRow(body) {
   return json({ success: true, updated: 1 });
 }
 
+function updateLeadCorrections(body) {
+  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEETS.leads);
+  if (!sheet) return json({ error: 'Sheet not found: ' + SHEETS.leads });
+
+  const items = body.rows || [];
+  if (!items.length) return json({ success: true, updated: 0, requested: 0 });
+
+  let lastCol = sheet.getLastColumn();
+  let headers = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0].filter(String) : [];
+  if (headers.indexOf('changeHistory') === -1) headers.push('changeHistory');
+  items.forEach(item => {
+    const patch = item.patch || {};
+    Object.keys(patch).forEach(k => { if (headers.indexOf(k) === -1) headers.push(k); });
+  });
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+  const values = sheet.getDataRange().getDisplayValues();
+  if (!values || values.length <= 1) return json({ error: 'No leads data' });
+  values[0] = headers.slice();
+  for (let r = 0; r < values.length; r++) {
+    while (values[r].length < headers.length) values[r].push('');
+  }
+
+  const phoneIdx = headers.indexOf('phone');
+  const stageIdx = headers.indexOf('stage') >= 0 ? headers.indexOf('stage') : headers.indexOf('dbTier');
+  const dateIdx = headers.indexOf('date');
+  const registeredAtIdx = headers.indexOf('registeredAt');
+  const consultingIdx = headers.indexOf('consultingNumber');
+  const historyIdx = headers.indexOf('changeHistory');
+  if (phoneIdx < 0 || stageIdx < 0) return json({ error: 'phone/stage column not found' });
+
+  let updated = 0;
+  items.forEach(item => {
+    const phone = normalizePhone(item.phone || '');
+    const stage = baseLeadStage(item.stage || '');
+    const targetDate = String(item.matchDate || item.date || '').slice(0, 10);
+    const targetRegisteredAt = dateTimeKey(item.registeredAt || '');
+    const consultingNumber = String(item.consultingNumber || '').trim();
+    if (!phone || !stage) return;
+
+    let matchedRow = -1;
+    let fallbackRow = -1;
+    for (let r = 1; r < values.length; r++) {
+      if (consultingNumber && consultingIdx >= 0 && String(values[r][consultingIdx] || '').trim() === consultingNumber) {
+        matchedRow = r;
+        break;
+      }
+      const rowPhone = normalizePhone(values[r][phoneIdx]);
+      const rowStage = baseLeadStage(values[r][stageIdx]);
+      const rowDate = dateIdx >= 0 ? String(values[r][dateIdx] || '').slice(0, 10) : '';
+      if (rowPhone !== phone || rowStage !== stage || (targetDate && rowDate !== targetDate)) continue;
+      fallbackRow = r;
+      const rowRegisteredAt = registeredAtIdx >= 0 ? dateTimeKey(values[r][registeredAtIdx]) : '';
+      if (!targetRegisteredAt || !rowRegisteredAt || rowRegisteredAt === targetRegisteredAt) {
+        matchedRow = r;
+        break;
+      }
+    }
+    if (matchedRow < 0) matchedRow = fallbackRow;
+    if (matchedRow < 0) return;
+
+    const patch = item.patch || {};
+    const now = new Date().toISOString();
+    const operator = patch.operator || patch.updatedBy || '';
+    const changedKeys = Object.keys(patch).filter(k => k !== 'updatedAt' && k !== 'updatedBy' && patch[k] !== undefined && patch[k] !== null).join(', ');
+    const oldHistory = historyIdx >= 0 ? String(values[matchedRow][historyIdx] || '') : '';
+    const historyLine = '[' + now.replace('T', ' ').slice(0, 16) + '] ' + (operator || 'system') + ' update: ' + changedKeys;
+    patch.updatedAt = now;
+    patch.changeHistory = oldHistory ? oldHistory + '\n' + historyLine : historyLine;
+
+    Object.keys(patch).forEach(k => {
+      const col = headers.indexOf(k);
+      if (col >= 0) values[matchedRow][col] = patch[k] == null ? '' : patch[k];
+    });
+    updated++;
+  });
+
+  sheet.getRange(1, 1, values.length, headers.length).setValues(values);
+  return json({ success: true, updated: updated, requested: items.length });
+}
+
 function buildExistingKeySet(sheet, headers, type) {
   const set = {};
   const values = sheet.getDataRange().getDisplayValues();
@@ -660,6 +742,7 @@ function canWriteData(type, menu) {
     leads: ['/db-manage', '/upload-db'],
     firstRaw: ['/upload-db'],
     secondRaw: ['/upload-db'],
+    leadCorrections: ['/db-manage', '/upload-db'],
     updateLead: ['/db-manage', '/upload-db'],
     adSpend: ['/upload-spend'],
     adSpendReplace: ['/upload-spend'],
