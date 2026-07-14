@@ -244,6 +244,22 @@ function detectSourceKind(headers: string[], fileName = ''): SourceKind {
   return 'unknown'
 }
 
+function isDateCorrectionFile(fileName = '') {
+  const text = fileName.toLowerCase().replace(/\s+/g, '')
+  return [
+    'datecorrection',
+    'dateoverride',
+    'manualdate',
+    '수동보정',
+    '날짜보정',
+    '일자보정',
+    '유입일보정',
+    '실제유입일',
+    'db유입일',
+    '보정용',
+  ].some((keyword) => text.includes(keyword))
+}
+
 function parseDbTierLabel(value: unknown): DBTier | '' {
   const text = String(value ?? '').toLowerCase().replace(/[\s_\-\/]/g, '')
   if (!text) return ''
@@ -276,6 +292,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
         const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '', raw: false })
         const headers = rows.length ? Object.keys(rows[0]) : []
         const sourceKind = detectSourceKind(headers, file.name)
+        const dateCorrectionByFileName = isDateCorrectionFile(file.name)
 
         const seen = new Set<string>()
         let duplicateCount = 0, testCount = 0, invalidCount = 0
@@ -351,6 +368,9 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
 
           valid.push({
             date, name, phone, rawPhone: String(rawPhone ?? ''), consultingNumber, region, district, channel, subChannel, dbTier, status, sourceKind, rawData: row,
+            dateOverride: dateCorrectionByFileName,
+            dateOverrideReason: dateCorrectionByFileName ? '파일명 기준 날짜 보정' : '',
+            dateOverrideBy: dateCorrectionByFileName ? '업로드' : '',
             utm_source: String(source ?? ''),
             utm_medium: String(medium ?? ''),
             utm_campaign: String(campaign ?? ''),
