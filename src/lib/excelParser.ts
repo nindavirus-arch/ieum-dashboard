@@ -244,6 +244,15 @@ function detectSourceKind(headers: string[], fileName = ''): SourceKind {
   return 'unknown'
 }
 
+function parseDbTierLabel(value: unknown): DBTier | '' {
+  const text = String(value ?? '').toLowerCase().replace(/[\s_\-\/]/g, '')
+  if (!text) return ''
+  if (text.includes('2차') || text.includes('second')) return 'second'
+  if (text.includes('1차') || text.includes('first')) return 'first'
+  if (text.includes('리타겟') || text.includes('retarget')) return 'retarget'
+  return ''
+}
+
 // ── DB 엑셀 파싱 ──────────────────────────────────────────
 export interface ParsedLeadResult {
   valid: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
@@ -280,6 +289,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
           const rawDate = getCell(row, ['날짜', 'date', 'Date', '등록일', '등록일시', '등록 일시', '신청일', '신청일시', '접수일', '접수일시', '생성일', 'createdAt', 'created_at', 'uploadedAt'])
           const date = normalizeDate(rawDate, fallbackDate)
           const registeredAt = String(rawDate ?? '').trim() || date
+          const consultingNumber = String(getCell(row, ['컨설팅 번호', '컨설팅번호', 'consultingNumber', 'consulting_number', 'consultingNo', 'consulting_no']) ?? '').trim()
 
           if (!isValidPhone(phone)) { invalidCount++; return }
           const lowerName = name.toLowerCase()
@@ -319,8 +329,12 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
 
           const channel = inferChannelStrict({ source, sourceRaw: mediaRoute, medium, campaign, content, term })
           const subChannel = inferSubChannel({ channel, source, sourceRaw: mediaRoute, medium, campaign, content, term })
+          const explicitDbTier = parseDbTierLabel(getCell(row, ['DB유형', 'DB 유형', 'DB등급', 'DB 등급', 'dbTier', 'stage', 'status']))
 
-          if (sourceKind === 'second_raw') {
+          if (explicitDbTier) {
+            dbTier = explicitDbTier
+            status = explicitDbTier as DBStatus
+          } else if (sourceKind === 'second_raw') {
             dbTier = 'second'
             status = 'second'
           } else {
@@ -336,7 +350,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
           }
 
           valid.push({
-            date, name, phone, rawPhone: String(rawPhone ?? ''), region, district, channel, subChannel, dbTier, status, sourceKind, rawData: row,
+            date, name, phone, rawPhone: String(rawPhone ?? ''), consultingNumber, region, district, channel, subChannel, dbTier, status, sourceKind, rawData: row,
             utm_source: String(source ?? ''),
             utm_medium: String(medium ?? ''),
             utm_campaign: String(campaign ?? ''),

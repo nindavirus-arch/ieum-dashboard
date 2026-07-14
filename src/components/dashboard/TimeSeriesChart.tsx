@@ -13,6 +13,8 @@ interface Props {
   spends: AdSpend[]
   viewMode: ViewMode
   selectedDate: string
+  startDate?: string
+  endDate?: string
 }
 
 function safeDate(date: string) {
@@ -23,7 +25,7 @@ function safeDate(date: string) {
   return new Date()
 }
 
-export default function TimeSeriesChart({ leads, spends, viewMode, selectedDate }: Props) {
+export default function TimeSeriesChart({ leads, spends, viewMode, selectedDate, startDate, endDate }: Props) {
   const data = useMemo(() => {
     const base = safeDate(selectedDate)
 
@@ -41,10 +43,10 @@ export default function TimeSeriesChart({ leads, spends, viewMode, selectedDate 
       })
     }
 
-    if (viewMode === 'weekly') {
+    if (viewMode === 'weekly' || viewMode === 'custom') {
       const days = eachDayOfInterval({
-        start: subDays(base, 6),
-        end: base,
+        start: safeDate(startDate || format(subDays(base, 6), 'yyyy-MM-dd')),
+        end: safeDate(endDate || selectedDate),
       })
       return days.map(d => {
         const key = format(d, 'yyyy-MM-dd')
@@ -86,7 +88,7 @@ export default function TimeSeriesChart({ leads, spends, viewMode, selectedDate 
       const spend = spends.filter(s => s.date.startsWith(key) && isPaidChannel(s.channel)).reduce((a, b) => a + b.amount, 0)
       return { label: format(yDate, 'yyyy년'), paidDb, organicDb, externalDb, unclassifiedDb, spend: Math.round(spend / 10000) }
     })
-  }, [leads, spends, viewMode, selectedDate])
+  }, [leads, spends, viewMode, selectedDate, startDate, endDate])
 
   return (
     <ResponsiveContainer width="100%" height={220}>

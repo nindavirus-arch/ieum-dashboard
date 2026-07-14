@@ -660,7 +660,7 @@ function canWriteData(type, menu) {
     leads: ['/db-manage', '/upload-db'],
     firstRaw: ['/upload-db'],
     secondRaw: ['/upload-db'],
-    updateLead: ['/db-manage'],
+    updateLead: ['/db-manage', '/upload-db'],
     adSpend: ['/upload-spend'],
     adSpendReplace: ['/upload-spend'],
     updateAdSpend: ['/manage-spend'],

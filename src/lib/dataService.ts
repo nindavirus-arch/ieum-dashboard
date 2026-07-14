@@ -210,8 +210,10 @@ function sanitizeSubChannelForChannel(channel: Channel, subChannel: string, cont
 
 function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRecord {
   const uploadedAt = String(row.uploadedAt ?? row.uploaded_at ?? row._uploadedAt ?? new Date().toISOString())
+  const normalizedDate = normalizeDate(row.date ?? row.날짜 ?? row.등록일 ?? row.등록일시 ?? row.신청일 ?? row._parsed_date, new Date(uploadedAt))
   const stage = String(row.stage ?? row.dbTier ?? row.DB등급 ?? row.등급 ?? row._parsed_stage ?? 'retarget') as DBTier
   const phone = normalizePhone(row.phone ?? row.연락처 ?? row.휴대폰번호 ?? row['휴대폰 번호'] ?? row._parsed_phone ?? '')
+  const consultingNumber = String(row.consultingNumber ?? row.consulting_number ?? row.consultingNo ?? row.consulting_no ?? row['컨설팅 번호'] ?? row['컨설팅번호'] ?? row._parsed_consultingNumber ?? '').trim()
 
   const utm_source = String(row.utm_source ?? row.utmSource ?? row.source ?? row.소스 ?? '')
   const utm_medium = String(row.utm_medium ?? row.utmMedium ?? row.medium ?? row.미디엄 ?? '')
@@ -232,7 +234,13 @@ function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRe
 
   return {
     id: String(row.id ?? phone ?? makeId('lead')),
-    date: normalizeDate(row.date ?? row.날짜 ?? row.등록일 ?? row.등록일시 ?? row.신청일 ?? row._parsed_date, new Date(uploadedAt)),
+    date: normalizedDate,
+    originalDate: String(row.originalDate ?? row.original_date ?? row.rawDate ?? row._originalDate ?? normalizedDate).slice(0, 10),
+    dateOverride: row.dateOverride === true || String(row.dateOverride ?? '').toLowerCase() === 'true',
+    dateOverrideReason: String(row.dateOverrideReason ?? row.date_override_reason ?? ''),
+    dateOverrideBy: String(row.dateOverrideBy ?? row.date_override_by ?? ''),
+    dateOverrideAt: String(row.dateOverrideAt ?? row.date_override_at ?? ''),
+    consultingNumber,
     phone,
     rawPhone: String(row.rawPhone ?? row.연락처 ?? row.휴대폰번호 ?? row['휴대폰 번호'] ?? ''),
     name: String(row.name ?? row.이름 ?? row.성명 ?? row.고객명 ?? row._parsed_name ?? ''),
@@ -367,6 +375,7 @@ function rawRowsFromLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]) {
       _parsed_date: lead.date,
       _parsed_phone: lead.phone,
       _parsed_name: lead.name,
+      _parsed_consultingNumber: (lead as any).consultingNumber || '',
       _parsed_channel: lead.channel,
       _parsed_subChannel: (lead as any).subChannel || '',
       _parsed_stage: lead.dbTier,
@@ -380,6 +389,12 @@ function rawRowsFromLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]) {
 function dashboardRowsFromLeads(leads: LeadRecord[]) {
   return leads.map((r) => ({
     date: r.date,
+    originalDate: (r as any).originalDate || r.date,
+    dateOverride: (r as any).dateOverride || false,
+    dateOverrideReason: (r as any).dateOverrideReason || '',
+    dateOverrideBy: (r as any).dateOverrideBy || '',
+    dateOverrideAt: (r as any).dateOverrideAt || '',
+    consultingNumber: (r as any).consultingNumber || '',
     phone: r.phone,
     name: r.name,
     stage: r.dbTier,
@@ -412,6 +427,7 @@ function dashboardRowsFromLeads(leads: LeadRecord[]) {
 function upgradeLead(prev: LeadRecord, normalizedLead: LeadRecord, now: string): LeadRecord {
   const channel = chooseAttribution(prev, normalizedLead)
   const subChannel = chooseSubChannel(prev, normalizedLead, channel)
+  const keepManualDate = (prev as any).dateOverride === true || String((prev as any).dateOverride || '').toLowerCase() === 'true'
 
   // 중요: 2차DB(컨설팅리스트)는 보통 params/주소/견적값이 없음.
   // 같은 연락처의 1차DB가 가지고 있던 외부창 견적/주소 데이터는 2차DB에도 승계해야
@@ -420,6 +436,12 @@ function upgradeLead(prev: LeadRecord, normalizedLead: LeadRecord, now: string):
     ...prev,
     ...normalizedLead,
     id: prev.id,
+    date: keepManualDate ? prev.date : normalizedLead.date,
+    originalDate: (prev as any).originalDate || normalizedLead.date,
+    dateOverride: keepManualDate,
+    dateOverrideReason: keepManualDate ? ((prev as any).dateOverrideReason || '') : ((normalizedLead as any).dateOverrideReason || ''),
+    dateOverrideBy: keepManualDate ? ((prev as any).dateOverrideBy || '') : ((normalizedLead as any).dateOverrideBy || ''),
+    dateOverrideAt: keepManualDate ? ((prev as any).dateOverrideAt || '') : ((normalizedLead as any).dateOverrideAt || ''),
     channel,
     subChannel,
     region: normalizedLead.region || prev.region,
@@ -445,7 +467,14 @@ export async function updateLeadAttribution(params: {
   phone: string
   stage: DBTier
   date?: string
+  matchDate?: string
   registeredAt?: string
+  originalDate?: string
+  dateOverride?: boolean
+  dateOverrideReason?: string
+  dateOverrideBy?: string
+  dateOverrideAt?: string
+  consultingNumber?: string
   name?: string
   address?: string
   region?: string
@@ -458,18 +487,26 @@ export async function updateLeadAttribution(params: {
   memo?: string
   operator?: string
   status?: string
+  menu?: string
 }) {
   if (SHEET_API_URL.includes('여기에_')) throw new Error('dataService.ts의 SHEET_API_URL에 Apps Script 웹앱 URL을 입력하세요.')
   const body = {
     type: 'updateLead',
     token: getAuthToken(),
-    menu: currentMenu(),
+    menu: params.menu || currentMenu(),
     phone: normalizePhone(params.phone),
     stage: params.stage,
-    date: params.date || '',
+    date: params.matchDate || params.date || '',
     registeredAt: params.registeredAt || '',
     patch: {
       channel: params.channel,
+      date: params.date,
+      originalDate: params.originalDate,
+      dateOverride: params.dateOverride,
+      dateOverrideReason: params.dateOverrideReason,
+      dateOverrideBy: params.dateOverrideBy,
+      dateOverrideAt: params.dateOverrideAt,
+      consultingNumber: params.consultingNumber,
       name: params.name,
       address: params.address,
       region: params.region,
@@ -521,6 +558,8 @@ export async function createManualLead(params: {
   const lead: LeadRecord = {
     id: makeId('manual'),
     date: manualDate,
+    originalDate: manualDate,
+    dateOverride: false,
     phone: normalizePhone(params.phone),
     rawPhone: params.phone,
     name: params.name,
@@ -542,6 +581,11 @@ export async function createManualLead(params: {
   } as LeadRecord
   const row = {
     date: lead.date,
+    originalDate: lead.originalDate || lead.date,
+    dateOverride: false,
+    dateOverrideReason: '',
+    dateOverrideBy: '',
+    dateOverrideAt: '',
     phone: lead.phone,
     name: lead.name,
     stage: lead.dbTier,
@@ -734,9 +778,15 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
   const byPhoneStageDate = new Map<string, LeadRecord>()
   const stageSeenByPhone = new Map<string, Set<string>>()
   const bestByPhone = new Map<string, LeadRecord>()
+  const byConsultingNumber = new Map<string, LeadRecord>()
+  const byPhone = new Map<string, LeadRecord[]>()
 
   existing.forEach((r: LeadRecord) => {
     if (!r.phone) return
+    const consultingNumber = String((r as any).consultingNumber || '').trim()
+    if (consultingNumber) byConsultingNumber.set(consultingNumber, r)
+    if (!byPhone.has(r.phone)) byPhone.set(r.phone, [])
+    byPhone.get(r.phone)!.push(r)
     const b = baseTier(r.dbTier)
     byPhoneStageDate.set(`${r.phone}_${r.dbTier}_${r.date}`, r)
     byPhoneStageDate.set(`${r.phone}_${b}_${r.date}`, r)
@@ -753,8 +803,35 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
   const firstRaw: Omit<LeadRecord, 'id' | 'uploadedAt'>[] = []
   const secondRaw: Omit<LeadRecord, 'id' | 'uploadedAt'>[] = []
 
-  leads.forEach((lead) => {
-    if (!lead.phone) return
+  const findCorrectionTarget = (lead: LeadRecord) => {
+    const consultingNumber = String((lead as any).consultingNumber || '').trim()
+    if (consultingNumber && byConsultingNumber.has(consultingNumber)) return byConsultingNumber.get(consultingNumber)
+    const candidates = (byPhone.get(lead.phone) || []).filter((row) => baseTier(row.dbTier) === baseTier(lead.dbTier))
+    if (!candidates.length) return undefined
+    const leadName = String((lead as any).name || '').trim()
+    return candidates
+      .slice()
+      .sort((a, b) => {
+        const aName = leadName && String(a.name || '').trim() === leadName ? 2 : 0
+        const bName = leadName && String(b.name || '').trim() === leadName ? 2 : 0
+        const aChannel = a.channel === lead.channel ? 1 : 0
+        const bChannel = b.channel === lead.channel ? 1 : 0
+        return (bName + bChannel + tierRank(b.dbTier)) - (aName + aChannel + tierRank(a.dbTier))
+      })[0]
+  }
+
+  const rememberLead = (lead: LeadRecord) => {
+    const consultingNumber = String((lead as any).consultingNumber || '').trim()
+    if (consultingNumber) byConsultingNumber.set(consultingNumber, lead)
+    const list = byPhone.get(lead.phone) || []
+    const idx = list.findIndex((row) => row.id === lead.id || (row.phone === lead.phone && baseTier(row.dbTier) === baseTier(lead.dbTier) && row.date === lead.date))
+    if (idx >= 0) list[idx] = lead
+    else list.push(lead)
+    byPhone.set(lead.phone, list)
+  }
+
+  for (const lead of leads) {
+    if (!lead.phone) continue
     if (lead.sourceKind === 'second_raw') secondRaw.push(lead)
     else firstRaw.push(lead)
 
@@ -780,8 +857,64 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
     } as LeadRecord
 
     const bTier = baseTier(normalizedLead.dbTier)
+    const correctionTarget = findCorrectionTarget(normalizedLead)
+    if (correctionTarget) {
+      const consultingNumber = String((normalizedLead as any).consultingNumber || (correctionTarget as any).consultingNumber || '').trim()
+      const needsDateCorrection = Boolean(normalizedLead.date && normalizedLead.date !== correctionTarget.date)
+      const needsConsultingNumber = Boolean(consultingNumber && consultingNumber !== String((correctionTarget as any).consultingNumber || '').trim())
+      if (needsDateCorrection || needsConsultingNumber) {
+        const corrected: LeadRecord = {
+          ...correctionTarget,
+          date: normalizedLead.date || correctionTarget.date,
+          originalDate: (correctionTarget as any).originalDate || correctionTarget.date,
+          dateOverride: needsDateCorrection || Boolean((correctionTarget as any).dateOverride),
+          dateOverrideReason: needsDateCorrection ? 'DB 업로드 실제 유입일 보정' : ((correctionTarget as any).dateOverrideReason || ''),
+          dateOverrideBy: (normalizedLead as any).operator || (correctionTarget as any).operator || '업로드',
+          dateOverrideAt: needsDateCorrection ? now : ((correctionTarget as any).dateOverrideAt || ''),
+          consultingNumber,
+          channel: normalizedLead.channel || correctionTarget.channel,
+          subChannel: normalizedLead.subChannel || correctionTarget.subChannel || '',
+          source_raw: (normalizedLead as any).source_raw || (correctionTarget as any).source_raw || '',
+          updatedAt: now,
+        } as LeadRecord
+        await updateLeadAttribution({
+          phone: correctionTarget.phone,
+          stage: correctionTarget.dbTier,
+          matchDate: correctionTarget.date,
+          registeredAt: (correctionTarget as any).registeredAt,
+          date: corrected.date,
+          originalDate: corrected.originalDate,
+          dateOverride: corrected.dateOverride,
+          dateOverrideReason: corrected.dateOverrideReason,
+          dateOverrideBy: corrected.dateOverrideBy,
+          dateOverrideAt: corrected.dateOverrideAt,
+          consultingNumber: corrected.consultingNumber,
+          name: corrected.name,
+          address: corrected.address,
+          region: corrected.region,
+          district: corrected.district,
+          building: corrected.building,
+          channel: corrected.channel,
+          subChannel: corrected.subChannel,
+          sourceRaw: corrected.source_raw,
+          consultationResult: corrected.consultationResult,
+          memo: corrected.memo,
+          operator: corrected.operator,
+          status: corrected.status || 'valid',
+          menu: '/db-manage',
+        })
+        byPhoneStageDate.delete(`${correctionTarget.phone}_${correctionTarget.dbTier}_${correctionTarget.date}`)
+        byPhoneStageDate.delete(`${correctionTarget.phone}_${baseTier(correctionTarget.dbTier)}_${correctionTarget.date}`)
+        byPhoneStageDate.set(`${corrected.phone}_${corrected.dbTier}_${corrected.date}`, corrected)
+        byPhoneStageDate.set(`${corrected.phone}_${baseTier(corrected.dbTier)}_${corrected.date}`, corrected)
+        rememberLead(corrected)
+        changed++
+      }
+      continue
+    }
+
     const sameDayKey = `${normalizedLead.phone}_${bTier}_${normalizedLead.date}`
-    if (byPhoneStageDate.has(sameDayKey)) return
+    if (byPhoneStageDate.has(sameDayKey)) continue
 
     const prevBest = bestByPhone.get(normalizedLead.phone)
     const hasSameStageBefore = stageSeenByPhone.get(normalizedLead.phone)?.has(bTier)
@@ -797,9 +930,10 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
     stageSeenByPhone.get(finalLead.phone)!.add(baseTier(finalLead.dbTier))
     const currentBest = bestByPhone.get(finalLead.phone)
     if (!currentBest || tierRank(finalLead.dbTier) > tierRank(currentBest.dbTier)) bestByPhone.set(finalLead.phone, finalLead)
+    rememberLead(finalLead)
     dashboardToAppend.push(finalLead)
     changed++
-  })
+  }
 
   // 1차/2차 원본 RAW 누적 저장. RAW도 Apps Script에서 중복 차단함.
   if (firstRaw.length) await postSheetRows('firstRaw', rawRowsFromLeads(firstRaw))

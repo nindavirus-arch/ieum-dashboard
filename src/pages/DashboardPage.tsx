@@ -1,6 +1,6 @@
 // src/pages/DashboardPage.tsx
 import { useEffect, useMemo, useState } from 'react'
-import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, parseISO, subDays, eachDayOfInterval } from 'date-fns'
+import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, startOfWeek, endOfWeek, parseISO, subDays, subWeeks, subMonths, subYears, eachDayOfInterval } from 'date-fns'
 import { Users, DollarSign, TrendingDown, CalendarDays, RefreshCw, ChevronDown } from 'lucide-react'
 import { fetchLeads, fetchAdSpend } from '../lib/dataService'
 import type { LeadRecord, AdSpend, ViewMode } from '../types'
@@ -136,46 +136,72 @@ function safeDate(date: string) {
   return new Date()
 }
 
-function rangeByMode(viewMode: ViewMode, selectedDate: string) {
+type PeriodPreset = 'selected' | 'rolling' | 'current' | 'previous'
+
+function rangeByMode(viewMode: ViewMode, selectedDate: string, preset: PeriodPreset, customStart: string, customEnd: string) {
   const base = safeDate(selectedDate)
-  if (viewMode === 'daily') {
+  if (viewMode === 'custom') {
+    const start = customStart || selectedDate
+    const end = customEnd || customStart || selectedDate
     return {
-      start: format(startOfMonth(base), 'yyyy-MM-dd'),
-      end: format(endOfMonth(base), 'yyyy-MM-dd'),
-      activeStart: selectedDate,
-      activeEnd: selectedDate,
-      label: `${format(base, 'yyyy년 MM월 dd일')} 기준`,
-      cardLabel: '선택일 DB',
+      start,
+      end,
+      activeStart: start,
+      activeEnd: end,
+      label: `${start} ~ ${end} 기준`,
+      cardLabel: '선택기간 DB',
+    }
+  }
+  if (viewMode === 'daily') {
+    const activeDate = preset === 'previous' ? format(subDays(new Date(), 1), 'yyyy-MM-dd') : selectedDate
+    return {
+      start: format(startOfMonth(safeDate(activeDate)), 'yyyy-MM-dd'),
+      end: format(endOfMonth(safeDate(activeDate)), 'yyyy-MM-dd'),
+      activeStart: activeDate,
+      activeEnd: activeDate,
+      label: `${format(safeDate(activeDate), 'yyyy년 MM월 dd일')} 기준`,
+      cardLabel: preset === 'previous' ? '어제 DB' : '오늘 DB',
     }
   }
   if (viewMode === 'weekly') {
-    const start = subDays(base, 6)
+    let start = subDays(base, 6)
+    let end = base
+    if (preset === 'current') {
+      start = startOfWeek(new Date(), { weekStartsOn: 1 })
+      end = endOfWeek(new Date(), { weekStartsOn: 1 })
+    } else if (preset === 'previous') {
+      const prev = subWeeks(new Date(), 1)
+      start = startOfWeek(prev, { weekStartsOn: 1 })
+      end = endOfWeek(prev, { weekStartsOn: 1 })
+    }
     return {
       start: format(start, 'yyyy-MM-dd'),
-      end: selectedDate,
+      end: format(end, 'yyyy-MM-dd'),
       activeStart: format(start, 'yyyy-MM-dd'),
-      activeEnd: selectedDate,
-      label: `${format(start, 'yyyy년 MM월 dd일')} ~ ${format(base, 'MM월 dd일')}`,
-      cardLabel: '최근 7일 DB',
+      activeEnd: format(end, 'yyyy-MM-dd'),
+      label: `${format(start, 'yyyy년 MM월 dd일')} ~ ${format(end, 'MM월 dd일')}`,
+      cardLabel: preset === 'current' ? '이번주 DB' : preset === 'previous' ? '전주 DB' : '최근 7일 DB',
     }
   }
   if (viewMode === 'monthly') {
+    const monthBase = preset === 'previous' ? subMonths(new Date(), 1) : preset === 'current' ? new Date() : base
     return {
-      start: format(startOfYear(base), 'yyyy-MM-dd'),
-      end: format(endOfYear(base), 'yyyy-MM-dd'),
-      activeStart: format(startOfMonth(base), 'yyyy-MM-dd'),
-      activeEnd: format(endOfMonth(base), 'yyyy-MM-dd'),
-      label: `${format(base, 'yyyy년 MM월')} 기준`,
-      cardLabel: '선택월 DB',
+      start: format(startOfYear(monthBase), 'yyyy-MM-dd'),
+      end: format(endOfYear(monthBase), 'yyyy-MM-dd'),
+      activeStart: format(startOfMonth(monthBase), 'yyyy-MM-dd'),
+      activeEnd: format(endOfMonth(monthBase), 'yyyy-MM-dd'),
+      label: `${format(monthBase, 'yyyy년 MM월')} 기준`,
+      cardLabel: preset === 'previous' ? '전월 DB' : '이번달 DB',
     }
   }
+  const yearBase = preset === 'previous' ? subYears(new Date(), 1) : preset === 'current' ? new Date() : base
   return {
-    start: format(startOfYear(base), 'yyyy-MM-dd'),
-    end: format(endOfYear(base), 'yyyy-MM-dd'),
-    activeStart: format(startOfYear(base), 'yyyy-MM-dd'),
-    activeEnd: format(endOfYear(base), 'yyyy-MM-dd'),
-    label: `${format(base, 'yyyy년')} 기준`,
-    cardLabel: '선택연 DB',
+    start: format(startOfYear(yearBase), 'yyyy-MM-dd'),
+    end: format(endOfYear(yearBase), 'yyyy-MM-dd'),
+    activeStart: format(startOfYear(yearBase), 'yyyy-MM-dd'),
+    activeEnd: format(endOfYear(yearBase), 'yyyy-MM-dd'),
+    label: `${format(yearBase, 'yyyy년')} 기준`,
+    cardLabel: preset === 'previous' ? '전년도 DB' : '올해 DB',
   }
 }
 
@@ -186,12 +212,15 @@ function inRange(date: string, start: string, end: string) {
 export default function DashboardPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('daily')
   const [selectedDate, setSelectedDate] = useState(today)
+  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('selected')
+  const [customStart, setCustomStart] = useState(today)
+  const [customEnd, setCustomEnd] = useState(today)
   const [leads, setLeads] = useState<LeadRecord[]>([])
   const [spends, setSpends] = useState<AdSpend[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null)
 
-  const range = useMemo(() => rangeByMode(viewMode, selectedDate), [viewMode, selectedDate])
+  const range = useMemo(() => rangeByMode(viewMode, selectedDate, periodPreset, customStart, customEnd), [viewMode, selectedDate, periodPreset, customStart, customEnd])
 
   async function load() {
     setLoading(true)
@@ -302,13 +331,16 @@ export default function DashboardPage() {
       ? selectedDate
     : viewMode === 'monthly'
       ? selectedDate.slice(0, 7)
-      : selectedDate.slice(0, 4)
+      : viewMode === 'yearly'
+        ? selectedDate.slice(0, 4)
+        : selectedDate
 
   function handleDateChange(value: string) {
     if (!value) return
+    setPeriodPreset('selected')
     if (viewMode === 'daily' || viewMode === 'weekly') setSelectedDate(value)
     else if (viewMode === 'monthly') setSelectedDate(`${value}-01`)
-    else setSelectedDate(`${value}-01-01`)
+    else if (viewMode === 'yearly') setSelectedDate(`${value}-01-01`)
   }
 
   return (
@@ -320,9 +352,9 @@ export default function DashboardPage() {
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
           <div className="flex max-w-full overflow-x-auto bg-white border border-slate-200 rounded-lg p-1 gap-0.5">
-            {(['daily','weekly','monthly','yearly'] as ViewMode[]).map(m => (
-              <button key={m} onClick={() => setViewMode(m)} className={clsx('tab-btn shrink-0', viewMode===m && 'active')}>
-                {m === 'daily' ? '일별' : m === 'weekly' ? '주별' : m === 'monthly' ? '월별' : '연별'}
+            {(['daily','weekly','monthly','yearly','custom'] as ViewMode[]).map(m => (
+              <button key={m} onClick={() => { setViewMode(m); setPeriodPreset(m === 'daily' ? 'selected' : 'rolling') }} className={clsx('tab-btn shrink-0', viewMode===m && 'active')}>
+                {m === 'daily' ? '일별' : m === 'weekly' ? '주별' : m === 'monthly' ? '월별' : m === 'yearly' ? '연별' : '기간별'}
               </button>
             ))}
           </div>
@@ -336,8 +368,40 @@ export default function DashboardPage() {
           {viewMode === 'yearly' && (
             <input type="number" min="2020" max="2035" value={inputValue} onChange={(e) => handleDateChange(e.target.value)} className="h-9 w-24 shrink-0 px-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-700" />
           )}
+          {viewMode === 'custom' && (
+            <>
+              <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="h-9 min-w-0 flex-1 px-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-700 sm:flex-none" />
+              <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="h-9 min-w-0 flex-1 px-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-700 sm:flex-none" />
+            </>
+          )}
 
-          <button onClick={() => { setSelectedDate(today); setViewMode('daily') }} className="btn-secondary shrink-0">오늘</button>
+          {viewMode === 'daily' && (
+            <div className="flex rounded-lg border border-slate-200 bg-white p-1">
+              <button onClick={() => { setSelectedDate(today); setPeriodPreset('selected') }} className="tab-btn">오늘</button>
+              <button onClick={() => { setSelectedDate(format(subDays(new Date(), 1), 'yyyy-MM-dd')); setPeriodPreset('previous') }} className="tab-btn">어제</button>
+            </div>
+          )}
+          {viewMode === 'weekly' && (
+            <div className="flex rounded-lg border border-slate-200 bg-white p-1">
+              <button onClick={() => { setSelectedDate(today); setPeriodPreset('rolling') }} className={clsx('tab-btn', periodPreset === 'rolling' && 'active')}>최근 7일</button>
+              <button onClick={() => { setSelectedDate(today); setPeriodPreset('current') }} className={clsx('tab-btn', periodPreset === 'current' && 'active')}>이번주</button>
+              <button onClick={() => { setSelectedDate(format(subWeeks(new Date(), 1), 'yyyy-MM-dd')); setPeriodPreset('previous') }} className={clsx('tab-btn', periodPreset === 'previous' && 'active')}>전주</button>
+            </div>
+          )}
+          {viewMode === 'monthly' && (
+            <div className="flex rounded-lg border border-slate-200 bg-white p-1">
+              <button onClick={() => { setSelectedDate(today); setPeriodPreset('current') }} className={clsx('tab-btn', periodPreset === 'current' && 'active')}>이번달</button>
+              <button onClick={() => { setSelectedDate(format(subMonths(new Date(), 1), 'yyyy-MM-dd')); setPeriodPreset('previous') }} className={clsx('tab-btn', periodPreset === 'previous' && 'active')}>전월</button>
+            </div>
+          )}
+          {viewMode === 'yearly' && (
+            <div className="flex rounded-lg border border-slate-200 bg-white p-1">
+              <button onClick={() => { setSelectedDate(today); setPeriodPreset('current') }} className={clsx('tab-btn', periodPreset === 'current' && 'active')}>올해</button>
+              <button onClick={() => { setSelectedDate(format(subYears(new Date(), 1), 'yyyy-MM-dd')); setPeriodPreset('previous') }} className={clsx('tab-btn', periodPreset === 'previous' && 'active')}>전년도</button>
+            </div>
+          )}
+
+          <button onClick={() => { setSelectedDate(today); setViewMode('daily'); setPeriodPreset('selected') }} className="btn-secondary shrink-0">오늘</button>
           <DataUpdatedAt />
           <button onClick={load} className="btn-secondary shrink-0">
             <RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침
@@ -366,9 +430,9 @@ export default function DashboardPage() {
         <div className="lg:col-span-2 card p-5 space-y-5">
           <div>
             <p className="text-sm font-semibold text-slate-700 mb-4">
-              {viewMode === 'daily' ? '일자별 DB 추이' : viewMode === 'weekly' ? '최근 7일 DB 추이' : viewMode === 'monthly' ? '월별 DB 추이' : '연도별 DB 추이'}
+              {viewMode === 'daily' ? '일자별 DB 추이' : viewMode === 'weekly' ? '주별 DB 추이' : viewMode === 'monthly' ? '월별 DB 추이' : viewMode === 'yearly' ? '연도별 DB 추이' : '기간별 DB 추이'}
             </p>
-            <TimeSeriesChart leads={validLeads} spends={spends} viewMode={viewMode} selectedDate={selectedDate} />
+            <TimeSeriesChart leads={validLeads} spends={spends} viewMode={viewMode} selectedDate={selectedDate} startDate={range.activeStart} endDate={range.activeEnd} />
             {viewMode === 'daily' && (
               <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/70 p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">

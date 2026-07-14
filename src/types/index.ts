@@ -4,11 +4,17 @@ export type Channel = 'naver' | 'google' | 'meta' | 'youtube' | 'viral' | 'dangg
 export type DBTier = 'retarget' | 'first' | 'second' | 'first_reentry' | 'second_reentry'
 export type DBStatus = 'retarget' | 'first' | 'second' | 'first_reentry' | 'second_reentry' | 'invalid' | 'test' | 'duplicate' | 'deleted' | 'valid'
 export type SourceKind = 'first_raw' | 'second_raw' | 'unknown'
-export type ViewMode = 'daily' | 'weekly' | 'monthly' | 'yearly'
+export type ViewMode = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom'
 
 export interface LeadRecord {
   id: string
   date: string          // YYYY-MM-DD
+  originalDate?: string // first imported DB date before manual correction
+  dateOverride?: boolean
+  dateOverrideReason?: string
+  dateOverrideBy?: string
+  dateOverrideAt?: string
+  consultingNumber?: string
   name: string
   phone: string
   region: string        // 시도

@@ -234,6 +234,12 @@ function sameLeadIdentity(row: LeadRecord, target: LeadRecord) {
 function applyLeadPatch(row: LeadRecord, patch: any): LeadRecord {
   return {
     ...row,
+    date: patch.date ?? row.date,
+    originalDate: patch.originalDate ?? row.originalDate,
+    dateOverride: patch.dateOverride ?? row.dateOverride,
+    dateOverrideReason: patch.dateOverrideReason ?? row.dateOverrideReason,
+    dateOverrideBy: patch.dateOverrideBy ?? row.dateOverrideBy,
+    dateOverrideAt: patch.dateOverrideAt ?? row.dateOverrideAt,
     name: patch.name ?? row.name,
     address: patch.address ?? row.address,
     region: patch.region ?? row.region,
@@ -247,6 +253,10 @@ function applyLeadPatch(row: LeadRecord, patch: any): LeadRecord {
     operator: patch.operator ?? row.operator,
     status: patch.status || row.status,
   }
+}
+
+function isDateOverridden(row: LeadRecord) {
+  return row.dateOverride === true || String((row as any).dateOverride || '').toLowerCase() === 'true'
 }
 
 function QuotePanel({ rows }: { rows: QuoteRow[] }) {
@@ -378,7 +388,7 @@ export default function DBManagePage() {
     setSaving(true)
     setNotice(null)
     try {
-      await updateLeadAttribution({ phone: row.phone, stage: row.dbTier, date: row.date, registeredAt: row.registeredAt, ...next })
+      await updateLeadAttribution({ phone: row.phone, stage: row.dbTier, date: row.date, matchDate: row.date, registeredAt: row.registeredAt, ...next })
       setLeads(current => current.map(item => sameLeadIdentity(item, row) ? applyLeadPatch(item, next) : item))
       setEditing(null)
       setNotice({ type: 'success', text: 'DB 정보가 수정되었습니다.' })
@@ -453,7 +463,7 @@ export default function DBManagePage() {
         const previousRows = stage === 'history' ? [] : (previousByPhone.get(l.phone) || [])
         const address = addressParts(l)
         return <div key={key} className="card p-4 space-y-3">
-          <div className="flex items-start justify-between gap-3"><div><div className="text-[11px] text-slate-400">DB 유입/신청일시</div><div className="text-xs text-slate-500">{fmtDateTime(l)}</div><div className="font-semibold text-slate-800 mt-1">{l.name || '-'}</div><div className="text-sm text-slate-500">{formatPhone(l.phone)}</div></div><span className={clsx('px-2 py-0.5 rounded-md border text-xs font-medium whitespace-nowrap', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span></div>
+          <div className="flex items-start justify-between gap-3"><div><div className="text-[11px] text-slate-400">DB 유입/신청일시</div><div className="text-xs text-slate-500">{fmtDateTime(l)} {isDateOverridden(l) && <span className="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">수동보정</span>}</div><div className="font-semibold text-slate-800 mt-1">{l.name || '-'}</div><div className="text-sm text-slate-500">{formatPhone(l.phone)}</div></div><span className={clsx('px-2 py-0.5 rounded-md border text-xs font-medium whitespace-nowrap', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span></div>
           {(l as any).memo && <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-800"><b>메모</b> {(l as any).memo}</div>}
           <div className="grid grid-cols-2 gap-3 text-xs text-slate-600">
             <div className="col-span-2">
@@ -503,7 +513,10 @@ export default function DBManagePage() {
               const previousRows = stage === 'history' ? [] : (previousByPhone.get(l.phone) || [])
               const address = addressParts(l)
               return <tr key={key} className="align-top hover:bg-slate-50/70">
-                <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{fmtDateTime(l)}</td>
+                <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+                  <div>{fmtDateTime(l)}</div>
+                  {isDateOverridden(l) && <span className="mt-1 inline-flex rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">수동보정</span>}
+                </td>
                 <td className="px-3 py-3 whitespace-nowrap"><span className={clsx('px-2 py-0.5 rounded-md border font-medium', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span></td>
                 <td className="px-3 py-3 min-w-[220px]">
                   <div className="font-semibold text-slate-700">{l.name || '-'}</div>
@@ -552,6 +565,8 @@ export default function DBManagePage() {
 }
 
 function EditModalWithAddress({ row, subChannelOptions, onClose, onSave, saving }: any) {
+  const [date, setDate] = useState(row.date || today())
+  const [dateOverrideReason, setDateOverrideReason] = useState(row.dateOverrideReason || '')
   const [name, setName] = useState(row.name || '')
   const [region, setRegion] = useState(row.region || '')
   const [district, setDistrict] = useState(row.district || '')
@@ -573,6 +588,8 @@ function EditModalWithAddress({ row, subChannelOptions, onClose, onSave, saving 
       </div>
       <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">{formatPhone(row.phone)} · {STAGE_LABELS[row.dbTier as DBTier]}</div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <label className="space-y-1 text-xs text-slate-500">DB 집계일<input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
+        <label className="space-y-1 text-xs text-slate-500">날짜 보정 메모<input value={dateOverrideReason} onChange={e => setDateOverrideReason(e.target.value)} placeholder="예: 주말 DB 실제 유입일 보정" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
         <label className="space-y-1 text-xs text-slate-500">이름<input value={name} onChange={e => setName(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
         <label className="space-y-1 text-xs text-slate-500">작업자<input value={operator} onChange={e => setOperator(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
         <label className="space-y-1 text-xs text-slate-500">시/도<input value={region} onChange={e => setRegion(e.target.value)} placeholder="예: 경기" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
@@ -588,7 +605,18 @@ function EditModalWithAddress({ row, subChannelOptions, onClose, onSave, saving 
       </div>
       <div className="flex justify-end gap-2">
         <button onClick={onClose} className="btn-secondary">취소</button>
-        <button onClick={() => onSave(row, { name, region, district, building, address, channel, subChannel, sourceRaw, consultationResult, memo, operator, status })} className="btn-primary" disabled={saving}><Save size={14}/> 저장</button>
+        <button onClick={() => {
+          const dateChanged = date !== row.date
+          onSave(row, {
+            date,
+            originalDate: row.originalDate || row.date,
+            dateOverride: dateChanged || isDateOverridden(row),
+            dateOverrideReason: dateChanged ? (dateOverrideReason || '수동 날짜 보정') : dateOverrideReason,
+            dateOverrideBy: dateChanged ? (operator || 'system') : row.dateOverrideBy,
+            dateOverrideAt: dateChanged ? new Date().toISOString() : row.dateOverrideAt,
+            name, region, district, building, address, channel, subChannel, sourceRaw, consultationResult, memo, operator, status,
+          })
+        }} className="btn-primary" disabled={saving}><Save size={14}/> 저장</button>
       </div>
     </div>
   </div>
