@@ -774,6 +774,49 @@ function enrichMetaFromRaw(lead: LeadRecord, lookup: Map<string, { registeredAt?
 }
 
 // ─── Leads ──────────────────────────────────────────────
+function isExplicitDateCorrectionLead(lead: LeadRecord) {
+  const raw = ((lead as any).rawData || {}) as Record<string, unknown>
+  const explicitFlag = (lead as any).dateOverride === true || String((lead as any).dateOverride || '').toLowerCase() === 'true'
+  if (explicitFlag) return true
+
+  const keys = Object.keys(raw)
+  const keyText = keys.join('|').toLowerCase()
+  const markerKeys = [
+    'dateoverride',
+    'date_override',
+    'dateoverridereason',
+    'date_override_reason',
+    '수동보정',
+    '날짜보정',
+    '날짜 보정',
+    '유입일보정',
+    '유입일 보정',
+    '실제유입일',
+    '실제 유입일',
+    'db유입일',
+    'db 유입일',
+    '보정유입일',
+    '보정 유입일',
+  ]
+  if (markerKeys.some((key) => keyText.includes(key.toLowerCase()))) return true
+
+  const markerValues = [
+    raw.dateOverride,
+    raw.date_override,
+    raw.dateOverrideReason,
+    raw.date_override_reason,
+    raw['수동보정'],
+    raw['날짜보정'],
+    raw['날짜 보정'],
+    raw['유입일보정'],
+    raw['유입일 보정'],
+  ]
+  return markerValues.some((value) => {
+    const text = String(value ?? '').trim().toLowerCase()
+    return ['true', 'y', 'yes', '1', '수동보정', '보정', '날짜보정'].includes(text)
+  })
+}
+
 export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]) {
   const mappings = await fetchMappings()
   // 기존 DASHBOARD_LEADS를 기준으로 중복/승격 판단
@@ -861,15 +904,17 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
     } as LeadRecord
 
     const bTier = baseTier(normalizedLead.dbTier)
+    const incomingConsultingNumber = String((normalizedLead as any).consultingNumber || '').trim()
+    const explicitDateCorrection = isExplicitDateCorrectionLead(normalizedLead)
     const correctionTarget = findCorrectionTarget(normalizedLead)
-    if (correctionTarget) {
-      const consultingNumber = String((normalizedLead as any).consultingNumber || (correctionTarget as any).consultingNumber || '').trim()
-      const needsDateCorrection = Boolean(normalizedLead.date && normalizedLead.date !== correctionTarget.date)
+    if (correctionTarget && (incomingConsultingNumber || explicitDateCorrection)) {
+      const consultingNumber = String(incomingConsultingNumber || (correctionTarget as any).consultingNumber || '').trim()
+      const needsDateCorrection = explicitDateCorrection && Boolean(normalizedLead.date && normalizedLead.date !== correctionTarget.date)
       const needsConsultingNumber = Boolean(consultingNumber && consultingNumber !== String((correctionTarget as any).consultingNumber || '').trim())
       if (needsDateCorrection || needsConsultingNumber) {
         const corrected: LeadRecord = {
           ...correctionTarget,
-          date: normalizedLead.date || correctionTarget.date,
+          date: needsDateCorrection ? normalizedLead.date : correctionTarget.date,
           originalDate: (correctionTarget as any).originalDate || correctionTarget.date,
           dateOverride: needsDateCorrection || Boolean((correctionTarget as any).dateOverride),
           dateOverrideReason: needsDateCorrection ? 'DB 업로드 실제 유입일 보정' : ((correctionTarget as any).dateOverrideReason || ''),
