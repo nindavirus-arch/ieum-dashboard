@@ -777,6 +777,8 @@ function enrichMetaFromRaw(lead: LeadRecord, lookup: Map<string, { registeredAt?
 function isExplicitDateCorrectionLead(lead: LeadRecord) {
   const raw = ((lead as any).rawData || {}) as Record<string, unknown>
   const explicitFlag = (lead as any).dateOverride === true || String((lead as any).dateOverride || '').toLowerCase() === 'true'
+  const clearFlag = (lead as any).dateOverrideClear === true || String((lead as any).dateOverrideClear || '').toLowerCase() === 'true'
+  if (clearFlag) return true
   if (explicitFlag) return true
 
   const keys = Object.keys(raw)
@@ -797,6 +799,12 @@ function isExplicitDateCorrectionLead(lead: LeadRecord) {
     'db 유입일',
     '보정유입일',
     '보정 유입일',
+    '수동보정해제',
+    '수동 보정 해제',
+    '보정해제',
+    '보정 해제',
+    'dateoverrideclear',
+    'date_override_clear',
   ]
   if (markerKeys.some((key) => keyText.includes(key.toLowerCase()))) return true
 
@@ -810,11 +818,42 @@ function isExplicitDateCorrectionLead(lead: LeadRecord) {
     raw['날짜 보정'],
     raw['유입일보정'],
     raw['유입일 보정'],
+    raw['수동보정해제'],
+    raw['수동 보정 해제'],
+    raw['보정해제'],
+    raw['보정 해제'],
+    raw.dateOverrideClear,
+    raw.date_override_clear,
   ]
   return markerValues.some((value) => {
     const text = String(value ?? '').trim().toLowerCase()
-    return ['true', 'y', 'yes', '1', '수동보정', '보정', '날짜보정'].includes(text)
+    return ['true', 'y', 'yes', '1', '수동보정', '보정', '날짜보정', '수동보정해제', '보정해제'].includes(text)
   })
+}
+
+function isDateCorrectionClearLead(lead: LeadRecord) {
+  const raw = ((lead as any).rawData || {}) as Record<string, unknown>
+  const explicitFlag = (lead as any).dateOverrideClear === true || String((lead as any).dateOverrideClear || '').toLowerCase() === 'true'
+  if (explicitFlag) return true
+  const keys = Object.keys(raw).join('|').toLowerCase()
+  if (
+    keys.includes('dateoverrideclear') ||
+    keys.includes('date_override_clear') ||
+    keys.includes('수동보정해제') ||
+    keys.includes('수동 보정 해제') ||
+    keys.includes('보정해제') ||
+    keys.includes('보정 해제')
+  ) return true
+
+  const values = [
+    raw.dateOverrideClear,
+    raw.date_override_clear,
+    raw['수동보정해제'],
+    raw['수동 보정 해제'],
+    raw['보정해제'],
+    raw['보정 해제'],
+  ]
+  return values.some((value) => ['true', 'y', 'yes', '1', '수동보정해제', '보정해제'].includes(String(value ?? '').trim().toLowerCase()))
 }
 
 export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]) {
@@ -908,20 +947,22 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
     const bTier = baseTier(normalizedLead.dbTier)
     const incomingConsultingNumber = String((normalizedLead as any).consultingNumber || '').trim()
     const explicitDateCorrection = isExplicitDateCorrectionLead(normalizedLead)
+    const shouldClearDateOverride = isDateCorrectionClearLead(normalizedLead)
     const correctionTarget = findCorrectionTarget(normalizedLead, explicitDateCorrection)
     if (correctionTarget && explicitDateCorrection) {
       const consultingNumber = String(incomingConsultingNumber || (correctionTarget as any).consultingNumber || '').trim()
       const needsDateCorrection = explicitDateCorrection && Boolean(normalizedLead.date && normalizedLead.date !== correctionTarget.date)
       const needsConsultingNumber = Boolean(consultingNumber && consultingNumber !== String((correctionTarget as any).consultingNumber || '').trim())
-      if (needsDateCorrection || needsConsultingNumber) {
+      const needsDateOverrideClear = shouldClearDateOverride && Boolean((correctionTarget as any).dateOverride === true || String((correctionTarget as any).dateOverride || '').toLowerCase() === 'true')
+      if (needsDateCorrection || needsConsultingNumber || needsDateOverrideClear) {
         const corrected: LeadRecord = {
           ...correctionTarget,
           date: needsDateCorrection ? normalizedLead.date : correctionTarget.date,
           originalDate: (correctionTarget as any).originalDate || correctionTarget.date,
-          dateOverride: needsDateCorrection || Boolean((correctionTarget as any).dateOverride),
-          dateOverrideReason: needsDateCorrection ? 'DB 업로드 실제 유입일 보정' : ((correctionTarget as any).dateOverrideReason || ''),
-          dateOverrideBy: (normalizedLead as any).operator || (correctionTarget as any).operator || '업로드',
-          dateOverrideAt: needsDateCorrection ? now : ((correctionTarget as any).dateOverrideAt || ''),
+          dateOverride: shouldClearDateOverride ? false : (needsDateCorrection || Boolean((correctionTarget as any).dateOverride)),
+          dateOverrideReason: shouldClearDateOverride ? '' : (needsDateCorrection ? 'DB 업로드 실제 유입일 보정' : ((correctionTarget as any).dateOverrideReason || '')),
+          dateOverrideBy: shouldClearDateOverride ? '' : ((normalizedLead as any).operator || (correctionTarget as any).operator || '업로드'),
+          dateOverrideAt: shouldClearDateOverride ? '' : (needsDateCorrection ? now : ((correctionTarget as any).dateOverrideAt || '')),
           consultingNumber,
           channel: normalizedLead.channel || correctionTarget.channel,
           subChannel: normalizedLead.subChannel || correctionTarget.subChannel || '',

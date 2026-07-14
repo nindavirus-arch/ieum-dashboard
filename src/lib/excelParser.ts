@@ -277,6 +277,19 @@ function isDateCorrectionFileSafe(fileName = '') {
   return isDateCorrectionFile(fileName) || keywords.some((keyword) => text.includes(keyword))
 }
 
+function isDateCorrectionClearFile(fileName = '') {
+  const text = fileName.toLowerCase().replace(/\s+/g, '')
+  return [
+    'dateoverrideclear',
+    'clearoverride',
+    'manualdateclear',
+    '\uc218\ub3d9\ubcf4\uc815\ud574\uc81c',
+    '\ubcf4\uc815\ud574\uc81c',
+    '\ub0a0\uc9dc\ubcf4\uc815\ud574\uc81c',
+    '\uc77c\uc790\ubcf4\uc815\ud574\uc81c',
+  ].some((keyword) => text.includes(keyword))
+}
+
 function parseDbTierLabel(value: unknown): DBTier | '' {
   const text = String(value ?? '').toLowerCase().replace(/[\s_\-\/]/g, '')
   if (!text) return ''
@@ -310,6 +323,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
         const headers = rows.length ? Object.keys(rows[0]) : []
         const sourceKind = detectSourceKind(headers, file.name)
         const dateCorrectionByFileName = isDateCorrectionFileSafe(file.name)
+        const dateCorrectionClearByFileName = isDateCorrectionClearFile(file.name)
 
         const seen = new Set<string>()
         let duplicateCount = 0, testCount = 0, invalidCount = 0
@@ -385,8 +399,9 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
 
           valid.push({
             date, name, phone, rawPhone: String(rawPhone ?? ''), consultingNumber, region, district, channel, subChannel, dbTier, status, sourceKind, rawData: row,
-            dateOverride: dateCorrectionByFileName,
-            dateOverrideReason: dateCorrectionByFileName ? '파일명 기준 날짜 보정' : '',
+            dateOverride: dateCorrectionByFileName && !dateCorrectionClearByFileName,
+            dateOverrideClear: dateCorrectionClearByFileName,
+            dateOverrideReason: dateCorrectionByFileName ? (dateCorrectionClearByFileName ? '파일명 기준 수동보정 해제' : '파일명 기준 날짜 보정') : '',
             dateOverrideBy: dateCorrectionByFileName ? '업로드' : '',
             utm_source: String(source ?? ''),
             utm_medium: String(medium ?? ''),
