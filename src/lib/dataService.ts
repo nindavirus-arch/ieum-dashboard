@@ -314,7 +314,7 @@ async function getSheetRows(type: SheetType) {
   }
 }
 
-async function postSheetRows(type: PostSheetType, rows: any[]) {
+async function postSheetRows(type: PostSheetType, rows: any[], menuOverride?: string) {
   if (SHEET_API_URL.includes('여기에_')) throw new Error('dataService.ts의 SHEET_API_URL에 Apps Script 웹앱 URL을 입력하세요.')
   if (!rows.length) return { success: true, count: 0 }
 
@@ -322,13 +322,16 @@ async function postSheetRows(type: PostSheetType, rows: any[]) {
     method: 'POST',
     // text/plain으로 보내야 Apps Script에서 CORS preflight 문제를 피하기 쉬움
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ type, rows, token: getAuthToken(), menu: currentMenu() }),
+    body: JSON.stringify({ type, rows, token: getAuthToken(), menu: menuOverride || currentMenu() }),
   })
 
   if (!res.ok) throw new Error('Google Sheets 저장 실패')
   const data = await res.json()
   if (data?.error === 'Invalid type' && type === 'adSpendReplace') {
     throw new Error('교체 저장 기능을 쓰려면 APPS_SCRIPT_CODE.txt를 구글 Apps Script에 다시 붙여넣고 배포해야 합니다.')
+  }
+  if (data?.error === 'forbidden') {
+    throw new Error(`권한 오류: ${type} 저장이 차단되었습니다. Apps Script 최신 코드 배포와 계정 권한을 확인하세요.`)
   }
   handleDataError(data)
   clearSheetCache()
@@ -941,12 +944,12 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
   }
 
   // 1차/2차 원본 RAW 누적 저장. RAW도 Apps Script에서 중복 차단함.
-  if (firstRaw.length) await postSheetRows('firstRaw', rawRowsFromLeads(firstRaw))
-  if (secondRaw.length) await postSheetRows('secondRaw', rawRowsFromLeads(secondRaw))
-  if (correctionRows.length) await postSheetRows('leadCorrections', correctionRows)
+  if (firstRaw.length) await postSheetRows('firstRaw', rawRowsFromLeads(firstRaw), '/upload-db')
+  if (secondRaw.length) await postSheetRows('secondRaw', rawRowsFromLeads(secondRaw), '/upload-db')
+  if (correctionRows.length) await postSheetRows('leadCorrections', correctionRows, '/upload-db')
 
   // 대시보드용 정제 데이터 저장. phone + stage 기준 신규만 저장.
-  if (dashboardToAppend.length) await postSheetRows('leads', dashboardRowsFromLeads(dashboardToAppend))
+  if (dashboardToAppend.length) await postSheetRows('leads', dashboardRowsFromLeads(dashboardToAppend), '/upload-db')
 
   notifyDataUpdated()
   return changed

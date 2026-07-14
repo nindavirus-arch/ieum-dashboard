@@ -49,7 +49,7 @@ function doPost(e) {
     if (type === 'authCreateUser') return authCreateUser(user, body);
     if (type === 'authUpdateUser') return authUpdateUser(user, body);
 
-    const menu = String(body.menu || '');
+    const menu = resolveWriteMenu(type, String(body.menu || ''));
     if (!canAccessMenu(user, menu) || !canWriteData(type, menu)) return json({ error: 'forbidden' });
 
     if (type === 'leads') return appendRowsUnique(SHEETS.leads, rows, 'leads');
@@ -735,6 +735,18 @@ function canReadData(type, menu) {
     dataUpdatedAt: ['/dashboard', '/channels', '/kpi', '/funnel', '/region', '/db-manage', '/upload-db', '/upload-spend', '/manage-spend', '/admin-users']
   };
   return Boolean(rules[type] && rules[type].indexOf(menu) >= 0);
+}
+
+function resolveWriteMenu(type, menu) {
+  if (type === 'firstRaw' || type === 'secondRaw' || type === 'leadCorrections') return '/upload-db';
+  if (type === 'leads') {
+    if (menu === '/db-manage' || menu === '/upload-db') return menu;
+    return '/upload-db';
+  }
+  if (type === 'adSpend' || type === 'adSpendReplace') return '/upload-spend';
+  if (type === 'updateAdSpend' || type === 'deleteAdSpend') return '/manage-spend';
+  if (type === 'saveKpiTarget') return '/kpi';
+  return VALID_MENUS.indexOf(menu) >= 0 ? menu : '';
 }
 
 function canWriteData(type, menu) {

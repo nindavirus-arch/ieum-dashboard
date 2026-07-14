@@ -1,0 +1,8 @@
+﻿업데이트 메모 - forbidden 서버 권한 보정
+
+1. Apps Script에서 업로드 계열 저장 타입(firstRaw, secondRaw, leadCorrections)은 서버가 직접 /upload-db 권한으로 판정하도록 수정했습니다.
+2. leads 저장은 /db-manage 또는 /upload-db만 허용하고, 경로가 비정상으로 들어오면 /upload-db로 보정합니다.
+3. 프론트에서 forbidden 발생 시 어떤 저장 타입이 막혔는지 표시하도록 보강했습니다.
+4. 컨설팅UTM 날짜 보정 업로드는 Apps Script까지 최신으로 교체 후 새 배포가 필요합니다.
+
+검증: npm run build 통과
