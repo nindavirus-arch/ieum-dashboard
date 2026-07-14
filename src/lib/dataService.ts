@@ -907,7 +907,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
     const incomingConsultingNumber = String((normalizedLead as any).consultingNumber || '').trim()
     const explicitDateCorrection = isExplicitDateCorrectionLead(normalizedLead)
     const correctionTarget = findCorrectionTarget(normalizedLead)
-    if (correctionTarget && (incomingConsultingNumber || explicitDateCorrection)) {
+    if (correctionTarget && explicitDateCorrection) {
       const consultingNumber = String(incomingConsultingNumber || (correctionTarget as any).consultingNumber || '').trim()
       const needsDateCorrection = explicitDateCorrection && Boolean(normalizedLead.date && normalizedLead.date !== correctionTarget.date)
       const needsConsultingNumber = Boolean(consultingNumber && consultingNumber !== String((correctionTarget as any).consultingNumber || '').trim())
