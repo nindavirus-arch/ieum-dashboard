@@ -850,10 +850,12 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
   const firstRaw: Omit<LeadRecord, 'id' | 'uploadedAt'>[] = []
   const secondRaw: Omit<LeadRecord, 'id' | 'uploadedAt'>[] = []
 
-  const findCorrectionTarget = (lead: LeadRecord) => {
+  const findCorrectionTarget = (lead: LeadRecord, allowAnyStage = false) => {
     const consultingNumber = String((lead as any).consultingNumber || '').trim()
     if (consultingNumber && byConsultingNumber.has(consultingNumber)) return byConsultingNumber.get(consultingNumber)
-    const candidates = (byPhone.get(lead.phone) || []).filter((row) => baseTier(row.dbTier) === baseTier(lead.dbTier))
+    const candidates = allowAnyStage
+      ? (byPhone.get(lead.phone) || [])
+      : (byPhone.get(lead.phone) || []).filter((row) => baseTier(row.dbTier) === baseTier(lead.dbTier))
     if (!candidates.length) return undefined
     const leadName = String((lead as any).name || '').trim()
     return candidates
@@ -906,7 +908,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
     const bTier = baseTier(normalizedLead.dbTier)
     const incomingConsultingNumber = String((normalizedLead as any).consultingNumber || '').trim()
     const explicitDateCorrection = isExplicitDateCorrectionLead(normalizedLead)
-    const correctionTarget = findCorrectionTarget(normalizedLead)
+    const correctionTarget = findCorrectionTarget(normalizedLead, explicitDateCorrection)
     if (correctionTarget && explicitDateCorrection) {
       const consultingNumber = String(incomingConsultingNumber || (correctionTarget as any).consultingNumber || '').trim()
       const needsDateCorrection = explicitDateCorrection && Boolean(normalizedLead.date && normalizedLead.date !== correctionTarget.date)

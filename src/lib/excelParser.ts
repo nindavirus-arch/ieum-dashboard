@@ -260,6 +260,23 @@ function isDateCorrectionFile(fileName = '') {
   ].some((keyword) => text.includes(keyword))
 }
 
+function isDateCorrectionFileSafe(fileName = '') {
+  const text = fileName.toLowerCase().replace(/\s+/g, '')
+  const keywords = [
+    'datecorrection',
+    'dateoverride',
+    'manualdate',
+    '\uc218\ub3d9\ubcf4\uc815',
+    '\ub0a0\uc9dc\ubcf4\uc815',
+    '\uc77c\uc790\ubcf4\uc815',
+    '\uc720\uc785\uc77c\ubcf4\uc815',
+    '\uc2e4\uc81c\uc720\uc785\uc77c',
+    'db\uc720\uc785\uc77c',
+    '\ubcf4\uc815\uc6a9',
+  ]
+  return isDateCorrectionFile(fileName) || keywords.some((keyword) => text.includes(keyword))
+}
+
 function parseDbTierLabel(value: unknown): DBTier | '' {
   const text = String(value ?? '').toLowerCase().replace(/[\s_\-\/]/g, '')
   if (!text) return ''
@@ -292,7 +309,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
         const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '', raw: false })
         const headers = rows.length ? Object.keys(rows[0]) : []
         const sourceKind = detectSourceKind(headers, file.name)
-        const dateCorrectionByFileName = isDateCorrectionFile(file.name)
+        const dateCorrectionByFileName = isDateCorrectionFileSafe(file.name)
 
         const seen = new Set<string>()
         let duplicateCount = 0, testCount = 0, invalidCount = 0
