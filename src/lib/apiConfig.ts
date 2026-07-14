@@ -1,3 +1,3 @@
-const defaultSheetApiUrl = 'https://script.google.com/macros/s/AKfycbz0CNpoNv4LLG_8L83QciTJ34_jvLiQPWg6vCNAY5cKk96S33zx7b3ug3aJC-8bX4iHSQ/exec'
+const defaultSheetApiUrl = 'https://script.google.com/macros/s/AKfycbyML9Us8E_jPTQlw0c0kcG-UoCPEfSWl_874AKliowQOrQ_HO5w7sm_b65s9gGJ6U2iRQ/exec'
 
 export const SHEET_API_URL = String(import.meta.env.VITE_SHEET_API_URL || defaultSheetApiUrl).trim()
