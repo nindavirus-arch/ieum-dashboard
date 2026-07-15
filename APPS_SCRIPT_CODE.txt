@@ -218,7 +218,14 @@ function replaceAdSpendRows(rows) {
     }
   }
 
-  const appendResult = JSON.parse(appendRowsUnique(SHEETS.adSpend, rows, 'adSpend').getContent());
+  const rowsToAppend = rows.filter(function(row) {
+    return Number(String(row.amount || row.cost || row['광고비'] || row['비용'] || 0).replace(/[^0-9]/g, '')) > 0;
+  });
+  if (rowsToAppend.length === 0) {
+    return json({ success: true, count: 0, skipped: rows.length, deleted: deleted, replaced: true });
+  }
+
+  const appendResult = JSON.parse(appendRowsUnique(SHEETS.adSpend, rowsToAppend, 'adSpend').getContent());
   appendResult.deleted = deleted;
   appendResult.replaced = true;
   return json(appendResult);
