@@ -98,9 +98,9 @@ export function isOnlineOther(lead: LeadRecord) {
 
 export function trafficGroup(lead: LeadRecord): TrafficGroup {
   if (PAID_CHANNELS.has(lead.channel)) return 'paid'
+  if (EXTERNAL_CHANNELS.has(lead.channel)) return 'external'
   if (isDirectSales(lead)) return 'external'
   if (lead.channel === 'direct' || isOnlineOther(lead)) return 'organic'
-  if (EXTERNAL_CHANNELS.has(lead.channel)) return 'external'
   return 'unclassified'
 }
 
