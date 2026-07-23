@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, startOfWeek, endOfWeek, parseISO, subDays, subWeeks, subMonths, subYears, eachDayOfInterval } from 'date-fns'
 import { Users, DollarSign, TrendingDown, CalendarDays, RefreshCw, ChevronDown } from 'lucide-react'
-import { fetchLeads, fetchAdSpend } from '../lib/dataService'
+import { fetchLeads, fetchAdSpend, fetchKpiTargets, type KpiTarget } from '../lib/dataService'
 import type { LeadRecord, AdSpend, ViewMode } from '../types'
 import TimeSeriesChart from '../components/dashboard/TimeSeriesChart'
 import ChannelBar from '../components/channels/ChannelBar'
@@ -128,6 +128,17 @@ function fmtKRW(n: number) {
   return n.toLocaleString()
 }
 
+function signedPercent(current: number, previous: number) {
+  if (previous === 0) return current > 0 ? '+100%' : '0%'
+  const value = ((current - previous) / previous) * 100
+  return `${value >= 0 ? '+' : ''}${Math.round(value)}%`
+}
+
+function signedNumber(current: number, previous: number, unit = '건') {
+  const diff = current - previous
+  return `${diff >= 0 ? '+' : ''}${diff.toLocaleString()}${unit}`
+}
+
 function safeDate(date: string) {
   try {
     const d = parseISO(date)
@@ -217,17 +228,24 @@ export default function DashboardPage() {
   const [customEnd, setCustomEnd] = useState(today)
   const [leads, setLeads] = useState<LeadRecord[]>([])
   const [spends, setSpends] = useState<AdSpend[]>([])
+  const [targets, setTargets] = useState<KpiTarget[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null)
+  const [openChannelGroups, setOpenChannelGroups] = useState<Record<string, boolean>>({ paid: true, organic: false, external: false, unclassified: true })
 
   const range = useMemo(() => rangeByMode(viewMode, selectedDate, periodPreset, customStart, customEnd), [viewMode, selectedDate, periodPreset, customStart, customEnd])
 
   async function load() {
     setLoading(true)
     try {
-      const [l, s] = await Promise.all([fetchLeads(undefined, undefined, { includeRawAttribution: true }), fetchAdSpend()])
+      const [l, s, t] = await Promise.all([
+        fetchLeads(undefined, undefined, { includeRawAttribution: true }),
+        fetchAdSpend(),
+        fetchKpiTargets().catch(() => [] as KpiTarget[]),
+      ])
       setLeads(l)
       setSpends(s)
+      setTargets(t)
     } finally {
       setLoading(false)
     }
@@ -321,8 +339,39 @@ export default function DashboardPage() {
       primaryValue: activeCount,
       compareLabel,
       compareValue: countRange(compareStart, compareEnd),
+      compareStart,
+      compareEnd,
     }
   }, [periodPreset, range.activeEnd, range.activeStart, range.cardLabel, validLeads, viewMode, yesterday])
+  const compareLeads = validLeads.filter(l => inRange(l.date, dbCard.compareStart, dbCard.compareEnd))
+  const compareSpends = spends.filter(s => inRange(s.date, dbCard.compareStart, dbCard.compareEnd))
+  const compareSpend = compareSpends.filter(s => isPaidChannel(s.channel)).reduce((a, b) => a + b.amount, 0)
+  const comparePaidValidLeads = compareLeads.filter(l => isPaidChannel(l.channel) && (l.dbTier === 'first' || l.dbTier === 'second'))
+  const compareCpl = comparePaidValidLeads.length > 0 ? Math.round(compareSpend / comparePaidValidLeads.length) : 0
+  const periodDays = eachDayOfInterval({ start: safeDate(range.activeStart), end: safeDate(range.activeEnd) }).length
+  const activeTarget = targets.find(target => target.month === range.activeEnd.slice(0, 7))
+  const minDailyTarget = activeTarget?.minDaily || 40
+  const stretchDailyTarget = Math.max(activeTarget?.stretchDaily || 60, minDailyTarget)
+  const periodMinTarget = minDailyTarget * periodDays
+  const periodStretchTarget = stretchDailyTarget * periodDays
+  const targetRate = periodMinTarget > 0 ? Math.round((totalDB / periodMinTarget) * 100) : 0
+  const targetStatus = totalDB >= periodStretchTarget ? '상향 목표 이상' : totalDB >= periodMinTarget ? '기본 목표 달성' : `기본 목표 ${Math.max(periodMinTarget - totalDB, 0).toLocaleString()}건 부족`
+  const unclassifiedCount = channelStats.find(row => row.key === 'unclassified')?.db || 0
+  const cplDiff = avgCPL - compareCpl
+  const insightItems = [
+    {
+      tone: totalDB >= periodMinTarget ? 'good' : 'warn',
+      text: `목표 진행: ${targetStatus} (${targetRate}%)`,
+    },
+    {
+      tone: cplDiff <= 0 ? 'good' : 'warn',
+      text: compareCpl > 0
+        ? `CPL: 이전 기간 대비 ${cplDiff <= 0 ? Math.abs(cplDiff).toLocaleString() + '원 개선' : cplDiff.toLocaleString() + '원 상승'}`
+        : `CPL: 이전 기간 비교 데이터 없음`,
+    },
+    ...(unclassifiedCount > 0 ? [{ tone: 'warn' as const, text: `미분류 ${unclassifiedCount.toLocaleString()}건: 매체 매핑 확인 필요` }] : []),
+  ].slice(0, 3)
+
   const dailyTotalSummary = useMemo(() => {
     const base = safeDate(selectedDate)
     const days = eachDayOfInterval({ start: startOfMonth(base), end: endOfMonth(base) })
@@ -364,12 +413,66 @@ export default function DashboardPage() {
     .slice(0, 5)
 
   const STAT_CARDS = [
-    { label: dbCard.primaryLabel, value: dbCard.primaryValue, unit: '건', icon: CalendarDays, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: dbCard.compareLabel, value: dbCard.compareValue, unit: '건', icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { label: '누적 DB', value: validLeads.length, unit: '건', icon: Users, color: 'text-teal-600', bg: 'bg-teal-50' },
-    { label: viewMode === 'daily' ? '선택일 광고비' : '선택기간 광고비', value: fmtKRW(periodSpend), unit: '원', icon: DollarSign, color: 'text-violet-600', bg: 'bg-violet-50' },
-    { label: '유효 DB CPL', value: fmtKRW(avgCPL), unit: '원', icon: TrendingDown, color: 'text-orange-600', bg: 'bg-orange-50' },
-    { label: '1→2 전환율', value: conversionRate, unit: '%', icon: TrendingDown, color: 'text-cyan-600', bg: 'bg-cyan-50' },
+    {
+      label: dbCard.primaryLabel,
+      value: dbCard.primaryValue,
+      unit: '건',
+      sub: `${dbCard.compareLabel} 대비 ${signedNumber(dbCard.primaryValue, dbCard.compareValue)} · ${signedPercent(dbCard.primaryValue, dbCard.compareValue)}`,
+      title: '연락처 중복 제거 후 선택기간의 최종 DB 수량입니다.',
+      icon: CalendarDays,
+      color: 'text-blue-600',
+      bg: 'bg-blue-50',
+    },
+    {
+      label: dbCard.compareLabel,
+      value: dbCard.compareValue,
+      unit: '건',
+      sub: `${dbCard.compareStart} ~ ${dbCard.compareEnd}`,
+      title: '선택기간과 비교하는 직전 동일 기간의 DB 수량입니다.',
+      icon: Users,
+      color: 'text-emerald-600',
+      bg: 'bg-emerald-50',
+    },
+    {
+      label: '누적 DB',
+      value: validLeads.length,
+      unit: '건',
+      sub: '전체 기간 연락처 중복 제거',
+      title: '삭제/중복/테스트 상태를 제외한 전체 누적 최종 DB입니다.',
+      icon: Users,
+      color: 'text-teal-600',
+      bg: 'bg-teal-50',
+    },
+    {
+      label: viewMode === 'daily' ? '선택일 광고비' : '선택기간 광고비',
+      value: fmtKRW(periodSpend),
+      unit: '원',
+      sub: `이전 기간 대비 ${signedNumber(Math.round(periodSpend / 10_000), Math.round(compareSpend / 10_000), '만')}`,
+      title: '선택기간에 등록된 온라인 광고 매체 광고비 합계입니다.',
+      icon: DollarSign,
+      color: 'text-violet-600',
+      bg: 'bg-violet-50',
+    },
+    {
+      label: '유효 DB CPL',
+      value: fmtKRW(avgCPL),
+      unit: '원',
+      sub: compareCpl > 0 ? `이전 CPL ${fmtKRW(compareCpl)}원` : '이전 CPL 비교 없음',
+      title: '온라인 광고비 ÷ 온라인 광고 유효 DB(최종 1차+2차)로 계산합니다.',
+      icon: TrendingDown,
+      color: 'text-orange-600',
+      bg: 'bg-orange-50',
+    },
+    {
+      label: '1→2 전환율',
+      value: conversionRate,
+      unit: '%',
+      sub: `견적 후 상담 ${convertedSecond}/${estimatePool || 0}`,
+      title: '견적만 확인한 고객 중 상담신청까지 이어진 비율입니다. 광고에서 바로 상담한 건은 별도 단계로 봅니다.',
+      icon: TrendingDown,
+      color: 'text-cyan-600',
+      bg: 'bg-cyan-50',
+    },
   ]
 
   const inputValue = viewMode === 'daily'
@@ -457,8 +560,8 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-        {STAT_CARDS.map(({ label, value, unit, icon: Icon, color, bg }) => (
-          <div key={label} className="stat-card">
+        {STAT_CARDS.map(({ label, value, unit, sub, title, icon: Icon, color, bg }) => (
+          <div key={label} className="stat-card" title={title}>
             <div className="flex items-center justify-between">
               <p className="text-xs text-slate-500 font-medium">{label}</p>
               <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center', bg)}>
@@ -469,8 +572,41 @@ export default function DashboardPage() {
               <span className="text-2xl font-bold text-slate-800">{loading ? '—' : value}</span>
               <span className="text-xs text-slate-400 pb-0.5">{unit}</span>
             </div>
+            <p className="mt-2 min-h-4 truncate text-[11px] text-slate-400">{sub}</p>
           </div>
         ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+        <div className="card p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-700">선택기간 목표 진행률</p>
+              <p className="mt-1 text-xs text-slate-400">
+                기본 {periodMinTarget.toLocaleString()}건 · 상향 {periodStretchTarget.toLocaleString()}건 · 일 목표 {minDailyTarget}~{stretchDailyTarget}건
+              </p>
+            </div>
+            <span className={clsx(
+              'w-fit rounded-md px-2.5 py-1 text-xs font-semibold',
+              totalDB >= periodStretchTarget ? 'bg-blue-50 text-blue-700' : totalDB >= periodMinTarget ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'
+            )}>{targetStatus}</span>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+            <div className={clsx('h-full rounded-full', totalDB >= periodStretchTarget ? 'bg-blue-500' : totalDB >= periodMinTarget ? 'bg-emerald-500' : 'bg-red-400')} style={{ width: `${Math.min(targetRate, 100)}%` }} />
+          </div>
+          <div className="mt-2 flex justify-between text-[10px] text-slate-400"><span>0</span><span>기본 목표 100%</span></div>
+        </div>
+        <div className="card p-4">
+          <p className="text-sm font-semibold text-slate-700">오늘 확인할 것</p>
+          <div className="mt-3 space-y-2">
+            {insightItems.map((item, index) => (
+              <div key={`${item.text}_${index}`} className={clsx(
+                'rounded-lg border px-3 py-2 text-xs leading-5',
+                item.tone === 'good' ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-red-100 bg-red-50 text-red-700'
+              )}>{item.text}</div>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -589,21 +725,27 @@ export default function DashboardPage() {
         <div className="card p-5 space-y-3 overflow-auto max-h-[760px]">
           <p className="text-sm font-semibold text-slate-700">유입채널 현황</p>
           {[
-            { key: 'paid', title: '온라인 광고', showTotal: true, rows: channelStats.filter(c => c.group === 'paid') },
+            { key: 'paid', title: '온라인 광고', rows: channelStats.filter(c => c.group === 'paid') },
             { key: 'organic', title: '온라인 직접·자연유입', rows: channelStats.filter(c => c.group === 'organic') },
-            { key: 'external', title: '외부·제휴유입', showTotal: true, rows: channelStats.filter(c => c.group === 'external') },
+            { key: 'external', title: '외부·제휴유입', rows: channelStats.filter(c => c.group === 'external') },
             { key: 'unclassified', title: '미분류', rows: channelStats.filter(c => c.group === 'unclassified') },
-          ].map(group => (
+          ].map(group => {
+            const groupTotal = group.rows.reduce((sum, row) => sum + row.db, 0)
+            const groupOpen = openChannelGroups[group.key] ?? false
+            return (
             <div key={group.key} className="space-y-2">
-              <div className="flex items-center justify-between pt-1 text-[11px] font-semibold text-slate-400">
+              <button
+                type="button"
+                onClick={() => setOpenChannelGroups(current => ({ ...current, [group.key]: !groupOpen }))}
+                className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-[11px] font-semibold text-slate-400 hover:bg-slate-50"
+              >
                 <span>{group.title}</span>
-                {group.showTotal && (
-                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-slate-600">
-                    합계 {group.rows.reduce((sum, row) => sum + row.db, 0).toLocaleString()}건
-                  </span>
-                )}
-              </div>
-              {group.rows.map(({ key, label, db, spend, color, details }) => (
+                <span className={clsx('flex items-center gap-1 rounded-md px-2 py-0.5', group.key === 'unclassified' && groupTotal > 0 ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-600')}>
+                  합계 {groupTotal.toLocaleString()}건
+                  <ChevronDown size={12} className={clsx('transition-transform', groupOpen && 'rotate-180')} />
+                </span>
+              </button>
+              {groupOpen && group.rows.map(({ key, label, db, spend, color, details }) => (
                 <div key={key} className="space-y-1">
                   <button
                     type="button"
@@ -637,7 +779,7 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
-          ))}
+          )})}
         </div>
       </div>
     </div>
