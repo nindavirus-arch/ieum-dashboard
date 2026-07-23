@@ -43,7 +43,7 @@ type Acquisition = {
   date: string
   channel: string
   subChannel: string
-  stage: 'first' | 'second'
+  stage: 'retarget' | 'first' | 'second'
 }
 
 type ConversionEvent = {
@@ -100,7 +100,7 @@ function isOnlineKpiLead(lead: LeadRecord) {
   return group === 'paid' || group === 'organic'
 }
 
-function buildOnlineKpiData(leads: LeadRecord[]) {
+function buildOnlineKpiData(leads: LeadRecord[], includeRetarget: boolean) {
   const acquisitions: Acquisition[] = []
   const conversions: ConversionEvent[] = []
 
@@ -109,14 +109,14 @@ function buildOnlineKpiData(leads: LeadRecord[]) {
     // date its current stage was received. An earlier first-stage date would
     // otherwise make today's KPI smaller when that lead converts to second.
     const acquired = journey.lead
-    if (!isOnlineKpiLead(acquired) || baseStage(acquired.dbTier) === 'retarget') return
-
     const acquisitionStage = baseStage(acquired.dbTier)
+    if (!isOnlineKpiLead(acquired) || (!includeRetarget && acquisitionStage === 'retarget')) return
+
     acquisitions.push({
       date: acquired.date,
       channel: acquired.channel,
       subChannel: detailLabel(acquired),
-      stage: acquisitionStage === 'second' ? 'second' : 'first',
+      stage: acquisitionStage,
     })
 
     const onlineValid = journey.records
@@ -194,6 +194,7 @@ export default function OnlineKpiPage() {
   const [draftMin, setDraftMin] = useState(40)
   const [draftStretch, setDraftStretch] = useState(60)
   const [saving, setSaving] = useState(false)
+  const [includeRetarget, setIncludeRetarget] = useState(false)
 
   async function load(force = false) {
     setLoading(true)
@@ -234,7 +235,7 @@ export default function OnlineKpiPage() {
       : Math.min(Number(today.slice(8, 10)), daysInMonth)
   const remainingDays = Math.max(daysInMonth - elapsedDays, 0)
 
-  const { acquisitions, conversions } = useMemo(() => buildOnlineKpiData(leads), [leads])
+  const { acquisitions, conversions } = useMemo(() => buildOnlineKpiData(leads, includeRetarget), [includeRetarget, leads])
   const monthAcquisitions = acquisitions.filter(row => row.date >= monthStart && row.date <= monthEnd)
   const monthConversions = conversions.filter(row => row.date >= monthStart && row.date <= monthEnd)
   const monthSpends = spends.filter(row => isPaidChannel(row.channel) && row.date >= monthStart && row.date <= monthEnd)
@@ -262,6 +263,7 @@ export default function OnlineKpiPage() {
       const date = `${selectedMonth}-${String(day).padStart(2, '0')}`
       const rows = monthAcquisitions.filter(row => row.date === date)
       const spend = monthSpends.filter(row => row.date === date).reduce((sum, row) => sum + row.amount, 0)
+      const retarget = rows.filter(row => row.stage === 'retarget').length
       const first = rows.filter(row => row.stage === 'first').length
       const directSecond = rows.filter(row => row.stage === 'second').length
       cumulative += rows.length
@@ -269,6 +271,7 @@ export default function OnlineKpiPage() {
         day: `${day}일`,
         dayNumber: day,
         date,
+        retarget,
         first,
         directSecond,
         db: rows.length,
@@ -303,6 +306,7 @@ export default function OnlineKpiPage() {
         channel,
         channelLabel: CHANNEL_LABELS[channel] || channel,
         subChannel,
+        retarget: dbRows.filter(row => row.stage === 'retarget').length,
         first: dbRows.filter(row => row.stage === 'first').length,
         directSecond: dbRows.filter(row => row.stage === 'second').length,
         db: dbRows.length,
@@ -383,6 +387,15 @@ export default function OnlineKpiPage() {
         <div>
           <h1 className="text-lg font-bold text-slate-800">온라인광고 KPI</h1>
           <p className="mt-0.5 text-xs text-slate-500">온라인광고와 온라인 직접·자연유입을 포함하고 외부제휴는 제외합니다.</p>
+          <label className="mt-2 inline-flex w-fit items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600">
+            <input
+              type="checkbox"
+              checked={includeRetarget}
+              onChange={event => setIncludeRetarget(event.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-blue-600"
+            />
+            리타겟 포함
+          </label>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -405,7 +418,7 @@ export default function OnlineKpiPage() {
           label="오늘 온라인 DB"
           value={todayDb}
           suffix="건"
-          sub={`광고 ${todayPaidDb} · 직접·자연 ${todayOrganicDb} · 목표 ${minDaily}~${stretchDaily}건`}
+          sub={`광고 ${todayPaidDb} · 직접·자연 ${todayOrganicDb} · 목표 ${minDaily}~${stretchDaily}건${includeRetarget ? ' · 리타겟 포함' : ''}`}
           icon={CalendarDays}
           tone="blue"
         />
@@ -442,7 +455,7 @@ export default function OnlineKpiPage() {
         <div className="card min-w-0 p-4">
           <div className="mb-3">
             <p className="text-sm font-semibold text-slate-700">일별 온라인광고 DB</p>
-            <p className="mt-0.5 text-[11px] text-slate-400">고객이 처음 유효DB가 된 날짜에 한 번만 집계합니다.</p>
+            <p className="mt-0.5 text-[11px] text-slate-400">고객이 처음 유효DB가 된 날짜에 한 번만 집계합니다.{includeRetarget ? ' 리타겟도 포함 중입니다.' : ''}</p>
           </div>
           <div className="h-[320px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -451,12 +464,13 @@ export default function OnlineKpiPage() {
                 <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#94a3b8' }} interval={daysInMonth > 20 ? 2 : 0} />
                 <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} />
                 <Tooltip formatter={(value: number, name: string) => {
-                  const labels: Record<string, string> = { first: '1차 유효DB', directSecond: '바로 상담 2차DB' }
+                  const labels: Record<string, string> = { retarget: '리타겟', first: '1차 유효DB', directSecond: '바로 상담 2차DB' }
                   return [`${value}건`, labels[name] || name]
                 }} contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
-                <Legend formatter={value => value === 'first' ? '1차 유효DB' : '바로 상담 2차DB'} wrapperStyle={{ fontSize: 11 }} />
+                <Legend formatter={value => value === 'retarget' ? '리타겟' : value === 'first' ? '1차 유효DB' : '바로 상담 2차DB'} wrapperStyle={{ fontSize: 11 }} />
                 <ReferenceLine y={minDaily} stroke="#10b981" strokeDasharray="5 4" label={{ value: `기본 ${minDaily}`, fontSize: 10, fill: '#059669' }} />
                 <ReferenceLine y={stretchDaily} stroke="#3b82f6" strokeDasharray="5 4" label={{ value: `상향 ${stretchDaily}`, fontSize: 10, fill: '#2563eb' }} />
+                {includeRetarget && <Bar dataKey="retarget" stackId="db" fill="#8b5cf6" radius={[3, 3, 0, 0]} maxBarSize={26} />}
                 <Bar dataKey="first" stackId="db" fill="#3b82f6" radius={[3, 3, 0, 0]} maxBarSize={26} />
                 <Bar dataKey="directSecond" stackId="db" fill="#10b981" radius={[3, 3, 0, 0]} maxBarSize={26} />
               </ComposedChart>
@@ -542,7 +556,7 @@ export default function OnlineKpiPage() {
       <div className="card overflow-hidden">
         <div className="border-b border-slate-100 px-4 py-3">
           <p className="text-sm font-semibold text-slate-700">온라인광고 상세매체 기여도</p>
-          <p className="mt-0.5 text-[11px] text-slate-400">온라인 직접·자연유입은 총 KPI에 포함하되, 매체 미확인으로 CPL에서는 제외합니다. 외부제휴는 포함하지 않습니다.</p>
+          <p className="mt-0.5 text-[11px] text-slate-400">온라인 직접·자연유입은 총 KPI에 포함하되, 매체 미확인으로 CPL에서는 제외합니다. 외부제휴는 포함하지 않습니다.{includeRetarget ? ' 리타겟 포함 기준입니다.' : ' 리타겟 제외 기준입니다.'}</p>
         </div>
         <div className="divide-y divide-slate-50 md:hidden">
           {detailStats.map(row => (
@@ -551,7 +565,8 @@ export default function OnlineKpiPage() {
                 <div><p className="text-[10px] text-slate-400">{row.channelLabel}</p><p className="font-semibold text-slate-700">{row.subChannel}</p></div>
                 <div className="text-right"><p className="text-lg font-bold text-slate-800">{row.db}<span className="ml-1 text-xs text-slate-400">건</span></p><p className="text-[10px] text-slate-400">기여율 {percent(row.share)}</p></div>
               </div>
-              <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs">
+              <div className="mt-3 grid grid-cols-5 gap-2 text-center text-xs">
+                <div><p className="text-[10px] text-slate-400">리타겟</p><p className="font-semibold text-violet-700">{row.retarget}</p></div>
                 <div><p className="text-[10px] text-slate-400">1차</p><p className="font-semibold text-blue-700">{row.first}</p></div>
                 <div><p className="text-[10px] text-slate-400">바로상담</p><p className="font-semibold text-emerald-700">{row.directSecond}</p></div>
                 <div><p className="text-[10px] text-slate-400">광고비</p><p className="font-semibold text-slate-700">{fmtMoney(row.spend)}</p></div>
@@ -565,7 +580,7 @@ export default function OnlineKpiPage() {
           <table className="w-full min-w-[980px] text-sm">
             <thead><tr className="bg-slate-50 text-xs text-slate-500">
               <th className="px-4 py-3 text-left">매체</th><th className="px-4 py-3 text-left">상세매체</th>
-              <th className="px-4 py-3 text-right">1차 유효DB</th><th className="px-4 py-3 text-right">바로 상담 2차</th>
+              <th className="px-4 py-3 text-right">리타겟</th><th className="px-4 py-3 text-right">1차 유효DB</th><th className="px-4 py-3 text-right">바로 상담 2차</th>
               <th className="px-4 py-3 text-right">신규 DB 합계</th><th className="px-4 py-3 text-right">상담 전환</th>
               <th className="px-4 py-3 text-right">기여율</th><th className="px-4 py-3 text-right">광고비</th><th className="px-4 py-3 text-right">CPL</th>
             </tr></thead>
@@ -573,6 +588,7 @@ export default function OnlineKpiPage() {
               {detailStats.map(row => <tr key={row.key} className="hover:bg-slate-50/60">
                 <td className="px-4 py-3 font-medium text-slate-700">{row.channelLabel}</td>
                 <td className="px-4 py-3 text-slate-600">{row.subChannel}</td>
+                <td className="px-4 py-3 text-right font-semibold text-violet-700">{row.retarget}</td>
                 <td className="px-4 py-3 text-right font-semibold text-blue-700">{row.first}</td>
                 <td className="px-4 py-3 text-right font-semibold text-emerald-700">{row.directSecond}</td>
                 <td className="px-4 py-3 text-right font-bold text-slate-800">{row.db}</td>
@@ -581,7 +597,7 @@ export default function OnlineKpiPage() {
                 <td className="px-4 py-3 text-right font-medium text-slate-700">{fmtMoney(row.spend)}</td>
                 <td className="px-4 py-3 text-right font-semibold text-slate-800">{row.attributed && row.db > 0 ? fmtMoney(row.cpl) : '-'}</td>
               </tr>)}
-              {!detailStats.length && <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-400">선택한 달의 온라인광고 데이터가 없습니다.</td></tr>}
+              {!detailStats.length && <tr><td colSpan={10} className="px-4 py-10 text-center text-slate-400">선택한 달의 온라인광고 데이터가 없습니다.</td></tr>}
             </tbody>
           </table>
         </div>

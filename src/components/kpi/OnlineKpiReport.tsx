@@ -12,7 +12,7 @@ type Acquisition = {
   date: string
   channel: string
   subChannel: string
-  stage: 'first' | 'second'
+  stage: 'retarget' | 'first' | 'second'
 }
 
 type ConversionEvent = {
