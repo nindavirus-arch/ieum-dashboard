@@ -273,9 +273,56 @@ export default function DashboardPage() {
   const estimatePool = firstOnly + convertedSecond
   const conversionRate = estimatePool > 0 ? Math.round((convertedSecond / estimatePool) * 100) : 0
 
-  const todayDB = validLeads.filter(l => l.date === today).length
   const yesterday = format(subDays(safeDate(today), 1), 'yyyy-MM-dd')
-  const yesterdayDB = validLeads.filter(l => l.date === yesterday).length
+  const dbCard = useMemo(() => {
+    const countRange = (start: string, end: string) => validLeads.filter(l => inRange(l.date, start, end)).length
+    const activeCount = countRange(range.activeStart, range.activeEnd)
+    let primaryLabel = range.cardLabel
+    let compareStart = range.activeStart
+    let compareEnd = range.activeEnd
+    let compareLabel = '이전 기간 DB'
+
+    if (viewMode === 'daily') {
+      const previousDay = format(subDays(safeDate(range.activeStart), 1), 'yyyy-MM-dd')
+      compareStart = previousDay
+      compareEnd = previousDay
+      primaryLabel = range.activeStart === today ? '오늘 DB' : range.activeStart === yesterday ? '어제 DB' : '선택일 DB'
+      compareLabel = range.activeStart === today ? '어제 DB' : '전일 DB'
+    } else if (viewMode === 'weekly') {
+      const activeStart = safeDate(range.activeStart)
+      const activeDays = eachDayOfInterval({ start: activeStart, end: safeDate(range.activeEnd) }).length
+      compareEnd = format(subDays(activeStart, 1), 'yyyy-MM-dd')
+      compareStart = format(subDays(activeStart, activeDays), 'yyyy-MM-dd')
+      primaryLabel = periodPreset === 'current' ? '이번주 DB' : periodPreset === 'previous' ? '저번주 DB' : periodPreset === 'selected' ? '선택 7일 DB' : '최근 7일 DB'
+      compareLabel = periodPreset === 'previous' ? '전전주 DB' : '저번주 DB'
+    } else if (viewMode === 'monthly') {
+      const prevMonth = subMonths(safeDate(range.activeStart), 1)
+      compareStart = format(startOfMonth(prevMonth), 'yyyy-MM-dd')
+      compareEnd = format(endOfMonth(prevMonth), 'yyyy-MM-dd')
+      primaryLabel = periodPreset === 'previous' ? '저번달 DB' : periodPreset === 'selected' ? '선택월 DB' : '이번달 DB'
+      compareLabel = periodPreset === 'previous' ? '전전월 DB' : '저번달 DB'
+    } else if (viewMode === 'yearly') {
+      const prevYear = subYears(safeDate(range.activeStart), 1)
+      compareStart = format(startOfYear(prevYear), 'yyyy-MM-dd')
+      compareEnd = format(endOfYear(prevYear), 'yyyy-MM-dd')
+      primaryLabel = periodPreset === 'previous' ? '전년도 DB' : periodPreset === 'selected' ? '선택년도 DB' : '이번년도 DB'
+      compareLabel = periodPreset === 'previous' ? '전전년도 DB' : '전년도 DB'
+    } else {
+      const activeStart = safeDate(range.activeStart)
+      const activeDays = eachDayOfInterval({ start: activeStart, end: safeDate(range.activeEnd) }).length
+      compareEnd = format(subDays(activeStart, 1), 'yyyy-MM-dd')
+      compareStart = format(subDays(activeStart, activeDays), 'yyyy-MM-dd')
+      primaryLabel = '선택기간 DB'
+      compareLabel = '이전 동일기간 DB'
+    }
+
+    return {
+      primaryLabel,
+      primaryValue: activeCount,
+      compareLabel,
+      compareValue: countRange(compareStart, compareEnd),
+    }
+  }, [periodPreset, range.activeEnd, range.activeStart, range.cardLabel, validLeads, viewMode, yesterday])
   const dailyTotalSummary = useMemo(() => {
     const base = safeDate(selectedDate)
     const days = eachDayOfInterval({ start: startOfMonth(base), end: endOfMonth(base) })
@@ -317,10 +364,10 @@ export default function DashboardPage() {
     .slice(0, 5)
 
   const STAT_CARDS = [
-    { label: '오늘 DB', value: todayDB, unit: '건', icon: CalendarDays, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: '어제 DB', value: yesterdayDB, unit: '건', icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { label: dbCard.primaryLabel, value: dbCard.primaryValue, unit: '건', icon: CalendarDays, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: dbCard.compareLabel, value: dbCard.compareValue, unit: '건', icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
     { label: '누적 DB', value: validLeads.length, unit: '건', icon: Users, color: 'text-teal-600', bg: 'bg-teal-50' },
-    { label: '선택일 광고비', value: fmtKRW(periodSpend), unit: '원', icon: DollarSign, color: 'text-violet-600', bg: 'bg-violet-50' },
+    { label: viewMode === 'daily' ? '선택일 광고비' : '선택기간 광고비', value: fmtKRW(periodSpend), unit: '원', icon: DollarSign, color: 'text-violet-600', bg: 'bg-violet-50' },
     { label: '유효 DB CPL', value: fmtKRW(avgCPL), unit: '원', icon: TrendingDown, color: 'text-orange-600', bg: 'bg-orange-50' },
     { label: '1→2 전환율', value: conversionRate, unit: '%', icon: TrendingDown, color: 'text-cyan-600', bg: 'bg-cyan-50' },
   ]

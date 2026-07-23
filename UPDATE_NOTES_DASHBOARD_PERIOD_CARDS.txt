@@ -1,0 +1,11 @@
+2026-07-23 dashboard period cards update
+
+- Main dashboard top DB cards now follow the selected view mode.
+- Daily: shows today/previous day style DB counts.
+- Weekly: shows recent 7 days/this week/last week DB counts and the matching previous period count.
+- Monthly: shows current month/last month/selected month DB counts and previous month comparison.
+- Yearly: shows current year/previous year/selected year DB counts and previous year comparison.
+- Custom period: shows selected period DB count and the previous same-length period comparison.
+- Ad spend card label now changes from selected-day ad spend to selected-period ad spend outside daily mode.
+
+Build checked with npm.cmd run build.
