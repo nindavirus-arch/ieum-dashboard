@@ -59,8 +59,8 @@ function doPost(e) {
     if (type === 'adSpendReplace') return replaceAdSpendRows(rows);
     if (type === 'updateAdSpend') return updateAdSpendRow(body);
     if (type === 'deleteAdSpend') return deleteAdSpendRow(body);
-    if (type === 'firstRaw') return appendRowsUnique(SHEETS.firstRaw, rows, 'firstRaw');
-    if (type === 'secondRaw') return appendRowsUnique(SHEETS.secondRaw, rows, 'secondRaw');
+    if (type === 'firstRaw') return upsertRowsUnique(SHEETS.firstRaw, rows, 'firstRaw');
+    if (type === 'secondRaw') return upsertRowsUnique(SHEETS.secondRaw, rows, 'secondRaw');
     if (type === 'projects') return upsertRowsUnique(SHEETS.projects, rows, 'projects');
     if (type === 'leadCorrections') return updateLeadCorrections(body);
     if (type === 'updateLead') return updateLeadRow(body);
