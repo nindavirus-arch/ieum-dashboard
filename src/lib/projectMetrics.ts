@@ -3,6 +3,7 @@ import type { Channel, LeadRecord, ProjectRecord } from '../types'
 export interface AttributedProject extends ProjectRecord {
   attributedChannel: Channel
   attributedSubChannel: string
+  attributedSalesOwner: string
   attributionSource: 'project' | 'consultingNumber' | 'phone' | 'unknown'
 }
 
@@ -39,6 +40,7 @@ export function buildProjectAttribution(projects: ProjectRecord[], leads: LeadRe
       ...project,
       attributedChannel: project.channel || matchedLead?.channel || 'etc',
       attributedSubChannel: project.subChannel || matchedLead?.subChannel || project.sourceRaw || '미확인',
+      attributedSalesOwner: project.salesOwner || matchedLead?.salesOwner || '',
       attributionSource,
     }
   })

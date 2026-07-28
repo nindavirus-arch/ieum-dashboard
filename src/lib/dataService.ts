@@ -265,7 +265,8 @@ function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRe
     registeredAt: String(row.registeredAt ?? row['등록일시'] ?? row['등록 일시'] ?? row.접수일시 ?? row.uploadedAt ?? uploadedAt),
     consultationResult: String(row.consultationResult ?? row['상담결과'] ?? row['상담 결과'] ?? ''),
     memo: String(row.memo ?? row['메모'] ?? row['특이사항'] ?? row['메모(특이사항)'] ?? ''),
-    operator: String(row.operator ?? row['접수자'] ?? row['작업자'] ?? row['처리자'] ?? row['상담원'] ?? row['상담담당자'] ?? row['상담 담당자'] ?? row['담당자'] ?? row['등록자'] ?? row['영업담당자'] ?? row['영업 담당자'] ?? row.registrant ?? row.manager ?? row.owner ?? ''),
+    operator: String(row.operator ?? row['접수자'] ?? row['작업자'] ?? row['처리자'] ?? row['상담원'] ?? row['상담담당자'] ?? row['상담 담당자'] ?? row['등록자'] ?? row.registrant ?? ''),
+    salesOwner: String(row.salesOwner ?? row['영업담당자'] ?? row['영업 담당자'] ?? row['영업 담당'] ?? row['배정담당자'] ?? row['배정 담당자'] ?? row['배정'] ?? row['담당자'] ?? row.manager ?? row.owner ?? ''),
     status: String(row.status ?? row.상태 ?? 'valid') as any,
     sourceKind: String(row.sourceKind ?? row.source_kind ?? '') as SourceKind,
     uploadedAt,
@@ -463,10 +464,11 @@ function dashboardRowsFromLeads(leads: LeadRecord[]) {
     pyeong: r.pyeong || '',
     source_file: r.sourceKind === 'second_raw' ? 'second_db' : 'first_db',
     registeredAt: (r as any).registeredAt || r.uploadedAt || r.date,
-    consultationResult: (r as any).consultationResult || '',
-    memo: (r as any).memo || '',
-    operator: (r as any).operator || '',
-    status: r.status || 'valid',
+      consultationResult: (r as any).consultationResult || '',
+      memo: (r as any).memo || '',
+      operator: (r as any).operator || '',
+      salesOwner: (r as any).salesOwner || '',
+      status: r.status || 'valid',
     uploadedAt: r.uploadedAt,
   }))
 }
@@ -772,10 +774,22 @@ function pickOperatorFromRaw(row: any): string {
     row['상담원'] ??
     row['상담담당자'] ??
     row['상담 담당자'] ??
-    row['담당자'] ??
     row['등록자'] ??
+    row.registrant ??
+    ''
+  ).trim()
+}
+
+function pickSalesOwnerFromRaw(row: any): string {
+  return String(
+    row.salesOwner ??
     row['영업담당자'] ??
     row['영업 담당자'] ??
+    row['영업 담당'] ??
+    row['배정담당자'] ??
+    row['배정 담당자'] ??
+    row['배정'] ??
+    row['담당자'] ??
     row.manager ??
     row.owner ??
     ''
@@ -783,7 +797,7 @@ function pickOperatorFromRaw(row: any): string {
 }
 
 function buildRawMetaLookup(firstRawRows: any[], secondRawRows: any[]) {
-  const lookup = new Map<string, { registeredAt?: string; operator?: string; consultationResult?: string; memo?: string }>()
+  const lookup = new Map<string, { registeredAt?: string; operator?: string; salesOwner?: string; consultationResult?: string; memo?: string }>()
 
   const add = (row: any) => {
     const phone = normalizePhone(row._parsed_phone ?? row.phone ?? row.연락처 ?? row.휴대폰번호 ?? row['휴대폰 번호'] ?? '')
@@ -792,6 +806,7 @@ function buildRawMetaLookup(firstRawRows: any[], secondRawRows: any[]) {
     const meta = {
       registeredAt: pickRegisteredAtFromRaw(row),
       operator: pickOperatorFromRaw(row),
+      salesOwner: pickSalesOwnerFromRaw(row),
       consultationResult: String(row.consultationResult ?? row['상담결과'] ?? row['상담 결과'] ?? row['상담상태'] ?? row['상담 상태'] ?? row['결과'] ?? '').trim(),
       memo: String(row.memo ?? row['메모'] ?? row['특이사항'] ?? row['메모(특이사항)'] ?? row['비고'] ?? row['상담메모'] ?? '').trim(),
     }
@@ -805,13 +820,14 @@ function buildRawMetaLookup(firstRawRows: any[], secondRawRows: any[]) {
   return lookup
 }
 
-function enrichMetaFromRaw(lead: LeadRecord, lookup: Map<string, { registeredAt?: string; operator?: string; consultationResult?: string; memo?: string }>): LeadRecord {
+function enrichMetaFromRaw(lead: LeadRecord, lookup: Map<string, { registeredAt?: string; operator?: string; salesOwner?: string; consultationResult?: string; memo?: string }>): LeadRecord {
   const meta = lookup.get(`${lead.phone}_${lead.date}`) || lookup.get(lead.phone) || {}
   const isManual = String((lead as any).source_file || '').toLowerCase() === 'manual'
   return {
     ...lead,
     registeredAt: cleanRegisteredAtValue((lead as any).registeredAt, isManual) || meta.registeredAt || lead.date,
     operator: (lead as any).operator || meta.operator || '',
+    salesOwner: (lead as any).salesOwner || meta.salesOwner || '',
     consultationResult: (lead as any).consultationResult || meta.consultationResult || '',
     memo: (lead as any).memo || meta.memo || '',
   } as LeadRecord
@@ -1167,6 +1183,7 @@ function mergeDashboardEdits(rawLeads: LeadRecord[], dashboardLeads: LeadRecord[
     status: (edited as any).status || (lead as any).status || 'valid',
       // 작업자는 원본 접수자 기준이 우선. 단, 수기/수정으로 직접 입력된 경우만 유지 가능
       operator: (lead as any).operator || (edited as any).operator || '',
+      salesOwner: (lead as any).salesOwner || (edited as any).salesOwner || '',
       changeHistory: (edited as any).changeHistory || (lead as any).changeHistory || '',
     } as LeadRecord
   })

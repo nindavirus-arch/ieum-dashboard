@@ -31,6 +31,10 @@ function cleanOwner(value?: string) {
   return owner
 }
 
+function leadSalesOwner(lead: LeadRecord) {
+  return cleanOwner((lead as any).salesOwner)
+}
+
 export default function SalesPerformancePage() {
   const [leads, setLeads] = useState<LeadRecord[]>([])
   const [projects, setProjects] = useState<ProjectRecord[]>([])
@@ -86,14 +90,14 @@ export default function SalesPerformancePage() {
     }>()
 
     assignedLeads.forEach(lead => {
-      const owner = cleanOwner(lead.operator)
+      const owner = leadSalesOwner(lead)
       const row = map.get(owner) || { owner, assigned: 0, contracts: 0, contractAmount: 0, avgContract: 0, contractRate: 0, commission: 0 }
       row.assigned += 1
       map.set(owner, row)
     })
 
     contracts.forEach(project => {
-      const owner = cleanOwner(project.salesOwner)
+      const owner = cleanOwner(project.attributedSalesOwner || project.salesOwner)
       const row = map.get(owner) || { owner, assigned: 0, contracts: 0, contractAmount: 0, avgContract: 0, contractRate: 0, commission: 0 }
       row.contracts += 1
       row.contractAmount += project.contractAmount
@@ -112,7 +116,7 @@ export default function SalesPerformancePage() {
     const months = Array.from(new Set(contracts.map(project => project.contractDate.slice(0, 7)))).sort()
     return months.flatMap(month => {
       const rows = ownerStats.map(owner => {
-        const ownerContracts = contracts.filter(project => project.contractDate.slice(0, 7) === month && cleanOwner(project.salesOwner) === owner.owner)
+        const ownerContracts = contracts.filter(project => project.contractDate.slice(0, 7) === month && cleanOwner(project.attributedSalesOwner || project.salesOwner) === owner.owner)
         return {
           month,
           owner: owner.owner,
@@ -229,7 +233,7 @@ export default function SalesPerformancePage() {
                   <tr key={`${project.contractDate}_${project.phone}_${project.projectNumber}`} className="hover:bg-slate-50">
                     <td className="px-3 py-2 text-slate-600">{project.contractDate}</td>
                     <td className="px-3 py-2 font-medium text-slate-700">{project.customerName || '-'}</td>
-                    <td className="px-3 py-2 text-slate-600">{cleanOwner(project.salesOwner)}</td>
+                    <td className="px-3 py-2 text-slate-600">{cleanOwner(project.attributedSalesOwner || project.salesOwner)}</td>
                     <td className="px-3 py-2 text-slate-600">{project.attributedSubChannel || '-'}</td>
                     <td className="px-3 py-2 text-right font-semibold text-slate-800">{fmtKRW(project.contractAmount)}원</td>
                   </tr>

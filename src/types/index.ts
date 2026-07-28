@@ -45,6 +45,7 @@ export interface LeadRecord {
   consultationResult?: string
   memo?: string
   operator?: string
+  salesOwner?: string
   changeHistory?: string
   updatedAt?: string
 }
