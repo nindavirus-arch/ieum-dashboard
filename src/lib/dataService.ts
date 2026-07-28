@@ -814,9 +814,10 @@ function buildRawMetaLookup(firstRawRows: any[], secondRawRows: any[]) {
 
   const add = (row: any) => {
     const phone = normalizePhone(row._parsed_phone ?? row.phone ?? pickCell(row, ['연락처', '전화번호', '휴대폰', '휴대폰번호', '휴대폰 번호', '고객 연락처']) ?? '')
+    const consultingNumber = String(row.consultingNumber ?? pickCell(row, ['컨설팅번호', '컨설팅 번호', '상담번호', '상담 번호', 'consulting_number']) ?? '').trim()
     const rawDate = row._parsed_date ?? row.date ?? pickCell(row, ['날짜', '등록일', '등록일시', '등록 일시', '접수일시', '신청일시'])
     const date = String(rawDate ?? '').trim() ? normalizeDate(rawDate, new Date()) : ''
-    if (!phone) return
+    if (!phone && !consultingNumber) return
     const meta = {
       registeredAt: pickRegisteredAtFromRaw(row),
       operator: pickOperatorFromRaw(row),
@@ -825,8 +826,10 @@ function buildRawMetaLookup(firstRawRows: any[], secondRawRows: any[]) {
       memo: String(row.memo ?? row['메모'] ?? row['특이사항'] ?? row['메모(특이사항)'] ?? row['비고'] ?? row['상담메모'] ?? '').trim(),
     }
     const byDateKey = date ? `${phone}_${date}` : ''
-    if (byDateKey) lookup.set(byDateKey, { ...(lookup.get(byDateKey) || {}), ...Object.fromEntries(Object.entries(meta).filter(([,v]) => Boolean(v))) })
-    lookup.set(phone, { ...(lookup.get(phone) || {}), ...Object.fromEntries(Object.entries(meta).filter(([,v]) => Boolean(v))) })
+    const compactMeta = Object.fromEntries(Object.entries(meta).filter(([,v]) => Boolean(v)))
+    if (byDateKey) lookup.set(byDateKey, { ...(lookup.get(byDateKey) || {}), ...compactMeta })
+    if (phone) lookup.set(phone, { ...(lookup.get(phone) || {}), ...compactMeta })
+    if (consultingNumber) lookup.set(`consulting:${consultingNumber}`, { ...(lookup.get(`consulting:${consultingNumber}`) || {}), ...compactMeta })
   }
 
   firstRawRows.forEach(add)
@@ -835,13 +838,14 @@ function buildRawMetaLookup(firstRawRows: any[], secondRawRows: any[]) {
 }
 
 function enrichMetaFromRaw(lead: LeadRecord, lookup: Map<string, { registeredAt?: string; operator?: string; salesOwner?: string; consultationResult?: string; memo?: string }>): LeadRecord {
-  const meta = lookup.get(`${lead.phone}_${lead.date}`) || lookup.get(lead.phone) || {}
+  const consultingNumber = String((lead as any).consultingNumber || '').trim()
+  const meta = (consultingNumber ? lookup.get(`consulting:${consultingNumber}`) : undefined) || lookup.get(`${lead.phone}_${lead.date}`) || lookup.get(lead.phone) || {}
   const isManual = String((lead as any).source_file || '').toLowerCase() === 'manual'
   return {
     ...lead,
     registeredAt: cleanRegisteredAtValue((lead as any).registeredAt, isManual) || meta.registeredAt || lead.date,
     operator: (lead as any).operator || meta.operator || '',
-    salesOwner: (lead as any).salesOwner || meta.salesOwner || '',
+    salesOwner: meta.salesOwner || (lead as any).salesOwner || '',
     consultationResult: (lead as any).consultationResult || meta.consultationResult || '',
     memo: (lead as any).memo || meta.memo || '',
   } as LeadRecord

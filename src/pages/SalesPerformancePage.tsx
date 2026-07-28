@@ -59,7 +59,7 @@ export default function SalesPerformancePage() {
     setNotice('')
     try {
       const [leadRows, projectRows] = await Promise.all([
-        fetchLeads(undefined, undefined, { includeRawAttribution: true }),
+        fetchLeads(undefined, undefined, { includeRawMeta: true }),
         fetchProjects().catch(() => []),
       ])
       setLeads(leadRows)
