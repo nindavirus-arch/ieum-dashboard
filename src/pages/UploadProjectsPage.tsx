@@ -105,20 +105,29 @@ export default function UploadProjectsPage() {
             ))}
           </div>
 
+          {(result.missingDateCount > 0 || result.missingKeyCount > 0) && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              저장 제외 사유:
+              {result.missingDateCount > 0 && <span className="ml-2 font-semibold">생성일시/등록일시 누락 {result.missingDateCount.toLocaleString()}건</span>}
+              {result.missingKeyCount > 0 && <span className="ml-2 font-semibold">연락처/컨설팅번호 누락 {result.missingKeyCount.toLocaleString()}건</span>}
+              <p className="mt-1 text-xs text-amber-700">상태별 건수와 표 미리보기는 분석된 전체 행 기준이고, 저장은 프로젝트 생성일시와 식별값이 있는 행만 진행됩니다.</p>
+            </div>
+          )}
+
           <div className="card overflow-hidden">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <p className="text-xs font-semibold text-slate-600">미리보기 상위 12건</p>
-              <span className="text-xs text-slate-400">계약금액 합계 {fmtKRW(result.valid.filter(row => row.status === 'contracted').reduce((sum, row) => sum + row.contractAmount, 0))}</span>
+              <span className="text-xs text-slate-400">계약금액 합계 {fmtKRW(result.preview.filter(row => row.status === 'contracted').reduce((sum, row) => sum + row.contractAmount, 0))}</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[980px] text-xs">
                 <thead>
                   <tr className="bg-slate-50 text-slate-500">
-                    {['계약일', '상태', '고객명', '연락처', '컨설팅번호', '유입경로', '영업담당자', '계약금액'].map(header => <th key={header} className="px-3 py-2 text-left font-medium">{header}</th>)}
+                    {['계약기준일(생성일시)', '상태', '고객명', '연락처', '컨설팅번호', '유입경로', '영업담당자', '계약금액'].map(header => <th key={header} className="px-3 py-2 text-left font-medium">{header}</th>)}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {result.valid.slice(0, 12).map((row, index) => (
+                  {result.preview.slice(0, 12).map((row, index) => (
                     <tr key={`${row.phone}_${row.contractDate}_${index}`} className="hover:bg-slate-50">
                       <td className="px-3 py-2 text-slate-600">{row.contractDate}</td>
                       <td className="px-3 py-2">

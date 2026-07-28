@@ -4,12 +4,15 @@ import { inferSubChannel, normalizeChannel, normalizeDate, normalizePhone } from
 
 export interface ParsedProjectResult {
   valid: Omit<ProjectRecord, 'id' | 'uploadedAt'>[]
+  preview: Omit<ProjectRecord, 'id' | 'uploadedAt'>[]
   totalCount: number
   contractedCount: number
   pendingCount: number
   canceledCount: number
   testCount: number
   invalidCount: number
+  missingDateCount: number
+  missingKeyCount: number
 }
 
 function normalizeKey(value: string) {
@@ -61,14 +64,14 @@ function projectStatus(row: Record<string, unknown>, amount: number): ProjectSta
   return 'pending'
 }
 
-function normalizeProjectRow(row: Record<string, unknown>, fallbackDate: Date): Omit<ProjectRecord, 'id' | 'uploadedAt'> | null {
+function normalizeProjectRow(row: Record<string, unknown>, fallbackDate: Date): (Omit<ProjectRecord, 'id' | 'uploadedAt'> & { _missingDate?: boolean; _missingKey?: boolean }) | null {
   const customerName = String(getCell(row, ['고객명', '고객 이름', '이름', '성명', 'name', 'customerName']) || '').trim()
   const phone = normalizePhone(getCell(row, ['연락처', '전화번호', '휴대폰', '휴대폰번호', '휴대폰 번호', 'phone']))
   const consultingNumber = String(getCell(row, ['컨설팅번호', '컨설팅 번호', '상담번호', 'consultingNumber']) || '').trim()
   const projectNumber = String(getCell(row, ['프로젝트번호', '프로젝트 번호', '계약번호', '공사번호', 'projectNumber']) || '').trim()
   const rawContractDate = getCell(row, [
+    '생성일시', '생성 일시', '생성일', '생성 일자', '생성날짜',
     '등록일시', '등록 일시', '등록일', '등록 일자', '등록날짜',
-    '계약일', '계약일자', '계약 날짜', '계약금입금일', '입금일',
     'contractDate'
   ])
   const contractDate = String(rawContractDate || '').trim() ? normalizeDate(rawContractDate, fallbackDate) : ''
@@ -84,8 +87,8 @@ function normalizeProjectRow(row: Record<string, unknown>, fallbackDate: Date): 
   const subChannel = channel ? (subRaw || inferSubChannel({ channel, sourceRaw })) : subRaw
 
   if (!customerName && !phone && !consultingNumber && !projectNumber) return null
-  if (!phone && !consultingNumber && !projectNumber) return null
-  if (!contractDate) return null
+  const missingKey = !phone && !consultingNumber && !projectNumber
+  const missingDate = !contractDate
 
   const inferredRegion = splitRegion(address)
   return {
@@ -106,6 +109,8 @@ function normalizeProjectRow(row: Record<string, unknown>, fallbackDate: Date): 
     sourceRaw,
     matchKey: consultingNumber || phone || projectNumber,
     rawData: row,
+    _missingDate: missingDate,
+    _missingKey: missingKey,
   }
 }
 
@@ -121,18 +126,26 @@ export function parseProjectsExcel(file: File): Promise<ParsedProjectResult> {
           return XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '', raw: false })
         })
         const fallbackDate = new Date()
-        const normalized = rows
+        const parsed = rows
           .map(row => normalizeProjectRow(row, fallbackDate))
-          .filter(Boolean) as Omit<ProjectRecord, 'id' | 'uploadedAt'>[]
+          .filter(Boolean) as (Omit<ProjectRecord, 'id' | 'uploadedAt'> & { _missingDate?: boolean; _missingKey?: boolean })[]
+        const normalized = parsed
+          .filter(row => !row._missingDate && !row._missingKey)
+          .map(({ _missingDate, _missingKey, ...row }) => row)
+        const preview = parsed
+          .map(({ _missingDate, _missingKey, ...row }) => row)
 
         resolve({
           valid: normalized,
+          preview,
           totalCount: rows.length,
-          contractedCount: normalized.filter(row => row.status === 'contracted').length,
-          pendingCount: normalized.filter(row => row.status === 'pending').length,
-          canceledCount: normalized.filter(row => row.status === 'canceled').length,
-          testCount: normalized.filter(row => row.status === 'test').length,
+          contractedCount: preview.filter(row => row.status === 'contracted').length,
+          pendingCount: preview.filter(row => row.status === 'pending').length,
+          canceledCount: preview.filter(row => row.status === 'canceled').length,
+          testCount: preview.filter(row => row.status === 'test').length,
           invalidCount: rows.length - normalized.length,
+          missingDateCount: parsed.filter(row => row._missingDate).length,
+          missingKeyCount: parsed.filter(row => row._missingKey).length,
         })
       } catch (error) {
         reject(error)

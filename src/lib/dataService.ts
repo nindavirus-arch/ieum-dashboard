@@ -305,7 +305,7 @@ function normalizeProject(row: any, index = 0, mappings: MappingRow[] = []): Pro
   const status = normalizeProjectStatus(row.status ?? rawStatus, contractAmount)
   const rawChannel = row.channel ?? pickCell(row, ['매체', '유입경로', '유입경로 원본', '광고매체']) ?? row.sourceRaw ?? ''
   const rawSubChannel = String(row.subChannel ?? pickCell(row, ['상세매체', '상세 매체', '유입상세', '캠페인']) ?? '')
-  const rawContractDate = row.contractDate ?? pickCell(row, ['등록일시', '등록 일시', '등록일', '등록 일자', '등록날짜', '계약일', '계약일자', '계약 날짜', '계약금입금일', '입금일'])
+  const rawContractDate = row.contractDate ?? pickCell(row, ['생성일시', '생성 일시', '생성일', '생성 일자', '생성날짜', '등록일시', '등록 일시', '등록일', '등록 일자', '등록날짜'])
   const baseChannel = rawChannel ? normalizeChannel(rawChannel) : undefined
   const mapped = baseChannel
     ? applyChannelMapping({ channel: baseChannel, subChannel: rawSubChannel, utm_source: rawChannel, utm_campaign: rawSubChannel }, mappings)

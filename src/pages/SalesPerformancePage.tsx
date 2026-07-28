@@ -59,17 +59,11 @@ export default function SalesPerformancePage() {
     setNotice('')
     try {
       const [leadRows, projectRows] = await Promise.all([
-        fetchLeads(),
+        fetchLeads(undefined, undefined, { includeRawAttribution: true }),
         fetchProjects().catch(() => []),
       ])
       setLeads(leadRows)
       setProjects(projectRows)
-      fetchLeads(undefined, undefined, { includeRawAttribution: true })
-        .then(enrichedRows => {
-          const hasSalesOwners = enrichedRows.some(lead => String((lead as any).salesOwner || '').trim())
-          if (hasSalesOwners) setLeads(enrichedRows)
-        })
-        .catch(() => undefined)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '영업관리 데이터를 불러오지 못했습니다.')
     } finally {
@@ -276,7 +270,7 @@ export default function SalesPerformancePage() {
             <table className="w-full min-w-[760px] text-xs">
               <thead className="sticky top-0 bg-slate-50 text-slate-500">
                 <tr>
-                  {['계약일', '고객명', '영업담당자', '매체', '계약금액'].map(header => <th key={header} className="px-3 py-2 text-left font-medium">{header}</th>)}
+                  {['계약기준일(생성일시)', '고객명', '영업담당자', '매체', '계약금액'].map(header => <th key={header} className="px-3 py-2 text-left font-medium">{header}</th>)}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
