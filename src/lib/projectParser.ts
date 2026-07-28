@@ -32,6 +32,18 @@ function parseAmount(value: unknown) {
   return Number(String(value ?? '').replace(/[^0-9]/g, '')) || 0
 }
 
+function projectAmount(row: Record<string, unknown>) {
+  const total = parseAmount(getCell(row, [
+    '총계약금액', '총 계약금액', '총 계약 금액', '계약금액', '계약 금액', '계약총액',
+    '계약금+잔금액', '계약금 + 잔금액', '계약금잔금액', '총금액', '공사금액', '총 공사금액',
+    '견적금액', 'amount', 'contractAmount'
+  ]))
+  if (total > 0) return total
+  const downPayment = parseAmount(getCell(row, ['계약금', '계약 금', '선금', 'deposit']))
+  const balance = parseAmount(getCell(row, ['잔금액', '잔금', 'balance']))
+  return downPayment + balance
+}
+
 function splitRegion(address: string) {
   const parts = String(address || '').trim().split(/\s+/).filter(Boolean)
   return {
@@ -54,11 +66,16 @@ function normalizeProjectRow(row: Record<string, unknown>, fallbackDate: Date): 
   const phone = normalizePhone(getCell(row, ['연락처', '전화번호', '휴대폰', '휴대폰번호', '휴대폰 번호', 'phone']))
   const consultingNumber = String(getCell(row, ['컨설팅번호', '컨설팅 번호', '상담번호', 'consultingNumber']) || '').trim()
   const projectNumber = String(getCell(row, ['프로젝트번호', '프로젝트 번호', '계약번호', '공사번호', 'projectNumber']) || '').trim()
-  const contractDate = normalizeDate(getCell(row, ['계약일', '계약일자', '계약 날짜', '계약금입금일', '입금일', 'contractDate']), fallbackDate)
+  const rawContractDate = getCell(row, [
+    '등록일시', '등록 일시', '등록일', '등록 일자', '등록날짜',
+    '계약일', '계약일자', '계약 날짜', '계약금입금일', '입금일',
+    '작성일', '생성일', 'createdAt', 'contractDate'
+  ])
+  const contractDate = String(rawContractDate || '').trim() ? normalizeDate(rawContractDate, fallbackDate) : ''
   const address = String(getCell(row, ['주소', '현장주소', '시공주소', '고객주소', 'address']) || '').trim()
   const regionCell = String(getCell(row, ['지역', '시도', '시/도', '거주지역', '현장지역']) || '').trim()
   const districtCell = String(getCell(row, ['군구', '시군구', '시/군/구', '구군', '구/군']) || '').trim()
-  const amount = parseAmount(getCell(row, ['계약금액', '계약 금액', '계약총액', '총금액', '공사금액', '견적금액', 'amount', 'contractAmount']))
+  const amount = projectAmount(row)
   const salesOwner = String(getCell(row, ['영업담당자', '영업 담당자', '담당자', '배정담당자', '배정', 'salesOwner', 'manager']) || '').trim()
   const rawStatus = String(getCell(row, ['상태', '계약상태', '프로젝트상태', '진행상태', '결과', 'status']) || '').trim()
   const sourceRaw = String(getCell(row, ['유입경로', '유입경로 원본', '매체', '광고매체', 'source', 'sourceRaw']) || '').trim()
@@ -68,6 +85,7 @@ function normalizeProjectRow(row: Record<string, unknown>, fallbackDate: Date): 
 
   if (!customerName && !phone && !consultingNumber && !projectNumber) return null
   if (!phone && !consultingNumber && !projectNumber) return null
+  if (!contractDate) return null
 
   const inferredRegion = splitRegion(address)
   return {

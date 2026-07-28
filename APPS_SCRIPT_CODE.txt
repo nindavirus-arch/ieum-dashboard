@@ -61,7 +61,7 @@ function doPost(e) {
     if (type === 'deleteAdSpend') return deleteAdSpendRow(body);
     if (type === 'firstRaw') return appendRowsUnique(SHEETS.firstRaw, rows, 'firstRaw');
     if (type === 'secondRaw') return appendRowsUnique(SHEETS.secondRaw, rows, 'secondRaw');
-    if (type === 'projects') return appendRowsUnique(SHEETS.projects, rows, 'projects');
+    if (type === 'projects') return upsertRowsUnique(SHEETS.projects, rows, 'projects');
     if (type === 'leadCorrections') return updateLeadCorrections(body);
     if (type === 'updateLead') return updateLeadRow(body);
     if (type === 'saveKpiTarget') return saveKpiTarget(body, user);
@@ -186,6 +186,49 @@ function appendRowsUnique(sheetName, rows, type) {
   const values = toAppend.map(row => headers.map(h => row[h] === undefined || row[h] === null ? '' : row[h]));
   sheet.getRange(sheet.getLastRow() + 1, 1, values.length, headers.length).setValues(values);
   return json({ success: true, count: values.length, skipped: rows.length - values.length });
+}
+
+function upsertRowsUnique(sheetName, rows, type) {
+  const book = SpreadsheetApp.getActive();
+  let sheet = book.getSheetByName(sheetName);
+  if (!sheet) sheet = book.insertSheet(sheetName);
+  if (!rows || rows.length === 0) return json({ success: true, count: 0, updated: 0, skipped: 0 });
+
+  let lastCol = sheet.getLastColumn();
+  let headers = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0].filter(String) : [];
+  const incomingKeys = [];
+  rows.forEach(row => Object.keys(row).forEach(k => { if (incomingKeys.indexOf(k) === -1) incomingKeys.push(k); }));
+  incomingKeys.forEach(k => { if (headers.indexOf(k) === -1) headers.push(k); });
+  if (headers.length === 0) return json({ error: 'No headers found' });
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+  const values = sheet.getDataRange().getDisplayValues();
+  const existingRows = {};
+  for (let r = 1; r < values.length; r++) {
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = values[r][i] || '');
+    const key = makeUniqueKey(obj, type);
+    if (key && existingRows[key] === undefined) existingRows[key] = r + 1;
+  }
+
+  let inserted = 0;
+  let updated = 0;
+  const seenIncoming = {};
+  rows.forEach(row => {
+    const key = makeUniqueKey(row, type);
+    if (!key || seenIncoming[key]) return;
+    seenIncoming[key] = true;
+    const output = headers.map(h => row[h] === undefined || row[h] === null ? '' : row[h]);
+    if (existingRows[key]) {
+      sheet.getRange(existingRows[key], 1, 1, headers.length).setValues([output]);
+      updated++;
+    } else {
+      sheet.getRange(sheet.getLastRow() + 1, 1, 1, headers.length).setValues([output]);
+      inserted++;
+    }
+  });
+
+  return json({ success: true, count: inserted, updated: updated, skipped: rows.length - inserted - updated });
 }
 
 function replaceAdSpendRows(rows) {
@@ -510,10 +553,9 @@ function makeUniqueKey(row, type) {
     const projectNumber = String(row.projectNumber || row['프로젝트번호'] || '').trim().toLowerCase();
     const consultingNumber = String(row.consultingNumber || row['컨설팅번호'] || '').trim().toLowerCase();
     const phone = normalizePhone(row.phone || row['연락처'] || row['전화번호']);
-    const date = String(row.contractDate || row['계약일'] || row.date || '').slice(0, 10);
     if (projectNumber) return 'project_' + projectNumber;
-    if (consultingNumber) return 'consult_' + consultingNumber + '_' + date;
-    return phone && date ? 'phone_' + phone + '_' + date : '';
+    if (consultingNumber) return 'consult_' + consultingNumber;
+    return phone ? 'phone_' + phone : '';
   }
 
   return '';

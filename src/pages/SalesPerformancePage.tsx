@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { endOfMonth, format, parseISO, startOfMonth } from 'date-fns'
+import { endOfMonth, format, parseISO, startOfMonth, subMonths } from 'date-fns'
 import { RefreshCw, TrendingUp, Users } from 'lucide-react'
 import clsx from 'clsx'
 import { fetchLeads, fetchProjects } from '../lib/dataService'
@@ -25,6 +25,10 @@ function monthRange(selectedDate: string) {
   }
 }
 
+function previousMonthRange(selectedDate: string) {
+  return monthRange(format(subMonths(parseISO(selectedDate), 1), 'yyyy-MM-dd'))
+}
+
 function cleanOwner(value?: string) {
   const owner = String(value || '').trim()
   if (!owner || owner === '-' || owner === '시스템') return '미배정'
@@ -33,6 +37,13 @@ function cleanOwner(value?: string) {
 
 function leadSalesOwner(lead: LeadRecord) {
   return cleanOwner((lead as any).salesOwner)
+}
+
+function rankTone(index: number, total: number, contracts: number) {
+  if (contracts <= 0) return 'bg-red-50/60'
+  if (index < 3) return 'bg-emerald-50/70'
+  if (index >= Math.max(total - 3, 0)) return 'bg-red-50/60'
+  return ''
 }
 
 export default function SalesPerformancePage() {
@@ -63,6 +74,7 @@ export default function SalesPerformancePage() {
   useEffect(() => { load() }, [])
 
   const range = monthRange(selectedDate)
+  const previousRange = previousMonthRange(selectedDate)
   const assignedLeads = useMemo(() => {
     return leads.filter(lead =>
       lead.date >= range.start &&
@@ -78,11 +90,27 @@ export default function SalesPerformancePage() {
     )
   }, [projects, leads, range.start, range.end])
 
+  const previousContracts = useMemo(() => {
+    return buildProjectAttribution(
+      contractedProjects(projects).filter(project => project.contractDate >= previousRange.start && project.contractDate <= previousRange.end),
+      leads
+    )
+  }, [projects, leads, previousRange.start, previousRange.end])
+
+  const cumulativeContracts = useMemo(() => {
+    return buildProjectAttribution(
+      contractedProjects(projects).filter(project => project.contractDate <= range.end),
+      leads
+    )
+  }, [projects, leads, range.end])
+
   const ownerStats = useMemo(() => {
     const map = new Map<string, {
       owner: string
       assigned: number
       contracts: number
+      previousContracts: number
+      cumulativeContracts: number
       contractAmount: number
       avgContract: number
       contractRate: number
@@ -91,16 +119,30 @@ export default function SalesPerformancePage() {
 
     assignedLeads.forEach(lead => {
       const owner = leadSalesOwner(lead)
-      const row = map.get(owner) || { owner, assigned: 0, contracts: 0, contractAmount: 0, avgContract: 0, contractRate: 0, commission: 0 }
+      const row = map.get(owner) || { owner, assigned: 0, contracts: 0, previousContracts: 0, cumulativeContracts: 0, contractAmount: 0, avgContract: 0, contractRate: 0, commission: 0 }
       row.assigned += 1
       map.set(owner, row)
     })
 
     contracts.forEach(project => {
       const owner = cleanOwner(project.attributedSalesOwner || project.salesOwner)
-      const row = map.get(owner) || { owner, assigned: 0, contracts: 0, contractAmount: 0, avgContract: 0, contractRate: 0, commission: 0 }
+      const row = map.get(owner) || { owner, assigned: 0, contracts: 0, previousContracts: 0, cumulativeContracts: 0, contractAmount: 0, avgContract: 0, contractRate: 0, commission: 0 }
       row.contracts += 1
       row.contractAmount += project.contractAmount
+      map.set(owner, row)
+    })
+
+    previousContracts.forEach(project => {
+      const owner = cleanOwner(project.attributedSalesOwner || project.salesOwner)
+      const row = map.get(owner) || { owner, assigned: 0, contracts: 0, previousContracts: 0, cumulativeContracts: 0, contractAmount: 0, avgContract: 0, contractRate: 0, commission: 0 }
+      row.previousContracts += 1
+      map.set(owner, row)
+    })
+
+    cumulativeContracts.forEach(project => {
+      const owner = cleanOwner(project.attributedSalesOwner || project.salesOwner)
+      const row = map.get(owner) || { owner, assigned: 0, contracts: 0, previousContracts: 0, cumulativeContracts: 0, contractAmount: 0, avgContract: 0, contractRate: 0, commission: 0 }
+      row.cumulativeContracts += 1
       map.set(owner, row)
     })
 
@@ -110,7 +152,7 @@ export default function SalesPerformancePage() {
       contractRate: row.assigned > 0 ? (row.contracts / row.assigned) * 100 : 0,
       commission: Math.round(row.contractAmount * (commissionRate / 100)),
     })).sort((a, b) => b.contracts - a.contracts || b.contractAmount - a.contractAmount || b.assigned - a.assigned)
-  }, [assignedLeads, contracts, commissionRate])
+  }, [assignedLeads, contracts, previousContracts, cumulativeContracts, commissionRate])
 
   const monthlyOwnerRows = useMemo(() => {
     const months = Array.from(new Set(contracts.map(project => project.contractDate.slice(0, 7)))).sort()
@@ -191,15 +233,18 @@ export default function SalesPerformancePage() {
           <table className="w-full min-w-[980px] text-sm">
             <thead>
               <tr className="bg-slate-50 text-xs text-slate-500">
-                {['영업담당자', '배정건수', '계약건수', '배정→계약율', '계약금액', '평균 계약금액', '정산 수수료'].map(header => <th key={header} className="px-4 py-3 text-right font-semibold first:text-left">{header}</th>)}
+                {['순위', '영업담당자', '배정건수', '계약건수(당월)', '계약건수(전월)', '계약건수 누적', '배정→계약율', '계약금액', '평균 계약금액', '정산 수수료'].map(header => <th key={header} className="px-4 py-3 text-right font-semibold first:text-left">{header}</th>)}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {ownerStats.map(row => (
-                <tr key={row.owner} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-semibold text-slate-700">{row.owner}</td>
+              {ownerStats.map((row, index) => (
+                <tr key={row.owner} className={clsx('hover:bg-slate-50', rankTone(index, ownerStats.length, row.contracts))}>
+                  <td className="px-4 py-3 font-semibold text-slate-700">#{index + 1}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-700">{row.owner}</td>
                   <td className="px-4 py-3 text-right text-slate-600">{row.assigned.toLocaleString()}</td>
                   <td className="px-4 py-3 text-right font-semibold text-emerald-700">{row.contracts.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right text-slate-700">{row.previousContracts.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-indigo-700">{row.cumulativeContracts.toLocaleString()}</td>
                   <td className="px-4 py-3 text-right text-slate-700">{row.contractRate.toFixed(1)}%</td>
                   <td className="px-4 py-3 text-right font-semibold text-slate-800">{fmtKRW(row.contractAmount)}원</td>
                   <td className="px-4 py-3 text-right text-slate-700">{fmtKRW(row.avgContract)}원</td>
@@ -208,7 +253,7 @@ export default function SalesPerformancePage() {
               ))}
               {!ownerStats.length && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-slate-400">조회기간 내 영업 성과 데이터가 없습니다.</td>
+                  <td colSpan={10} className="px-4 py-10 text-center text-slate-400">조회기간 내 영업 성과 데이터가 없습니다.</td>
                 </tr>
               )}
             </tbody>

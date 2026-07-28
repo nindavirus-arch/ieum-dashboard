@@ -292,9 +292,11 @@ function normalizeSpend(row: any, index = 0, mappings: MappingRow[] = []): AdSpe
 
 function normalizeProject(row: any, index = 0, mappings: MappingRow[] = []): ProjectRecord {
   const rawStatus = String(row.rawStatus ?? row.statusRaw ?? row['계약상태'] ?? row['상태'] ?? '')
-  const status = normalizeProjectStatus(row.status ?? rawStatus, row.contractAmount ?? row['계약금액'])
+  const contractAmount = projectAmountFromSheetRow(row)
+  const status = normalizeProjectStatus(row.status ?? rawStatus, contractAmount)
   const rawChannel = row.channel ?? row['매체'] ?? row['유입경로'] ?? row.sourceRaw ?? ''
   const rawSubChannel = String(row.subChannel ?? row['상세매체'] ?? '')
+  const rawContractDate = row.contractDate ?? row['등록일시'] ?? row['등록 일시'] ?? row['등록일'] ?? row['등록 일자'] ?? row['등록날짜'] ?? row['계약일'] ?? row['계약일자'] ?? row.date
   const baseChannel = rawChannel ? normalizeChannel(rawChannel) : undefined
   const mapped = baseChannel
     ? applyChannelMapping({ channel: baseChannel, subChannel: rawSubChannel, utm_source: rawChannel, utm_campaign: rawSubChannel }, mappings)
@@ -303,13 +305,13 @@ function normalizeProject(row: any, index = 0, mappings: MappingRow[] = []): Pro
     id: String(row.id ?? makeId('project')),
     projectNumber: String(row.projectNumber ?? row['프로젝트번호'] ?? ''),
     consultingNumber: String(row.consultingNumber ?? row['컨설팅번호'] ?? ''),
-    contractDate: normalizeDate(row.contractDate ?? row['계약일'] ?? row['계약일자'] ?? row.date, new Date()),
+    contractDate: String(rawContractDate ?? '').trim() ? normalizeDate(rawContractDate, new Date()) : '',
     customerName: String(row.customerName ?? row['고객명'] ?? row.name ?? row['이름'] ?? ''),
     phone: normalizePhone(row.phone ?? row['연락처'] ?? row['전화번호'] ?? ''),
     region: String(row.region ?? row['지역'] ?? ''),
     district: String(row.district ?? row['시군구'] ?? ''),
     address: String(row.address ?? row['주소'] ?? ''),
-    contractAmount: Number(String(row.contractAmount ?? row['계약금액'] ?? row.amount ?? 0).replace(/[^0-9]/g, '')) || 0,
+    contractAmount,
     salesOwner: String(row.salesOwner ?? row['영업담당자'] ?? row['담당자'] ?? ''),
     rawStatus,
     status,
@@ -321,6 +323,28 @@ function normalizeProject(row: any, index = 0, mappings: MappingRow[] = []): Pro
     updatedAt: String(row.updatedAt ?? ''),
     rawData: typeof row.rawData === 'string' ? undefined : row.rawData,
   }
+}
+
+function projectAmountFromSheetRow(row: any) {
+  const total = Number(String(
+    row.contractAmount ??
+    row['총계약금액'] ??
+    row['총 계약금액'] ??
+    row['총 계약 금액'] ??
+    row['계약금액'] ??
+    row['계약 금액'] ??
+    row['계약총액'] ??
+    row['계약금+잔금액'] ??
+    row['계약금 + 잔금액'] ??
+    row['총금액'] ??
+    row['공사금액'] ??
+    row.amount ??
+    0
+  ).replace(/[^0-9]/g, '')) || 0
+  if (total > 0) return total
+  const downPayment = Number(String(row['계약금'] ?? row['계약 금'] ?? row['선금'] ?? row.deposit ?? 0).replace(/[^0-9]/g, '')) || 0
+  const balance = Number(String(row['잔금액'] ?? row['잔금'] ?? row['잔여금'] ?? row.balance ?? 0).replace(/[^0-9]/g, '')) || 0
+  return downPayment + balance
 }
 
 function normalizeProjectStatus(raw: unknown, amountRaw?: unknown): ProjectStatus {
