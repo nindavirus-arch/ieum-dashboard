@@ -202,7 +202,7 @@ export default function OnlineKpiPage() {
     try {
       if (force) invalidateDataCache()
       const [leadRows, spendRows, targetResult] = await Promise.all([
-        fetchLeads(undefined, undefined, { includeRawAttribution: true }),
+        fetchLeads(),
         fetchAdSpend(),
         fetchKpiTargets()
           .then(value => ({ value, error: null as unknown }))

@@ -101,7 +101,7 @@ export default function ChannelsPage() {
 
   async function load() {
     setLoading(true)
-    const [l, s, p] = await Promise.all([fetchLeads(undefined, undefined, { includeRawAttribution: true }), fetchAdSpend(), fetchProjects().catch(() => [])])
+    const [l, s, p] = await Promise.all([fetchLeads(), fetchAdSpend(), fetchProjects().catch(() => [])])
     setLeads(l); setSpends(s); setProjects(p); setLoading(false)
   }
 

@@ -59,11 +59,17 @@ export default function SalesPerformancePage() {
     setNotice('')
     try {
       const [leadRows, projectRows] = await Promise.all([
-        fetchLeads(undefined, undefined, { includeRawAttribution: true }),
+        fetchLeads(),
         fetchProjects().catch(() => []),
       ])
       setLeads(leadRows)
       setProjects(projectRows)
+      fetchLeads(undefined, undefined, { includeRawAttribution: true })
+        .then(enrichedRows => {
+          const hasSalesOwners = enrichedRows.some(lead => String((lead as any).salesOwner || '').trim())
+          if (hasSalesOwners) setLeads(enrichedRows)
+        })
+        .catch(() => undefined)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '영업관리 데이터를 불러오지 못했습니다.')
     } finally {

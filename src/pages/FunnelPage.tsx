@@ -38,7 +38,7 @@ export default function FunnelPage() {
 
   async function load() {
     setLoading(true)
-    const l = await fetchLeads(undefined, undefined, { includeRawAttribution: true })
+    const l = await fetchLeads()
     setLeads(l)
     setLoading(false)
   }

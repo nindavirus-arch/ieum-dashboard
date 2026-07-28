@@ -24,7 +24,7 @@ export type KpiTarget = {
   updatedAt?: string
 }
 const EXCLUDED_LEAD_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted'])
-const SHEET_CACHE_TTL_MS = 10_000
+const SHEET_CACHE_TTL_MS = 60_000
 const sheetCache = new Map<SheetType, { expires: number; data?: any[]; promise?: Promise<any[]> }>()
 export const DATA_UPDATED_EVENT = 'ieum:data-updated'
 let updatedAtCache: { expires: number; value: string } | null = null
@@ -106,6 +106,15 @@ function chooseSubChannel(prev: LeadRecord, next: LeadRecord, chosenChannel: Cha
 
 function normKey(v: unknown) {
   return String(v ?? '').toLowerCase().replace(/[\s_\-\/()\[\].]/g, '')
+}
+
+function pickCell(row: any, aliases: string[]) {
+  for (const alias of aliases) {
+    if (Object.prototype.hasOwnProperty.call(row, alias)) return row[alias]
+  }
+  const normalizedAliases = aliases.map(normKey)
+  const foundKey = Object.keys(row || {}).find(key => normalizedAliases.includes(normKey(key)))
+  return foundKey ? row[foundKey] : ''
 }
 
 function isDirectSalesText(v: unknown) {
@@ -291,28 +300,28 @@ function normalizeSpend(row: any, index = 0, mappings: MappingRow[] = []): AdSpe
 }
 
 function normalizeProject(row: any, index = 0, mappings: MappingRow[] = []): ProjectRecord {
-  const rawStatus = String(row.rawStatus ?? row.statusRaw ?? row['계약상태'] ?? row['상태'] ?? '')
+  const rawStatus = String(row.rawStatus ?? row.statusRaw ?? pickCell(row, ['계약상태', '상태', '프로젝트상태', '진행상태']) ?? '')
   const contractAmount = projectAmountFromSheetRow(row)
   const status = normalizeProjectStatus(row.status ?? rawStatus, contractAmount)
-  const rawChannel = row.channel ?? row['매체'] ?? row['유입경로'] ?? row.sourceRaw ?? ''
-  const rawSubChannel = String(row.subChannel ?? row['상세매체'] ?? '')
-  const rawContractDate = row.contractDate ?? row['등록일시'] ?? row['등록 일시'] ?? row['등록일'] ?? row['등록 일자'] ?? row['등록날짜'] ?? row['계약일'] ?? row['계약일자'] ?? row.date
+  const rawChannel = row.channel ?? pickCell(row, ['매체', '유입경로', '유입경로 원본', '광고매체']) ?? row.sourceRaw ?? ''
+  const rawSubChannel = String(row.subChannel ?? pickCell(row, ['상세매체', '상세 매체', '유입상세', '캠페인']) ?? '')
+  const rawContractDate = row.contractDate ?? pickCell(row, ['등록일시', '등록 일시', '등록일', '등록 일자', '등록날짜', '계약일', '계약일자', '계약 날짜']) ?? row.date
   const baseChannel = rawChannel ? normalizeChannel(rawChannel) : undefined
   const mapped = baseChannel
     ? applyChannelMapping({ channel: baseChannel, subChannel: rawSubChannel, utm_source: rawChannel, utm_campaign: rawSubChannel }, mappings)
     : null
   return {
     id: String(row.id ?? makeId('project')),
-    projectNumber: String(row.projectNumber ?? row['프로젝트번호'] ?? ''),
-    consultingNumber: String(row.consultingNumber ?? row['컨설팅번호'] ?? ''),
+    projectNumber: String(row.projectNumber ?? pickCell(row, ['프로젝트번호', '프로젝트 번호', '계약번호', '공사번호']) ?? ''),
+    consultingNumber: String(row.consultingNumber ?? pickCell(row, ['컨설팅번호', '컨설팅 번호', '상담번호']) ?? ''),
     contractDate: String(rawContractDate ?? '').trim() ? normalizeDate(rawContractDate, new Date()) : '',
-    customerName: String(row.customerName ?? row['고객명'] ?? row.name ?? row['이름'] ?? ''),
-    phone: normalizePhone(row.phone ?? row['연락처'] ?? row['전화번호'] ?? ''),
-    region: String(row.region ?? row['지역'] ?? ''),
-    district: String(row.district ?? row['시군구'] ?? ''),
-    address: String(row.address ?? row['주소'] ?? ''),
+    customerName: String(row.customerName ?? pickCell(row, ['고객명', '고객 이름', '이름', '성명']) ?? row.name ?? ''),
+    phone: normalizePhone(row.phone ?? pickCell(row, ['연락처', '전화번호', '휴대폰', '휴대폰번호', '휴대폰 번호'])),
+    region: String(row.region ?? pickCell(row, ['지역', '시도', '시/도']) ?? ''),
+    district: String(row.district ?? pickCell(row, ['시군구', '군구', '시/군/구']) ?? ''),
+    address: String(row.address ?? pickCell(row, ['주소', '현장주소', '시공주소', '고객주소']) ?? ''),
     contractAmount,
-    salesOwner: String(row.salesOwner ?? row['영업담당자'] ?? row['담당자'] ?? ''),
+    salesOwner: String(row.salesOwner ?? pickCell(row, ['영업담당자', '영업 담당자', '영업 담당', '영업담당자명', '영업 담당자명', '배정담당자', '배정 담당자', '배정', '담당자', '지점장', '담당 지점장']) ?? ''),
     rawStatus,
     status,
     channel: mapped?.channel,
@@ -328,22 +337,13 @@ function normalizeProject(row: any, index = 0, mappings: MappingRow[] = []): Pro
 function projectAmountFromSheetRow(row: any) {
   const total = Number(String(
     row.contractAmount ??
-    row['총계약금액'] ??
-    row['총 계약금액'] ??
-    row['총 계약 금액'] ??
-    row['계약금액'] ??
-    row['계약 금액'] ??
-    row['계약총액'] ??
-    row['계약금+잔금액'] ??
-    row['계약금 + 잔금액'] ??
-    row['총금액'] ??
-    row['공사금액'] ??
+    pickCell(row, ['총계약금액', '총 계약금액', '총 계약 금액', '계약금액', '계약 금액', '계약총액', '계약금+잔금액', '계약금 + 잔금액', '총금액', '공사금액', '총 공사금액', '견적금액']) ??
     row.amount ??
     0
   ).replace(/[^0-9]/g, '')) || 0
   if (total > 0) return total
-  const downPayment = Number(String(row['계약금'] ?? row['계약 금'] ?? row['선금'] ?? row.deposit ?? 0).replace(/[^0-9]/g, '')) || 0
-  const balance = Number(String(row['잔금액'] ?? row['잔금'] ?? row['잔여금'] ?? row.balance ?? 0).replace(/[^0-9]/g, '')) || 0
+  const downPayment = Number(String(pickCell(row, ['계약금', '계약 금', '선금']) ?? row.deposit ?? 0).replace(/[^0-9]/g, '')) || 0
+  const balance = Number(String(pickCell(row, ['잔금액', '잔금', '잔여금']) ?? row.balance ?? 0).replace(/[^0-9]/g, '')) || 0
   return downPayment + balance
 }
 
@@ -790,42 +790,32 @@ function enrichRegisteredAtFromRaw(lead: LeadRecord, lookup: Map<string, string>
 
 function pickOperatorFromRaw(row: any): string {
   // 컨설팅리스트 원본 기준: 작업자는 '영업담당자'가 아니라 '접수자'가 맞음.
-  return String(
-    row.operator ??
-    row['접수자'] ??
-    row['작업자'] ??
-    row['처리자'] ??
-    row['상담원'] ??
-    row['상담담당자'] ??
-    row['상담 담당자'] ??
-    row['등록자'] ??
-    row.registrant ??
-    ''
-  ).trim()
+  return String(row.operator ?? pickCell(row, ['접수자', '작업자', '처리자', '상담원', '상담담당자', '상담 담당자', '등록자']) ?? row.registrant ?? '').trim()
 }
 
 function pickSalesOwnerFromRaw(row: any): string {
-  return String(
-    row.salesOwner ??
-    row['영업담당자'] ??
-    row['영업 담당자'] ??
-    row['영업 담당'] ??
-    row['배정담당자'] ??
-    row['배정 담당자'] ??
-    row['배정'] ??
-    row['담당자'] ??
-    row.manager ??
-    row.owner ??
-    ''
-  ).trim()
+  return String(row.salesOwner ?? pickCell(row, [
+    '영업담당자',
+    '영업 담당자',
+    '영업 담당',
+    '영업담당자명',
+    '영업 담당자명',
+    '배정담당자',
+    '배정 담당자',
+    '배정',
+    '담당자',
+    '지점장',
+    '담당 지점장',
+  ]) ?? row.manager ?? row.owner ?? '').trim()
 }
 
 function buildRawMetaLookup(firstRawRows: any[], secondRawRows: any[]) {
   const lookup = new Map<string, { registeredAt?: string; operator?: string; salesOwner?: string; consultationResult?: string; memo?: string }>()
 
   const add = (row: any) => {
-    const phone = normalizePhone(row._parsed_phone ?? row.phone ?? row.연락처 ?? row.휴대폰번호 ?? row['휴대폰 번호'] ?? '')
-    const date = normalizeDate(row._parsed_date ?? row.date ?? row.날짜 ?? row.등록일 ?? row.등록일시 ?? row['등록 일시'] ?? row.접수일시, new Date())
+    const phone = normalizePhone(row._parsed_phone ?? row.phone ?? pickCell(row, ['연락처', '전화번호', '휴대폰', '휴대폰번호', '휴대폰 번호', '고객 연락처']) ?? '')
+    const rawDate = row._parsed_date ?? row.date ?? pickCell(row, ['날짜', '등록일', '등록일시', '등록 일시', '접수일시', '신청일시'])
+    const date = String(rawDate ?? '').trim() ? normalizeDate(rawDate, new Date()) : ''
     if (!phone) return
     const meta = {
       registeredAt: pickRegisteredAtFromRaw(row),
@@ -834,8 +824,8 @@ function buildRawMetaLookup(firstRawRows: any[], secondRawRows: any[]) {
       consultationResult: String(row.consultationResult ?? row['상담결과'] ?? row['상담 결과'] ?? row['상담상태'] ?? row['상담 상태'] ?? row['결과'] ?? '').trim(),
       memo: String(row.memo ?? row['메모'] ?? row['특이사항'] ?? row['메모(특이사항)'] ?? row['비고'] ?? row['상담메모'] ?? '').trim(),
     }
-    const byDateKey = `${phone}_${date}`
-    lookup.set(byDateKey, { ...(lookup.get(byDateKey) || {}), ...Object.fromEntries(Object.entries(meta).filter(([,v]) => Boolean(v))) })
+    const byDateKey = date ? `${phone}_${date}` : ''
+    if (byDateKey) lookup.set(byDateKey, { ...(lookup.get(byDateKey) || {}), ...Object.fromEntries(Object.entries(meta).filter(([,v]) => Boolean(v))) })
     lookup.set(phone, { ...(lookup.get(phone) || {}), ...Object.fromEntries(Object.entries(meta).filter(([,v]) => Boolean(v))) })
   }
 

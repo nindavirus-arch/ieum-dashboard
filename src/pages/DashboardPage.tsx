@@ -239,7 +239,7 @@ export default function DashboardPage() {
     setLoading(true)
     try {
       const [l, s, t] = await Promise.all([
-        fetchLeads(undefined, undefined, { includeRawAttribution: true }),
+        fetchLeads(),
         fetchAdSpend(),
         fetchKpiTargets().catch(() => [] as KpiTarget[]),
       ])
