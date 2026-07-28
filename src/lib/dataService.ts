@@ -453,6 +453,10 @@ function rawRowsFromLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]) {
       _parsed_stage: lead.dbTier,
       _parsed_region: lead.region,
       _parsed_district: lead.district,
+      _parsed_operator: (lead as any).operator || '',
+      _parsed_salesOwner: (lead as any).salesOwner || '',
+      _parsed_consultationResult: (lead as any).consultationResult || '',
+      _parsed_memo: (lead as any).memo || '',
       _uploadedAt: new Date().toISOString(),
     }
   })
@@ -789,11 +793,17 @@ function enrichRegisteredAtFromRaw(lead: LeadRecord, lookup: Map<string, string>
 }
 
 function pickOperatorFromRaw(row: any): string {
+  if (row._parsed_operator) return String(row._parsed_operator).trim()
+  const operator = pickCell(row, ['접수자', '작업자', '처리자', '상담원', '상담담당자', '상담 담당자', '등록자'])
+  if (operator) return String(operator).trim()
   // 컨설팅리스트 원본 기준: 작업자는 '영업담당자'가 아니라 '접수자'가 맞음.
   return String(row.operator ?? pickCell(row, ['접수자', '작업자', '처리자', '상담원', '상담담당자', '상담 담당자', '등록자']) ?? row.registrant ?? '').trim()
 }
 
 function pickSalesOwnerFromRaw(row: any): string {
+  if (row._parsed_salesOwner) return String(row._parsed_salesOwner).trim()
+  const salesOwner = pickCell(row, ['영업담당자', '영업 담당자', '영업 담당', '영업담당자명', '영업 담당자명', '배정담당자', '배정 담당자', '배정', '담당자', '지점장', '담당 지점장'])
+  if (salesOwner) return String(salesOwner).trim()
   return String(row.salesOwner ?? pickCell(row, [
     '영업담당자',
     '영업 담당자',
@@ -830,6 +840,8 @@ function buildRawMetaLookup(firstRawRows: any[], secondRawRows: any[]) {
     if (byDateKey) lookup.set(byDateKey, { ...(lookup.get(byDateKey) || {}), ...compactMeta })
     if (phone) lookup.set(phone, { ...(lookup.get(phone) || {}), ...compactMeta })
     if (consultingNumber) lookup.set(`consulting:${consultingNumber}`, { ...(lookup.get(`consulting:${consultingNumber}`) || {}), ...compactMeta })
+    const parsedConsultingNumber = String(row._parsed_consultingNumber || '').trim()
+    if (parsedConsultingNumber) lookup.set(`consulting:${parsedConsultingNumber}`, { ...(lookup.get(`consulting:${parsedConsultingNumber}`) || {}), ...compactMeta })
   }
 
   firstRawRows.forEach(add)
@@ -998,8 +1010,6 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
 
   for (const lead of leads) {
     if (!lead.phone) continue
-    if (lead.sourceKind === 'second_raw') secondRaw.push(lead)
-    else firstRaw.push(lead)
 
     const mapped = applyChannelMapping({
       channel: lead.channel,
@@ -1027,6 +1037,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
     const explicitDateCorrection = isExplicitDateCorrectionLead(normalizedLead)
     const shouldClearDateOverride = isDateCorrectionClearLead(normalizedLead)
     const correctionTarget = findCorrectionTarget(normalizedLead, explicitDateCorrection)
+    if (explicitDateCorrection && !correctionTarget) continue
     if (correctionTarget && explicitDateCorrection) {
       const consultingNumber = String(incomingConsultingNumber || (correctionTarget as any).consultingNumber || '').trim()
       const needsDateCorrection = explicitDateCorrection && Boolean(normalizedLead.date && normalizedLead.date !== correctionTarget.date)
@@ -1087,6 +1098,9 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
       continue
     }
 
+    if (lead.sourceKind === 'second_raw') secondRaw.push(lead)
+    else firstRaw.push(lead)
+
     const sameDayKey = `${normalizedLead.phone}_${bTier}_${normalizedLead.date}`
     if (byPhoneStageDate.has(sameDayKey)) continue
 
@@ -1136,6 +1150,7 @@ function buildLeadRowsFromRaw(firstRawRows: any[], secondRawRows: any[], mapping
       sourceKind: 'first_raw',
     }, i, mappings))
     .filter((r: LeadRecord) => r.phone)
+    .filter((r: LeadRecord) => !isExplicitDateCorrectionLead(r))
     .sort((a: LeadRecord, b: LeadRecord) => rawLeadSortValue(a).localeCompare(rawLeadSortValue(b)))
 
   const firstByPhone = new Map<string, LeadRecord>()
@@ -1152,6 +1167,7 @@ function buildLeadRowsFromRaw(firstRawRows: any[], secondRawRows: any[], mapping
       sourceKind: 'second_raw',
     }, i, mappings))
     .filter((r: LeadRecord) => r.phone)
+    .filter((r: LeadRecord) => !isExplicitDateCorrectionLead(r))
     .map((lead: LeadRecord) => {
       const first = firstByPhone.get(lead.phone)
       if (!first) return lead
