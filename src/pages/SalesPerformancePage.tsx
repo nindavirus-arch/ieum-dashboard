@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { endOfMonth, format, parseISO, startOfMonth, subMonths } from 'date-fns'
 import { RefreshCw, TrendingUp, Users } from 'lucide-react'
 import clsx from 'clsx'
-import { fetchLeads, fetchProjects } from '../lib/dataService'
+import { fetchConsultingRawLeads, fetchLeads, fetchProjects } from '../lib/dataService'
 import { baseStage } from '../lib/leadMetrics'
 import { buildProjectAttribution, contractedProjects } from '../lib/projectMetrics'
 import type { LeadRecord, ProjectRecord } from '../types'
@@ -59,7 +59,7 @@ export default function SalesPerformancePage() {
     setNotice('')
     try {
       const [leadRows, projectRows] = await Promise.all([
-        fetchLeads(undefined, undefined, { includeRawMeta: true }),
+        fetchConsultingRawLeads().then(rows => rows.length ? rows : fetchLeads(undefined, undefined, { includeRawMeta: true })),
         fetchProjects().catch(() => []),
       ])
       setLeads(leadRows)

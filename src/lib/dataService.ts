@@ -1250,6 +1250,23 @@ function applyReentryClassification(leads: LeadRecord[]): LeadRecord[] {
   })
 }
 
+export async function fetchConsultingRawLeads(startDate?: string, endDate?: string): Promise<LeadRecord[]> {
+  const [mappings, firstRawRows, secondRawRows] = await Promise.all([
+    fetchMappings(),
+    getSheetRows('firstRaw').catch(() => []),
+    getSheetRows('secondRaw').catch(() => []),
+  ])
+  const rawLeads = buildLeadRowsFromRaw(firstRawRows, secondRawRows, mappings)
+  const rawMetaLookup = buildRawMetaLookup(firstRawRows, secondRawRows)
+  const rawAttributionLookup = directSalesRawLookup(secondRawRows)
+  return applyReentryClassification(rawLeads)
+    .filter((r: LeadRecord) => !EXCLUDED_LEAD_STATUSES.has(String(r.status || '').toLowerCase()))
+    .map((r: LeadRecord) => rawMetaLookup.size ? enrichMetaFromRaw(r, rawMetaLookup) : r)
+    .map((r: LeadRecord) => rawAttributionLookup.size ? applyRawAttribution(r, rawAttributionLookup) : r)
+    .filter((r: LeadRecord) => inRange(r.date, startDate, endDate))
+    .sort((a: LeadRecord, b: LeadRecord) => String((b as any).registeredAt || b.date).localeCompare(String((a as any).registeredAt || a.date)))
+}
+
 export async function fetchLeads(startDate?: string, endDate?: string, options: { includeRawMeta?: boolean; includeRawAttribution?: boolean } = {}): Promise<LeadRecord[]> {
   let mappings: MappingRow[] = []
   let leadRows: any[] = []
