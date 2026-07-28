@@ -3,6 +3,7 @@ const SHEETS = {
   adSpend: 'AD_SPEND',
   firstRaw: 'FIRST_DB_RAW',
   secondRaw: 'SECOND_DB_RAW',
+  projects: 'PROJECTS',
   mapping: 'CHANNEL_MAPPING',
   users: 'ADMIN_USERS',
   kpiTargets: 'KPI_TARGETS'
@@ -21,6 +22,7 @@ function doGet(e) {
   if (type === 'adSpend') return getSheetData(SHEETS.adSpend);
   if (type === 'firstRaw') return getSheetData(SHEETS.firstRaw);
   if (type === 'secondRaw') return getSheetData(SHEETS.secondRaw);
+  if (type === 'projects') return getSheetData(SHEETS.projects);
   if (type === 'mapping') return getSheetData(SHEETS.mapping);
   if (type === 'kpiTargets') return getKpiTargetData();
   if (type === 'dataUpdatedAt') return getDataUpdatedAt();
@@ -59,6 +61,7 @@ function doPost(e) {
     if (type === 'deleteAdSpend') return deleteAdSpendRow(body);
     if (type === 'firstRaw') return appendRowsUnique(SHEETS.firstRaw, rows, 'firstRaw');
     if (type === 'secondRaw') return appendRowsUnique(SHEETS.secondRaw, rows, 'secondRaw');
+    if (type === 'projects') return appendRowsUnique(SHEETS.projects, rows, 'projects');
     if (type === 'leadCorrections') return updateLeadCorrections(body);
     if (type === 'updateLead') return updateLeadRow(body);
     if (type === 'saveKpiTarget') return saveKpiTarget(body, user);
@@ -71,6 +74,7 @@ function doPost(e) {
 
 function getSheetData(sheetName) {
   const sheet = SpreadsheetApp.getActive().getSheetByName(sheetName);
+  if (!sheet && sheetName === SHEETS.projects) return json([]);
   if (!sheet) return json({ error: 'Sheet not found: ' + sheetName });
   const values = sheet.getDataRange().getDisplayValues();
   if (!values || values.length <= 1) return json([]);
@@ -149,8 +153,9 @@ function saveKpiTarget(body, user) {
 }
 
 function appendRowsUnique(sheetName, rows, type) {
-  const sheet = SpreadsheetApp.getActive().getSheetByName(sheetName);
-  if (!sheet) return json({ error: 'Sheet not found: ' + sheetName });
+  const book = SpreadsheetApp.getActive();
+  let sheet = book.getSheetByName(sheetName);
+  if (!sheet) sheet = book.insertSheet(sheetName);
   if (!rows || rows.length === 0) return json({ success: true, count: 0, skipped: 0 });
 
   let lastCol = sheet.getLastColumn();
@@ -501,6 +506,16 @@ function makeUniqueKey(row, type) {
     return date && channel ? date + '_' + channel + '_' + subChannel + '_' + campaign : '';
   }
 
+  if (type === 'projects') {
+    const projectNumber = String(row.projectNumber || row['프로젝트번호'] || '').trim().toLowerCase();
+    const consultingNumber = String(row.consultingNumber || row['컨설팅번호'] || '').trim().toLowerCase();
+    const phone = normalizePhone(row.phone || row['연락처'] || row['전화번호']);
+    const date = String(row.contractDate || row['계약일'] || row.date || '').slice(0, 10);
+    if (projectNumber) return 'project_' + projectNumber;
+    if (consultingNumber) return 'consult_' + consultingNumber + '_' + date;
+    return phone && date ? 'phone_' + phone + '_' + date : '';
+  }
+
   return '';
 }
 
@@ -509,7 +524,7 @@ const SESSION_TTL_SECONDS = 21600;
 const SALES_SUPPORT_MENUS = ['/db-manage', '/upload-db', '/region'];
 const VALID_MENUS = [
   '/dashboard', '/channels', '/kpi', '/funnel', '/region', '/db-manage',
-  '/upload-db', '/upload-spend', '/manage-spend', '/admin-users'
+  '/upload-db', '/upload-spend', '/manage-spend', '/upload-projects', '/sales-performance', '/admin-users'
 ];
 
 function ensureUsersSheet() {
@@ -733,13 +748,14 @@ function canAccessMenu(user, menu) {
 
 function canReadData(type, menu) {
   const rules = {
-    leads: ['/dashboard', '/channels', '/kpi', '/funnel', '/region', '/db-manage', '/upload-db'],
+    leads: ['/dashboard', '/channels', '/kpi', '/funnel', '/region', '/db-manage', '/upload-db', '/sales-performance'],
     adSpend: ['/dashboard', '/channels', '/kpi', '/upload-spend', '/manage-spend'],
     firstRaw: ['/dashboard', '/channels', '/funnel', '/db-manage', '/upload-db'],
     secondRaw: ['/dashboard', '/channels', '/funnel', '/db-manage', '/upload-db'],
-    mapping: ['/dashboard', '/channels', '/kpi', '/funnel', '/region', '/db-manage', '/upload-db', '/upload-spend', '/manage-spend'],
+    projects: ['/channels', '/upload-projects', '/sales-performance'],
+    mapping: ['/dashboard', '/channels', '/kpi', '/funnel', '/region', '/db-manage', '/upload-db', '/upload-spend', '/manage-spend', '/upload-projects', '/sales-performance'],
     kpiTargets: ['/kpi'],
-    dataUpdatedAt: ['/dashboard', '/channels', '/kpi', '/funnel', '/region', '/db-manage', '/upload-db', '/upload-spend', '/manage-spend', '/admin-users']
+    dataUpdatedAt: ['/dashboard', '/channels', '/kpi', '/funnel', '/region', '/db-manage', '/upload-db', '/upload-spend', '/manage-spend', '/upload-projects', '/sales-performance', '/admin-users']
   };
   return Boolean(rules[type] && rules[type].indexOf(menu) >= 0);
 }
@@ -751,6 +767,7 @@ function resolveWriteMenu(type, menu) {
     return '/upload-db';
   }
   if (type === 'adSpend' || type === 'adSpendReplace') return '/upload-spend';
+  if (type === 'projects') return '/upload-projects';
   if (type === 'updateAdSpend' || type === 'deleteAdSpend') return '/manage-spend';
   if (type === 'saveKpiTarget') return '/kpi';
   return VALID_MENUS.indexOf(menu) >= 0 ? menu : '';
@@ -765,6 +782,7 @@ function canWriteData(type, menu) {
     updateLead: ['/db-manage', '/upload-db'],
     adSpend: ['/upload-spend'],
     adSpendReplace: ['/upload-spend'],
+    projects: ['/upload-projects'],
     updateAdSpend: ['/manage-spend'],
     deleteAdSpend: ['/manage-spend'],
     saveKpiTarget: ['/kpi']

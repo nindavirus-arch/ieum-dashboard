@@ -10,8 +10,10 @@ export const MENU_PERMISSIONS = [
   { key: '/region', label: '지역별 통계' },
   { key: '/db-manage', label: 'DB관리' },
   { key: '/upload-db', label: 'DB 업로드' },
+  { key: '/upload-projects', label: '프로젝트 업로드' },
   { key: '/upload-spend', label: '광고비 업로드' },
   { key: '/manage-spend', label: '광고비 관리' },
+  { key: '/sales-performance', label: '영업관리' },
   { key: '/admin-users', label: '관리자 계정 관리' },
 ] as const
 

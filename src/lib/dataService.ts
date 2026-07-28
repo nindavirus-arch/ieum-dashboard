@@ -5,14 +5,15 @@
 // - 중복 방지는 프론트 + Apps Script 양쪽에서 처리
 // - 채널 판별은 utm_source/source/유입경로 우선, params는 매체 판별에 사용하지 않음
 
-import type { LeadRecord, AdSpend, DBTier, Channel, SourceKind } from '../types'
+import type { LeadRecord, AdSpend, DBTier, Channel, SourceKind, ProjectRecord, ProjectStatus } from '../types'
 import { normalizeDate, normalizePhone, normalizeChannel, inferChannelStrict, inferSubChannel } from './excelParser'
+import { parseProjectsExcel } from './projectParser'
 import { SHEET_API_URL } from './apiConfig'
 import { getAuthToken, setAuthToken } from './auth'
 
 // TODO: Apps Script 배포 후 웹앱 URL을 여기에 붙여넣으세요.
 // 예: const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec'
-type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping' | 'kpiTargets'
+type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping' | 'kpiTargets' | 'projects'
 type PostSheetType = Exclude<SheetType, 'mapping'> | 'adSpendReplace' | 'leadCorrections'
 export type MappingRow = { raw: string; channel: Channel; subChannel: string }
 export type KpiTarget = {
@@ -286,6 +287,49 @@ function normalizeSpend(row: any, index = 0, mappings: MappingRow[] = []): AdSpe
     memo: String(row.memo ?? row.메모 ?? row.note ?? ''),
     registrant: String(row.registrant ?? row.등록자 ?? row.operator ?? row.createdBy ?? ''),
   } as AdSpend
+}
+
+function normalizeProject(row: any, index = 0, mappings: MappingRow[] = []): ProjectRecord {
+  const rawStatus = String(row.rawStatus ?? row.statusRaw ?? row['계약상태'] ?? row['상태'] ?? '')
+  const status = normalizeProjectStatus(row.status ?? rawStatus, row.contractAmount ?? row['계약금액'])
+  const rawChannel = row.channel ?? row['매체'] ?? row['유입경로'] ?? row.sourceRaw ?? ''
+  const rawSubChannel = String(row.subChannel ?? row['상세매체'] ?? '')
+  const baseChannel = rawChannel ? normalizeChannel(rawChannel) : undefined
+  const mapped = baseChannel
+    ? applyChannelMapping({ channel: baseChannel, subChannel: rawSubChannel, utm_source: rawChannel, utm_campaign: rawSubChannel }, mappings)
+    : null
+  return {
+    id: String(row.id ?? makeId('project')),
+    projectNumber: String(row.projectNumber ?? row['프로젝트번호'] ?? ''),
+    consultingNumber: String(row.consultingNumber ?? row['컨설팅번호'] ?? ''),
+    contractDate: normalizeDate(row.contractDate ?? row['계약일'] ?? row['계약일자'] ?? row.date, new Date()),
+    customerName: String(row.customerName ?? row['고객명'] ?? row.name ?? row['이름'] ?? ''),
+    phone: normalizePhone(row.phone ?? row['연락처'] ?? row['전화번호'] ?? ''),
+    region: String(row.region ?? row['지역'] ?? ''),
+    district: String(row.district ?? row['시군구'] ?? ''),
+    address: String(row.address ?? row['주소'] ?? ''),
+    contractAmount: Number(String(row.contractAmount ?? row['계약금액'] ?? row.amount ?? 0).replace(/[^0-9]/g, '')) || 0,
+    salesOwner: String(row.salesOwner ?? row['영업담당자'] ?? row['담당자'] ?? ''),
+    rawStatus,
+    status,
+    channel: mapped?.channel,
+    subChannel: mapped?.subChannel || rawSubChannel,
+    sourceRaw: String(row.sourceRaw ?? row['유입경로'] ?? ''),
+    matchKey: String(row.matchKey ?? row.consultingNumber ?? row.phone ?? ''),
+    uploadedAt: String(row.uploadedAt ?? new Date().toISOString()),
+    updatedAt: String(row.updatedAt ?? ''),
+    rawData: typeof row.rawData === 'string' ? undefined : row.rawData,
+  }
+}
+
+function normalizeProjectStatus(raw: unknown, amountRaw?: unknown): ProjectStatus {
+  const text = String(raw ?? '').toLowerCase()
+  const amount = Number(String(amountRaw ?? '').replace(/[^0-9]/g, '')) || 0
+  if (/테스트|test|샘플/.test(text)) return 'test'
+  if (/취소|환불|해지|무효|반려|보류|실패/.test(text)) return 'canceled'
+  if (/계약금\s*입금\s*완료|입금완료|계약완료|계약확정|계약\s*확정|완납/.test(text)) return 'contracted'
+  if (amount > 0 && /계약/.test(text)) return 'contracted'
+  return text === 'contracted' ? 'contracted' : 'pending'
 }
 
 async function getSheetRows(type: SheetType) {
@@ -1300,6 +1344,49 @@ export async function fetchAdSpend(startDate?: string, endDate?: string): Promis
     .map((row, i) => normalizeSpend(row, i, mappings))
     .filter((r: AdSpend) => inRange(r.date, startDate, endDate))
     .sort((a: AdSpend, b: AdSpend) => b.date.localeCompare(a.date))
+}
+
+function projectRowsFromProjects(projects: Omit<ProjectRecord, 'id' | 'uploadedAt'>[]) {
+  const uploadedAt = new Date().toISOString()
+  return projects.map(project => ({
+    projectNumber: project.projectNumber || '',
+    consultingNumber: project.consultingNumber || '',
+    contractDate: project.contractDate,
+    customerName: project.customerName,
+    phone: project.phone,
+    region: project.region || '',
+    district: project.district || '',
+    address: project.address || '',
+    contractAmount: project.contractAmount || 0,
+    salesOwner: project.salesOwner || '',
+    rawStatus: project.rawStatus || '',
+    status: project.status,
+    channel: project.channel || '',
+    subChannel: project.subChannel || '',
+    sourceRaw: project.sourceRaw || '',
+    matchKey: project.matchKey || project.consultingNumber || project.phone || project.projectNumber || '',
+    uploadedAt,
+  }))
+}
+
+export async function saveProjects(projects: Omit<ProjectRecord, 'id' | 'uploadedAt'>[]) {
+  const rows = projectRowsFromProjects(projects)
+  if (rows.length > 0) await postSheetRows('projects', rows, '/upload-projects')
+  notifyDataUpdated()
+}
+
+export async function uploadProjectFile(file: File) {
+  const parsed = await parseProjectsExcel(file)
+  await saveProjects(parsed.valid)
+  return parsed
+}
+
+export async function fetchProjects(startDate?: string, endDate?: string): Promise<ProjectRecord[]> {
+  const [mappings, rows] = await Promise.all([fetchMappings(), getSheetRows('projects')])
+  return rows
+    .map((row, i) => normalizeProject(row, i, mappings))
+    .filter(project => project.contractDate && inRange(project.contractDate, startDate, endDate))
+    .sort((a, b) => b.contractDate.localeCompare(a.contractDate))
 }
 
 export async function fetchKpiTargets(): Promise<KpiTarget[]> {

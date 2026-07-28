@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Radio, Upload, BadgeDollarSign,
-  MapPin, GitMerge, ChevronRight, Megaphone, Users, Menu, X, ClipboardList, ShieldCheck, LogOut, Target
+  MapPin, GitMerge, ChevronRight, Megaphone, Users, Menu, X, ClipboardList, ShieldCheck, LogOut, Target, Briefcase, FileSpreadsheet
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../contexts/AuthContext'
@@ -17,8 +17,10 @@ const NAV = [
   { to: '/region',        icon: MapPin,             label: '지역별 통계' },
   { to: '/db-manage',     icon: Users,              label: 'DB관리' },
   { to: '/upload-db',     icon: Upload,             label: 'DB 업로드' },
+  { to: '/upload-projects', icon: FileSpreadsheet,   label: '프로젝트 업로드' },
   { to: '/upload-spend',  icon: BadgeDollarSign,    label: '광고비 업로드' },
   { to: '/manage-spend',  icon: ClipboardList,      label: '광고비 관리' },
+  { to: '/sales-performance', icon: Briefcase, label: '영업관리' },
   { to: '/admin-users',   icon: ShieldCheck,       label: '관리자 계정 관리' },
 ]
 

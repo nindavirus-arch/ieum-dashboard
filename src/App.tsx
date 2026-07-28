@@ -3,6 +3,7 @@ import Layout from './components/Layout'
 import DashboardPage from './pages/DashboardPage'
 import ChannelsPage from './pages/ChannelsPage'
 import UploadDBPage from './pages/UploadDBPage'
+import UploadProjectsPage from './pages/UploadProjectsPage'
 import DBManagePage from './pages/DBManagePage'
 import UploadAdSpendPage from './pages/UploadAdSpendPage'
 import RegionPage from './pages/RegionPage'
@@ -10,6 +11,7 @@ import FunnelPage from './pages/FunnelPage'
 import AdSpendManagePage from './pages/AdSpendManagePage'
 import AdminUsersPage from './pages/AdminUsersPage'
 import OnlineKpiPage from './pages/OnlineKpiPage'
+import SalesPerformancePage from './pages/SalesPerformancePage'
 import AuthPage from './pages/AuthPage'
 import { useAuth } from './contexts/AuthContext'
 import { canAccess, defaultPath } from './lib/auth'
@@ -34,8 +36,10 @@ export default function App() {
       {allowed('/region', <RegionPage />)}
       {allowed('/db-manage', <DBManagePage />)}
       {allowed('/upload-db', <UploadDBPage />)}
+      {allowed('/upload-projects', <UploadProjectsPage />)}
       {allowed('/upload-spend', <UploadAdSpendPage />)}
       {allowed('/manage-spend', <AdSpendManagePage />)}
+      {allowed('/sales-performance', <SalesPerformancePage />)}
       {allowed('/admin-users', <AdminUsersPage />)}
       <Route path="*" element={<Navigate to={home} replace />} />
     </Routes>

@@ -3,10 +3,11 @@ import { useEffect, useState } from 'react'
 import { endOfMonth, endOfYear, format, parseISO, startOfMonth, startOfYear, subDays } from 'date-fns'
 import { HelpCircle, RefreshCw, TrendingUp } from 'lucide-react'
 import { Bar, CartesianGrid, ComposedChart, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { fetchLeads, fetchAdSpend } from '../lib/dataService'
-import type { LeadRecord, AdSpend, ViewMode } from '../types'
+import { fetchLeads, fetchAdSpend, fetchProjects } from '../lib/dataService'
+import type { LeadRecord, AdSpend, ViewMode, ProjectRecord } from '../types'
 import clsx from 'clsx'
 import { buildLeadJourneys, isPaidChannel, trafficGroup, type TrafficGroup } from '../lib/leadMetrics'
+import { buildProjectAttribution, contractedProjects } from '../lib/projectMetrics'
 import DataUpdatedAt from '../components/DataUpdatedAt'
 
 const CHANNELS = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment','direct','tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','inbound_call','etc'] as const
@@ -91,6 +92,7 @@ function detailLabel(ch: string, subChannel?: string) {
 export default function ChannelsPage() {
   const [leads, setLeads] = useState<LeadRecord[]>([])
   const [spends, setSpends] = useState<AdSpend[]>([])
+  const [projects, setProjects] = useState<ProjectRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>('daily')
   const [selectedDate, setSelectedDate] = useState(today)
@@ -99,8 +101,8 @@ export default function ChannelsPage() {
 
   async function load() {
     setLoading(true)
-    const [l, s] = await Promise.all([fetchLeads(undefined, undefined, { includeRawAttribution: true }), fetchAdSpend()])
-    setLeads(l); setSpends(s); setLoading(false)
+    const [l, s, p] = await Promise.all([fetchLeads(undefined, undefined, { includeRawAttribution: true }), fetchAdSpend(), fetchProjects().catch(() => [])])
+    setLeads(l); setSpends(s); setProjects(p); setLoading(false)
   }
 
   useEffect(() => { load() }, [])
@@ -109,10 +111,15 @@ export default function ChannelsPage() {
   const periodJourneys = buildLeadJourneys(leads).filter(journey => journey.lead.date >= range.start && journey.lead.date <= range.end)
   const periodLeads = periodJourneys.map(journey => journey.lead)
   const periodSpends = spends.filter(spend => spend.date >= range.start && spend.date <= range.end)
+  const periodContracts = buildProjectAttribution(
+    contractedProjects(projects).filter(project => project.contractDate >= range.start && project.contractDate <= range.end),
+    leads
+  )
   const leadInScope = (lead: LeadRecord) => channelScope === 'all' || trafficGroup(lead) === channelScope
   const scopedChannels = CHANNELS.filter(ch =>
     periodLeads.some(lead => lead.channel === ch && leadInScope(lead)) ||
-    periodSpends.some(spend => spend.channel === ch && isPaidChannel(spend.channel) && (channelScope === 'all' || channelScope === 'paid'))
+    periodSpends.some(spend => spend.channel === ch && isPaidChannel(spend.channel) && (channelScope === 'all' || channelScope === 'paid')) ||
+    periodContracts.some(project => project.attributedChannel === ch && (channelScope === 'all' || channelScope === 'paid'))
   )
   const visibleChannels = filterChannel === 'all' ? scopedChannels : scopedChannels.filter(ch => ch === filterChannel)
 
@@ -124,6 +131,11 @@ export default function ChannelsPage() {
     const validDB = firstDB + secondDB
     const spend = isPaidChannel(ch) ? periodSpends.filter(s => s.channel === ch).reduce((a, b) => a + b.amount, 0) : 0
     const cpl = validDB > 0 ? Math.round(spend / validDB) : 0
+    const contracts = periodContracts.filter(project => project.attributedChannel === ch && (channelScope === 'all' || channelScope === 'paid'))
+    const contractCount = contracts.length
+    const contractAmount = contracts.reduce((sum, project) => sum + project.contractAmount, 0)
+    const contractRate = validDB > 0 ? ((contractCount / validDB) * 100).toFixed(1) : '0.0'
+    const costPerContract = contractCount > 0 ? Math.round(spend / contractCount) : 0
     const converted = periodJourneys.filter(journey => journey.lead.channel === ch && leadInScope(journey.lead) && journey.secondType === 'estimate_to_consult').length
     const convRate = firstDB + converted > 0 ? ((converted / (firstDB + converted)) * 100).toFixed(1) : '0.0'
     const label = ch === 'direct' && channelScope === 'external'
@@ -137,7 +149,7 @@ export default function ChannelsPage() {
             : CHANNEL_LABELS[ch]
     const estimateBase = firstDB + converted
     const directSecond = Math.max(secondDB - converted, 0)
-    return { ch, label, color: CHANNEL_COLORS[ch], spend, cFunnel, firstDB, validDB, secondDB, cpl, converted, estimateBase, directSecond, convRate }
+    return { ch, label, color: CHANNEL_COLORS[ch], spend, cFunnel, firstDB, validDB, secondDB, cpl, contractCount, contractAmount, contractRate, costPerContract, converted, estimateBase, directSecond, convRate }
   })
 
   const totalStatSpend = baseStats.reduce((sum, row) => sum + row.spend, 0)
@@ -161,6 +173,7 @@ export default function ChannelsPage() {
   const channelMatches = (lead: LeadRecord) => leadInScope(lead) && (filterChannel === 'all' || lead.channel === filterChannel)
   periodLeads.filter(channelMatches).forEach(l => detailKeys.add(`${l.channel}__${detailLabel(l.channel, l.subChannel)}`))
   periodSpends.filter(s => (channelScope === 'all' || channelScope === 'paid') && (filterChannel === 'all' || s.channel === filterChannel)).forEach(s => detailKeys.add(`${s.channel}__${detailLabel(s.channel, s.subChannel)}`))
+  periodContracts.filter(project => filterChannel === 'all' || project.attributedChannel === filterChannel).forEach(project => detailKeys.add(`${project.attributedChannel}__${detailLabel(project.attributedChannel, project.attributedSubChannel)}`))
   const detailStats = Array.from(detailKeys).map(key => {
     const [ch, label] = key.split('__')
     const detailLeads = periodLeads.filter(l => l.channel === ch && leadInScope(l) && detailLabel(l.channel, l.subChannel) === label)
@@ -172,7 +185,12 @@ export default function ChannelsPage() {
       .filter(s => s.channel === ch && detailLabel(s.channel, s.subChannel) === label)
       .reduce((a, b) => a + b.amount, 0) : 0
     const cpl = validDB > 0 ? Math.round(spend / validDB) : 0
-    return { key, ch, channelLabel: CHANNEL_LABELS[ch] || ch, label, color: CHANNEL_COLORS[ch] || '#94A3B8', spend, cFunnel, firstDB, validDB, secondDB, cpl }
+    const contracts = periodContracts.filter(project => project.attributedChannel === ch && detailLabel(project.attributedChannel, project.attributedSubChannel) === label)
+    const contractCount = contracts.length
+    const contractAmount = contracts.reduce((sum, project) => sum + project.contractAmount, 0)
+    const costPerContract = contractCount > 0 ? Math.round(spend / contractCount) : 0
+    const contractRate = validDB > 0 ? ((contractCount / validDB) * 100).toFixed(1) : '0.0'
+    return { key, ch, channelLabel: CHANNEL_LABELS[ch] || ch, label, color: CHANNEL_COLORS[ch] || '#94A3B8', spend, cFunnel, firstDB, validDB, secondDB, cpl, contractCount, contractAmount, costPerContract, contractRate }
   }).filter(r => r.spend > 0 || r.validDB > 0 || r.cFunnel > 0)
     .sort((a, b) => {
       const channelDiff = CHANNELS.indexOf(a.ch as typeof CHANNELS[number]) - CHANNELS.indexOf(b.ch as typeof CHANNELS[number])
@@ -181,6 +199,13 @@ export default function ChannelsPage() {
       const bRank = DETAIL_ORDER.indexOf(b.label)
       return (aRank < 0 ? 999 : aRank) - (bRank < 0 ? 999 : bRank) || a.label.localeCompare(b.label)
     })
+  const contractTop = [...detailStats]
+    .filter(row => row.contractCount > 0)
+    .sort((a, b) => b.contractCount - a.contractCount || b.contractAmount - a.contractAmount)
+    .slice(0, 5)
+  const contractList = [...periodContracts]
+    .filter(project => filterChannel === 'all' || project.attributedChannel === filterChannel)
+    .sort((a, b) => b.contractDate.localeCompare(a.contractDate))
   const inputValue = viewMode === 'monthly' ? selectedDate.slice(0, 7) : viewMode === 'yearly' ? selectedDate.slice(0, 4) : selectedDate
   function changeDate(value: string) {
     if (!value) return
@@ -327,12 +352,16 @@ export default function ChannelsPage() {
               <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">1차 DB</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">2차 DB</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">CPL</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">계약건수</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">계약금액</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">DB→계약율</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">계약당 광고비</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">광고 효율</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">견적→상담</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {stats.map(({ ch, label, color, spend, cFunnel, firstDB, validDB, secondDB, cpl, converted, estimateBase, directSecond, convRate, spendShare, dbShare, efficiency }) => (
+            {stats.map(({ ch, label, color, spend, cFunnel, firstDB, validDB, secondDB, cpl, contractCount, contractAmount, contractRate, costPerContract, converted, estimateBase, directSecond, convRate, spendShare, dbShare, efficiency }) => (
               <tr key={ch} className="hover:bg-slate-50/60 transition-colors">
                 <td className="px-4 py-3.5">
                   <div className="flex items-center gap-2.5">
@@ -366,6 +395,25 @@ export default function ChannelsPage() {
                     `결과: 건당 ${cpl.toLocaleString()}원`,
                   ] : ['유효 DB가 없어 CPL을 계산하지 않습니다.']}>
                     <span>{validDB > 0 ? `${fmtKRW(cpl)}원` : '-'}</span>
+                  </MetricExplain>
+                </td>
+                <td className="px-4 py-3.5 text-right font-semibold text-indigo-700">{contractCount.toLocaleString()}</td>
+                <td className="px-4 py-3.5 text-right font-medium text-slate-700">{fmtKRW(contractAmount)}원</td>
+                <td className="px-4 py-3.5 text-right">
+                  <MetricExplain lines={validDB > 0 ? [
+                    `계약 ${contractCount}건 ÷ 유효 DB ${validDB}건 × 100`,
+                    `유효 DB = 1차 ${firstDB}건 + 2차 ${secondDB}건`,
+                    `결과: ${contractRate}%`,
+                  ] : ['유효 DB가 없어 DB 대비 계약율을 계산하지 않습니다.']}>
+                    <span className="font-medium text-slate-700">{validDB > 0 ? `${contractRate}%` : '-'}</span>
+                  </MetricExplain>
+                </td>
+                <td className="px-4 py-3.5 text-right">
+                  <MetricExplain lines={contractCount > 0 ? [
+                    `광고비 ${spend.toLocaleString()}원 ÷ 계약 ${contractCount}건`,
+                    `결과: 계약당 ${costPerContract.toLocaleString()}원`,
+                  ] : ['계약건수가 없어 계약당 광고비를 계산하지 않습니다.']}>
+                    <span className="font-medium text-slate-700">{contractCount > 0 ? `${fmtKRW(costPerContract)}원` : '-'}</span>
                   </MetricExplain>
                 </td>
                 <td className="px-4 py-3.5 text-right">
@@ -424,6 +472,14 @@ export default function ChannelsPage() {
                   <span>{totalStatDB > 0 ? `${fmtKRW(Math.round(totalStatSpend/totalStatDB))}원` : '-'}</span>
                 </MetricExplain>
               </td>
+              <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">{stats.reduce((a,b)=>a+b.contractCount,0).toLocaleString()}</td>
+              <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">{fmtKRW(stats.reduce((a,b)=>a+b.contractAmount,0))}원</td>
+              <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">
+                {totalStatDB > 0 ? `${((stats.reduce((a,b)=>a+b.contractCount,0) / totalStatDB) * 100).toFixed(1)}%` : '-'}
+              </td>
+              <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">
+                {stats.reduce((a,b)=>a+b.contractCount,0) > 0 ? `${fmtKRW(Math.round(totalStatSpend / stats.reduce((a,b)=>a+b.contractCount,0)))}원` : '-'}
+              </td>
               <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">
                 <MetricExplain lines={totalStatSpend > 0 && totalStatDB > 0 ? [
                   '전체 DB 점유율 100% ÷ 전체 광고비 점유율 100% × 100',
@@ -447,6 +503,62 @@ export default function ChannelsPage() {
             </tr>
           </tfoot>
         </table>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[0.9fr_1.4fr]">
+        <div className="card overflow-hidden">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <p className="text-xs font-semibold text-slate-700">계약 기여 상세매체 TOP 5</p>
+          </div>
+          <div className="divide-y divide-slate-50">
+            {contractTop.map(row => (
+              <div key={`contract_top_${row.key}`} className="flex items-center justify-between gap-3 px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">{row.label}</p>
+                  <p className="text-xs text-slate-400">{row.channelLabel} · 계약금액 {fmtKRW(row.contractAmount)}원</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-bold text-indigo-700">{row.contractCount}건</p>
+                  <p className="text-xs text-slate-400">계약당 {row.costPerContract > 0 ? `${fmtKRW(row.costPerContract)}원` : '-'}</p>
+                </div>
+              </div>
+            ))}
+            {!contractTop.length && <div className="px-4 py-8 text-center text-sm text-slate-400">조회기간 내 계약 데이터가 없습니다.</div>}
+          </div>
+        </div>
+
+        <div className="card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+            <p className="text-xs font-semibold text-slate-700">계약 발생 리스트</p>
+            <span className="text-xs text-slate-400">계약일 기준 {contractList.length}건</span>
+          </div>
+          <div className="max-h-72 overflow-auto">
+            <table className="w-full min-w-[780px] text-xs">
+              <thead className="sticky top-0 bg-slate-50 text-slate-500">
+                <tr>
+                  {['계약일', '고객명', '매체', '상세매체', '영업담당자', '계약금액'].map(header => <th key={header} className="px-3 py-2 text-left font-medium">{header}</th>)}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {contractList.map(project => (
+                  <tr key={`${project.contractDate}_${project.phone}_${project.projectNumber}`} className="hover:bg-slate-50">
+                    <td className="px-3 py-2 text-slate-600">{project.contractDate}</td>
+                    <td className="px-3 py-2 font-medium text-slate-700">{project.customerName || '-'}</td>
+                    <td className="px-3 py-2 text-slate-600">{CHANNEL_LABELS[project.attributedChannel] || project.attributedChannel}</td>
+                    <td className="px-3 py-2 text-slate-600">{detailLabel(project.attributedChannel, project.attributedSubChannel)}</td>
+                    <td className="px-3 py-2 text-slate-600">{project.salesOwner || '-'}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-slate-800">{fmtKRW(project.contractAmount)}원</td>
+                  </tr>
+                ))}
+                {!contractList.length && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-slate-400">조회기간 내 계약 데이터가 없습니다.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       {/* Detail media CPL */}
@@ -477,7 +589,7 @@ export default function ChannelsPage() {
           {!detailStats.length && <div className="p-8 text-center text-sm text-slate-400">조회된 상세매체 데이터가 없습니다.</div>}
         </div>
         <div className="hidden overflow-auto md:block">
-          <table className="w-full text-sm min-w-[860px]">
+          <table className="w-full text-sm min-w-[1120px]">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100">
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500">매체</th>
@@ -487,10 +599,13 @@ export default function ChannelsPage() {
                 <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">1차 DB</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">2차 DB</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">CPL</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">계약건수</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">계약금액</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">계약당 광고비</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {detailStats.map(({ key, channelLabel, label, color, spend, cFunnel, firstDB, secondDB, cpl }) => (
+              {detailStats.map(({ key, channelLabel, label, color, spend, cFunnel, firstDB, secondDB, cpl, contractCount, contractAmount, costPerContract }) => (
                 <tr key={key} className="hover:bg-slate-50/60">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -513,11 +628,14 @@ export default function ChannelsPage() {
                       <span>{firstDB + secondDB > 0 ? `${fmtKRW(cpl)}원` : '-'}</span>
                     </MetricExplain>
                   </td>
+                  <td className="px-4 py-3 text-right font-semibold text-indigo-700">{contractCount.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-800">{fmtKRW(contractAmount)}원</td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-800">{contractCount > 0 ? `${fmtKRW(costPerContract)}원` : '-'}</td>
                 </tr>
               ))}
               {!detailStats.length && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-slate-400">조회된 상세매체 데이터가 없습니다.</td>
+                  <td colSpan={10} className="px-4 py-10 text-center text-slate-400">조회된 상세매체 데이터가 없습니다.</td>
                 </tr>
               )}
             </tbody>

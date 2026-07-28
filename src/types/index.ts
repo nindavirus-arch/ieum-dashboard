@@ -5,6 +5,7 @@ export type DBTier = 'retarget' | 'first' | 'second' | 'first_reentry' | 'second
 export type DBStatus = 'retarget' | 'first' | 'second' | 'first_reentry' | 'second_reentry' | 'invalid' | 'test' | 'duplicate' | 'deleted' | 'valid'
 export type SourceKind = 'first_raw' | 'second_raw' | 'unknown'
 export type ViewMode = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom'
+export type ProjectStatus = 'contracted' | 'pending' | 'canceled' | 'test'
 
 export interface LeadRecord {
   id: string
@@ -58,6 +59,29 @@ export interface AdSpend {
   amount: number        // 원 단위
   memo?: string
   registrant?: string
+}
+
+export interface ProjectRecord {
+  id: string
+  projectNumber?: string
+  consultingNumber?: string
+  contractDate: string  // YYYY-MM-DD
+  customerName: string
+  phone: string
+  region?: string
+  district?: string
+  address?: string
+  contractAmount: number
+  salesOwner?: string
+  rawStatus?: string
+  status: ProjectStatus
+  channel?: Channel
+  subChannel?: string
+  sourceRaw?: string
+  matchKey?: string
+  uploadedAt: string
+  updatedAt?: string
+  rawData?: Record<string, unknown>
 }
 
 export interface DashboardSummary {
