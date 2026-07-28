@@ -1140,6 +1140,20 @@ function rawLeadSortValue(lead: LeadRecord): string {
   return String((lead as any).registeredAt || lead.date || '')
 }
 
+function hasLeadOwner(lead?: LeadRecord) {
+  const owner = String((lead as any)?.salesOwner || '').trim()
+  return !!owner && owner !== '-' && owner !== '미배정' && owner !== '시스템'
+}
+
+function chooseRawLeadForOwner(current: LeadRecord | undefined, next: LeadRecord) {
+  if (!current) return next
+  const currentHasOwner = hasLeadOwner(current)
+  const nextHasOwner = hasLeadOwner(next)
+  if (!currentHasOwner && nextHasOwner) return next
+  if (currentHasOwner && !nextHasOwner) return current
+  return rawLeadSortValue(next).localeCompare(rawLeadSortValue(current)) > 0 ? next : current
+}
+
 function buildLeadRowsFromRaw(firstRawRows: any[], secondRawRows: any[], mappings: MappingRow[]): LeadRecord[] {
   const firstLeads = firstRawRows
     .map((row, i) => normalizeLead({
@@ -1155,7 +1169,7 @@ function buildLeadRowsFromRaw(firstRawRows: any[], secondRawRows: any[], mapping
 
   const firstByPhone = new Map<string, LeadRecord>()
   firstLeads.forEach((lead: LeadRecord) => {
-    if (!firstByPhone.has(lead.phone)) firstByPhone.set(lead.phone, lead)
+    firstByPhone.set(lead.phone, chooseRawLeadForOwner(firstByPhone.get(lead.phone), lead))
   })
 
   const secondLeads = secondRawRows
@@ -1178,6 +1192,8 @@ function buildLeadRowsFromRaw(firstRawRows: any[], secondRawRows: any[], mapping
         building: (lead as any).building || (first as any).building || '',
         brand: (lead as any).brand || (first as any).brand || '',
         pyeong: (lead as any).pyeong || (first as any).pyeong || '',
+        salesOwner: (lead as any).salesOwner || (first as any).salesOwner || '',
+        operator: (lead as any).operator || (first as any).operator || '',
       } as LeadRecord
     })
 
