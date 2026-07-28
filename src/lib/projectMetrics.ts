@@ -12,7 +12,7 @@ function leadSortValue(lead: LeadRecord) {
 }
 
 export function contractedProjects(projects: ProjectRecord[]) {
-  return projects.filter(project => project.status === 'contracted')
+  return projects.filter(project => project.status === 'contracted' && Number(project.contractAmount || 0) > 0)
 }
 
 export function buildProjectAttribution(projects: ProjectRecord[], leads: LeadRecord[]): AttributedProject[] {
@@ -40,7 +40,7 @@ export function buildProjectAttribution(projects: ProjectRecord[], leads: LeadRe
       ...project,
       attributedChannel: project.channel || matchedLead?.channel || 'etc',
       attributedSubChannel: project.subChannel || matchedLead?.subChannel || project.sourceRaw || '미확인',
-      attributedSalesOwner: project.salesOwner || matchedLead?.salesOwner || '',
+      attributedSalesOwner: matchedLead?.salesOwner || project.salesOwner || '',
       attributionSource,
     }
   })

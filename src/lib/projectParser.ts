@@ -69,14 +69,14 @@ function normalizeProjectRow(row: Record<string, unknown>, fallbackDate: Date): 
   const rawContractDate = getCell(row, [
     '등록일시', '등록 일시', '등록일', '등록 일자', '등록날짜',
     '계약일', '계약일자', '계약 날짜', '계약금입금일', '입금일',
-    '작성일', '생성일', 'createdAt', 'contractDate'
+    'contractDate'
   ])
   const contractDate = String(rawContractDate || '').trim() ? normalizeDate(rawContractDate, fallbackDate) : ''
   const address = String(getCell(row, ['주소', '현장주소', '시공주소', '고객주소', 'address']) || '').trim()
   const regionCell = String(getCell(row, ['지역', '시도', '시/도', '거주지역', '현장지역']) || '').trim()
   const districtCell = String(getCell(row, ['군구', '시군구', '시/군/구', '구군', '구/군']) || '').trim()
   const amount = projectAmount(row)
-  const salesOwner = String(getCell(row, ['영업담당자', '영업 담당자', '담당자', '배정담당자', '배정', 'salesOwner', 'manager']) || '').trim()
+  const salesOwner = String(getCell(row, ['영업담당자', '영업 담당자', '영업 담당', '영업담당자명', '영업 담당자명', '담당자', '배정담당자', '배정 담당자', '배정', '지점장', '담당 지점장', 'salesOwner', 'manager']) || '').trim()
   const rawStatus = String(getCell(row, ['상태', '계약상태', '프로젝트상태', '진행상태', '결과', 'status']) || '').trim()
   const sourceRaw = String(getCell(row, ['유입경로', '유입경로 원본', '매체', '광고매체', 'source', 'sourceRaw']) || '').trim()
   const subRaw = String(getCell(row, ['상세매체', '상세 매체', '유입상세', 'utm_campaign', 'campaign']) || '').trim()
