@@ -174,7 +174,7 @@ export default function OnlineKpiReport({ acquisitions, conversions, spends, tar
   const targetRate = period.minTarget > 0 ? (period.rows.length / period.minTarget) * 100 : 0
 
   return (
-    <div className="fixed inset-0 z-[80] overflow-y-auto bg-slate-900/70 p-3 md:p-6">
+    <div className="kpi-report-modal fixed inset-0 z-[80] overflow-y-auto bg-slate-900/70 p-3 md:p-6">
       <div className="no-print sticky top-0 z-10 mx-auto mb-4 flex max-w-[1120px] flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-3 shadow-lg">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-1">

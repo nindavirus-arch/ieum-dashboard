@@ -37,12 +37,22 @@
     visibility: visible !important;
   }
 
+  .kpi-report-modal {
+    position: static !important;
+    inset: auto !important;
+    z-index: auto !important;
+    display: block !important;
+    overflow: visible !important;
+    background: white !important;
+    padding: 0 !important;
+  }
+
   .kpi-report-print-root {
-    position: absolute !important;
-    inset: 0 !important;
+    position: static !important;
     width: 100% !important;
     max-width: none !important;
     margin: 0 !important;
+    display: block !important;
   }
 
   .no-print {
@@ -50,10 +60,14 @@
   }
 
   .report-sheet {
+    width: 100% !important;
     min-height: 185mm;
     border: 0 !important;
     border-radius: 0 !important;
     box-shadow: none !important;
+    overflow: visible !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
     page-break-after: always;
     break-after: page;
   }
