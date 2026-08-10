@@ -218,6 +218,18 @@ function sanitizeSubChannelForChannel(channel: Channel, subChannel: string, cont
   return subChannel || inferSubChannel({ channel, source: context.source, sourceRaw: context.sourceRaw, medium: context.medium, campaign: context.campaign, content: context.content, term: context.term })
 }
 
+function hasUsefulAttribution(lead: LeadRecord) {
+  return !isWeakChannel(lead.channel) || Boolean(String((lead as any).source_raw || '').trim())
+}
+
+function shouldRefreshExistingAttribution(existing: LeadRecord, incoming: LeadRecord) {
+  if (!hasUsefulAttribution(incoming)) return false
+  if (isWeakChannel(existing.channel) && !isWeakChannel(incoming.channel)) return true
+  if (!String((existing as any).source_raw || '').trim() && String((incoming as any).source_raw || '').trim()) return true
+  if ((existing.subChannel || '기타') === '기타' && incoming.subChannel && incoming.subChannel !== '기타') return true
+  return false
+}
+
 function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRecord {
   const uploadedAt = String(row.uploadedAt ?? row.uploaded_at ?? row._uploadedAt ?? new Date().toISOString())
   const normalizedDate = normalizeDate(row.date ?? row.날짜 ?? row.등록일 ?? row.등록일시 ?? row.신청일 ?? row._parsed_date, new Date(uploadedAt))
@@ -225,13 +237,13 @@ function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRe
   const phone = normalizePhone(row.phone ?? row.연락처 ?? row.휴대폰번호 ?? row['휴대폰 번호'] ?? row._parsed_phone ?? '')
   const consultingNumber = String(row.consultingNumber ?? row.consulting_number ?? row.consultingNo ?? row.consulting_no ?? row['컨설팅 번호'] ?? row['컨설팅번호'] ?? row._parsed_consultingNumber ?? '').trim()
 
-  const utm_source = String(row.utm_source ?? row.utmSource ?? row.source ?? row.소스 ?? '')
+  const utm_source = String(row.utm_source ?? row.utmSource ?? row.source ?? row.소스 ?? row._parsed_utm_source ?? '')
   const utm_medium = String(row.utm_medium ?? row.utmMedium ?? row.medium ?? row.미디엄 ?? '')
   const utm_campaign = String(row.utm_campaign ?? row.utmCampaign ?? row.campaign ?? row.캠페인 ?? '')
   const utm_content = String(row.utm_content ?? row.utmContent ?? row.content ?? row.콘텐츠 ?? '')
   const utm_term = String(row.utm_term ?? row.utmTerm ?? row.term ?? row.키워드 ?? '')
   const consultingType = row.consultingType ?? row.consulting_type ?? row['컨설팅 타입'] ?? row.컨설팅타입 ?? row['상담 타입'] ?? row.상담타입 ?? ''
-  const source_raw_base = String(row.source_raw ?? row.sourceRaw ?? row.유입경로 ?? row['유입 경로'] ?? row.source ?? '')
+  const source_raw_base = String(row.source_raw ?? row.sourceRaw ?? row['유입경로 원본'] ?? row['유입 경로 원본'] ?? row.유입경로 ?? row['유입 경로'] ?? row.유입매체 ?? row['유입 매체'] ?? row.source ?? row._parsed_source_raw ?? '')
   const source_raw = String(isDirectSalesText(consultingType) ? consultingType : (source_raw_base || consultingType))
   const baseChannel = normalizeChannel(row.channel ?? row.최종매체 ?? row.매체 ?? row._parsed_channel ?? '')
   const mapped = applyChannelMapping({ channel: baseChannel, subChannel: String(row.subChannel ?? row.상세매체 ?? ''), utm_source, source_raw, utm_medium, utm_campaign, utm_content, utm_term }, mappings)
@@ -457,6 +469,12 @@ function rawRowsFromLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]) {
       _parsed_salesOwner: (lead as any).salesOwner || '',
       _parsed_consultationResult: (lead as any).consultationResult || '',
       _parsed_memo: (lead as any).memo || '',
+      _parsed_utm_source: (lead as any).utm_source || '',
+      _parsed_utm_medium: (lead as any).utm_medium || '',
+      _parsed_utm_campaign: (lead as any).utm_campaign || '',
+      _parsed_utm_content: (lead as any).utm_content || '',
+      _parsed_utm_term: (lead as any).utm_term || '',
+      _parsed_source_raw: (lead as any).source_raw || '',
       _uploadedAt: new Date().toISOString(),
     }
   })
@@ -1102,7 +1120,54 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
     else firstRaw.push(lead)
 
     const sameDayKey = `${normalizedLead.phone}_${bTier}_${normalizedLead.date}`
-    if (byPhoneStageDate.has(sameDayKey)) continue
+    const existingSameDay = byPhoneStageDate.get(sameDayKey)
+    if (existingSameDay) {
+      if (shouldRefreshExistingAttribution(existingSameDay, normalizedLead)) {
+        const refreshed: LeadRecord = {
+          ...existingSameDay,
+          channel: normalizedLead.channel || existingSameDay.channel,
+          subChannel: normalizedLead.subChannel || existingSameDay.subChannel || '',
+          source_raw: (normalizedLead as any).source_raw || (existingSameDay as any).source_raw || '',
+          utm_source: (normalizedLead as any).utm_source || (existingSameDay as any).utm_source || '',
+          utm_medium: (normalizedLead as any).utm_medium || (existingSameDay as any).utm_medium || '',
+          utm_campaign: (normalizedLead as any).utm_campaign || (existingSameDay as any).utm_campaign || '',
+          utm_content: (normalizedLead as any).utm_content || (existingSameDay as any).utm_content || '',
+          utm_term: (normalizedLead as any).utm_term || (existingSameDay as any).utm_term || '',
+          updatedAt: now,
+        } as LeadRecord
+
+        await updateLeadAttribution({
+          phone: existingSameDay.phone,
+          stage: existingSameDay.dbTier,
+          matchDate: existingSameDay.date,
+          registeredAt: (existingSameDay as any).registeredAt,
+          date: refreshed.date,
+          originalDate: (refreshed as any).originalDate,
+          dateOverride: (refreshed as any).dateOverride,
+          dateOverrideReason: (refreshed as any).dateOverrideReason,
+          dateOverrideBy: (refreshed as any).dateOverrideBy,
+          dateOverrideAt: (refreshed as any).dateOverrideAt,
+          consultingNumber: (refreshed as any).consultingNumber,
+          name: refreshed.name,
+          address: (refreshed as any).address,
+          region: refreshed.region,
+          district: refreshed.district,
+          building: (refreshed as any).building,
+          channel: refreshed.channel,
+          subChannel: refreshed.subChannel,
+          sourceRaw: (refreshed as any).source_raw,
+          consultationResult: (refreshed as any).consultationResult,
+          memo: (refreshed as any).memo,
+          operator: (refreshed as any).operator,
+          status: refreshed.status || 'valid',
+        })
+        byPhoneStageDate.set(`${refreshed.phone}_${refreshed.dbTier}_${refreshed.date}`, refreshed)
+        byPhoneStageDate.set(`${refreshed.phone}_${baseTier(refreshed.dbTier)}_${refreshed.date}`, refreshed)
+        rememberLead(refreshed)
+        changed++
+      }
+      continue
+    }
 
     const prevBest = bestByPhone.get(normalizedLead.phone)
     const hasSameStageBefore = stageSeenByPhone.get(normalizedLead.phone)?.has(bTier)

@@ -366,7 +366,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
           const content = getCell(row, ['content', 'utm_content', 'UTM콘텐츠', 'UTM Content', '콘텐츠'])
           const term = getCell(row, ['term', 'utm_term', 'UTM텀', 'UTM Term', '키워드'])
           const params = decodeMaybe(getCell(row, ['params', '파라미터', 'url', 'URL', '링크']))
-          const route = getCell(row, ['유입 경로', '유입경로', '채널', '매체'])
+          const route = getCell(row, ['유입 경로', '유입경로', '유입경로 원본', '유입 경로 원본', '유입매체', '유입 매체', '광고매체', '광고 매체', '채널', '매체'])
           const consultingType = getCell(row, ['컨설팅 타입', '컨설팅타입', '상담 타입', '상담타입', 'consultingType', 'consulting_type'])
           const mediaRoute = isDirectSalesText(consultingType) ? consultingType : (route || consultingType)
           const brand = String(getCell(row, ['브랜드', '시공 브랜드', '시공브랜드', 'brand']) ?? '').trim()
