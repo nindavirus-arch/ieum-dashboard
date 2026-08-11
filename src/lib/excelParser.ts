@@ -307,6 +307,17 @@ function parseDbTierFromConsultingStatus(value: unknown): DBTier | '' {
   return ''
 }
 
+function parseDbTierFromConsultingRow(row: Record<string, unknown>, candidates: unknown[]): DBTier | '' {
+  const direct = parseDbTierFromConsultingStatus(candidates.filter(Boolean).join(' '))
+  if (direct) return direct
+
+  const rowText = Object.entries(row)
+    .filter(([key]) => /컨설팅|상태|상담|요청|견적|유입|경로|route|status|request|estimate/i.test(key))
+    .map(([, value]) => String(value ?? ''))
+    .join(' ')
+  return parseDbTierFromConsultingStatus(rowText)
+}
+
 // ── DB 엑셀 파싱 ──────────────────────────────────────────
 export interface ParsedLeadResult {
   valid: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
@@ -388,7 +399,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
           const channel = inferChannelStrict({ source, sourceRaw: mediaRoute, medium, campaign, content, term })
           const subChannel = inferSubChannel({ channel, source, sourceRaw: mediaRoute, medium, campaign, content, term })
           const explicitDbTier = parseDbTierLabel(getCell(row, ['DB유형', 'DB 유형', 'DB등급', 'DB 등급', 'dbTier', 'stage', 'status']))
-          const statusDbTier = parseDbTierFromConsultingStatus(consultingStatus)
+          const statusDbTier = parseDbTierFromConsultingRow(row, [consultingStatus, route, consultingType, consultationResult, mediaRoute])
 
           if (statusDbTier) {
             dbTier = statusDbTier
