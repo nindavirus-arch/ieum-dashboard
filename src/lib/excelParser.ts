@@ -428,6 +428,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
             dateOverrideClear: dateCorrectionClearByFileName,
             dateOverrideReason: dateCorrectionByFileName ? (dateCorrectionClearByFileName ? '파일명 기준 수동보정 해제' : '파일명 기준 날짜 보정') : '',
             dateOverrideBy: dateCorrectionByFileName ? '업로드' : '',
+            consultingStatusTier: statusDbTier,
             utm_source: String(source ?? ''),
             utm_medium: String(medium ?? ''),
             utm_campaign: String(campaign ?? ''),

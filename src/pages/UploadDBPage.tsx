@@ -2,8 +2,9 @@
 import { useMemo, useState, useRef } from 'react'
 import { Upload, CheckCircle, AlertCircle, FileSpreadsheet, X } from 'lucide-react'
 import { parseLeadExcel, type ParsedLeadResult } from '../lib/excelParser'
-import { uploadLeads } from '../lib/dataService'
+import { fetchLeads, uploadLeads } from '../lib/dataService'
 import clsx from 'clsx'
+import type { DBTier, LeadRecord } from '../types'
 
 type Stage = 'idle' | 'parsing' | 'preview' | 'uploading' | 'done' | 'error'
 
@@ -32,6 +33,63 @@ const TIER_LABELS: Record<string, string> = {
   second: '2차DB',
   first_reentry: '1차 재인입',
   second_reentry: '2차 재인입',
+}
+
+function baseTier(tier: string): string {
+  if (tier === 'first_reentry') return 'first'
+  if (tier === 'second_reentry') return 'second'
+  return tier
+}
+
+function tierRank(tier: string) {
+  const base = baseTier(tier)
+  if (base === 'second') return 3
+  if (base === 'first') return 2
+  return 1
+}
+
+function reconcilePreviewWithExisting(parsed: ParsedLeadResult, existing: LeadRecord[]): ParsedLeadResult {
+  const byPhoneDate = new Map<string, LeadRecord>()
+  existing.forEach((lead) => {
+    if (!lead.phone || !lead.date) return
+    const key = `${lead.phone}_${lead.date}`
+    const prev = byPhoneDate.get(key)
+    if (!prev || tierRank(lead.dbTier) > tierRank(prev.dbTier)) byPhoneDate.set(key, lead)
+  })
+
+  const valid = parsed.valid.map((lead) => {
+    const statusTier = String((lead as any).consultingStatusTier || '') as DBTier | ''
+    const existingSameDate = byPhoneDate.get(`${lead.phone}_${lead.date}`)
+
+    if (statusTier) {
+      return {
+        ...lead,
+        dbTier: statusTier,
+        status: statusTier,
+        previewStageReason: existingSameDate && baseTier(existingSameDate.dbTier) !== statusTier ? '컨설팅상태 기준 기존단계 교정' : '컨설팅상태 기준',
+      } as typeof lead
+    }
+
+    if (existingSameDate) {
+      const existingTier = baseTier(existingSameDate.dbTier) as DBTier
+      return {
+        ...lead,
+        dbTier: existingTier,
+        status: existingTier,
+        previewStageReason: '기존 저장 DB 단계 유지',
+      } as typeof lead
+    }
+
+    return lead
+  })
+
+  return {
+    ...parsed,
+    valid,
+    retargetCount: valid.filter(v => v.dbTier === 'retarget').length,
+    firstCount: valid.filter(v => v.dbTier === 'first').length,
+    secondCount: valid.filter(v => v.dbTier === 'second').length,
+  }
 }
 
 function topCounts<T extends { count: number }>(items: T[], limit = 12) {
@@ -75,7 +133,8 @@ export default function UploadDBPage() {
     setStage('parsing')
     try {
       const parsed = await parseLeadExcel(file)
-      setResult(parsed)
+      const existing = await fetchLeads(undefined, undefined, { includeRawAttribution: false }).catch(() => [])
+      setResult(reconcilePreviewWithExisting(parsed, existing))
       setStage('preview')
     } catch (e: any) {
       setError(String(e?.message ?? e))
@@ -162,8 +221,8 @@ export default function UploadDBPage() {
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
               <div className="card overflow-hidden xl:col-span-2">
                 <div className="px-4 py-3 border-b border-slate-100">
-                  <p className="text-xs font-semibold text-slate-600">엑셀 기준 매체별 검산</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">업로드 전 파싱 결과입니다. 여기서 기타로 보이면 엑셀 유입경로 인식 문제입니다.</p>
+                  <p className="text-xs font-semibold text-slate-600">저장 기준 매체별 검산</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">기존 DB 단계 보호와 컨설팅상태 보정을 반영한 업로드 예정 결과입니다.</p>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
@@ -240,7 +299,7 @@ export default function UploadDBPage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-slate-50 text-slate-500">
-                    {['DB 유입일시','날짜','이름','전화번호','매체','상세매체','유입경로 원본','DB등급','지역'].map(h => (
+                    {['DB 유입일시','날짜','이름','전화번호','매체','상세매체','유입경로 원본','DB등급','분류기준','지역'].map(h => (
                       <th key={h} className="text-left px-3 py-2 font-medium">{h}</th>
                     ))}
                   </tr>
@@ -261,6 +320,7 @@ export default function UploadDBPage() {
                           r.dbTier === 'first' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'
                         )}>{r.dbTier === 'retarget' ? '리타겟' : r.dbTier === 'first' ? '1차' : '2차'}</span>
                       </td>
+                      <td className="px-3 py-2 text-slate-500">{(r as any).previewStageReason || ((r as any).consultingStatusTier ? '컨설팅상태 기준' : '-')}</td>
                       <td className="px-3 py-2 text-slate-500">{r.region} {r.district}</td>
                     </tr>
                   ))}

@@ -102,6 +102,11 @@ function reentryTier(tier: DBTier): DBTier {
   return tier
 }
 
+function explicitConsultingStatusTier(lead: LeadRecord): DBTier | '' {
+  const tier = String((lead as any).consultingStatusTier || '').trim()
+  return tier === 'first' || tier === 'second' || tier === 'retarget' ? tier : ''
+}
+
 function isWeakChannel(ch?: Channel) {
   return !ch || ch === 'etc' || ch === 'direct'
 }
@@ -622,6 +627,7 @@ export async function updateLeadAttribution(params: {
   memo?: string
   operator?: string
   status?: string
+  newStage?: DBTier
   menu?: string
 }) {
   if (SHEET_API_URL.includes('여기에_')) throw new Error('dataService.ts의 SHEET_API_URL에 Apps Script 웹앱 URL을 입력하세요.')
@@ -635,6 +641,8 @@ export async function updateLeadAttribution(params: {
     registeredAt: params.registeredAt || '',
     patch: {
       channel: params.channel,
+      stage: params.newStage,
+      dbTier: params.newStage,
       date: params.date,
       originalDate: params.originalDate,
       dateOverride: params.dateOverride,
@@ -652,7 +660,7 @@ export async function updateLeadAttribution(params: {
       consultationResult: params.consultationResult || '',
       memo: params.memo || '',
       operator: params.operator || '',
-      status: params.status || '',
+      status: params.newStage || params.status || '',
       updatedBy: params.operator || '',
       updatedAt: new Date().toISOString(),
     },
@@ -1009,6 +1017,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
   // 기존 DASHBOARD_LEADS를 기준으로 중복/승격 판단
   const existing = (await getSheetRows('leads')).map((r, i) => normalizeLead(r, i, mappings))
   const byPhoneStageDate = new Map<string, LeadRecord>()
+  const byPhoneDate = new Map<string, LeadRecord>()
   const stageSeenByPhone = new Map<string, Set<string>>()
   const bestByPhone = new Map<string, LeadRecord>()
   const byConsultingNumber = new Map<string, LeadRecord>()
@@ -1023,6 +1032,9 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
     const b = baseTier(r.dbTier)
     byPhoneStageDate.set(`${r.phone}_${r.dbTier}_${r.date}`, r)
     byPhoneStageDate.set(`${r.phone}_${b}_${r.date}`, r)
+    const phoneDateKey = `${r.phone}_${r.date}`
+    const prevSameDate = byPhoneDate.get(phoneDateKey)
+    if (!prevSameDate || tierRank(r.dbTier) > tierRank(prevSameDate.dbTier)) byPhoneDate.set(phoneDateKey, r)
     if (!stageSeenByPhone.has(r.phone)) stageSeenByPhone.set(r.phone, new Set())
     stageSeenByPhone.get(r.phone)!.add(b)
     const prevBest = bestByPhone.get(r.phone)
@@ -1093,6 +1105,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
       uploadedAt: now,
     } as LeadRecord
 
+    const consultingStatusTier = explicitConsultingStatusTier(normalizedLead)
     const bTier = baseTier(normalizedLead.dbTier)
     const incomingConsultingNumber = String((normalizedLead as any).consultingNumber || '').trim()
     const explicitDateCorrection = isExplicitDateCorrectionLead(normalizedLead)
@@ -1151,8 +1164,10 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
         })
         byPhoneStageDate.delete(`${correctionTarget.phone}_${correctionTarget.dbTier}_${correctionTarget.date}`)
         byPhoneStageDate.delete(`${correctionTarget.phone}_${baseTier(correctionTarget.dbTier)}_${correctionTarget.date}`)
+        byPhoneDate.delete(`${correctionTarget.phone}_${correctionTarget.date}`)
         byPhoneStageDate.set(`${corrected.phone}_${corrected.dbTier}_${corrected.date}`, corrected)
         byPhoneStageDate.set(`${corrected.phone}_${baseTier(corrected.dbTier)}_${corrected.date}`, corrected)
+        byPhoneDate.set(`${corrected.phone}_${corrected.date}`, corrected)
         rememberLead(corrected)
         changed++
       }
@@ -1164,6 +1179,63 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
 
     const sameDayKey = `${normalizedLead.phone}_${bTier}_${normalizedLead.date}`
     const existingSameDay = byPhoneStageDate.get(sameDayKey)
+    const existingSameDateAnyStage = byPhoneDate.get(`${normalizedLead.phone}_${normalizedLead.date}`)
+    if (!existingSameDay && existingSameDateAnyStage) {
+      const shouldCorrectStage = Boolean(consultingStatusTier && baseTier(existingSameDateAnyStage.dbTier) !== consultingStatusTier)
+      if (shouldCorrectStage || shouldRefreshExistingAttribution(existingSameDateAnyStage, normalizedLead)) {
+        const nextStage = shouldCorrectStage ? consultingStatusTier as DBTier : existingSameDateAnyStage.dbTier
+        const refreshed: LeadRecord = {
+          ...existingSameDateAnyStage,
+          channel: normalizedLead.channel || existingSameDateAnyStage.channel,
+          subChannel: normalizedLead.subChannel || existingSameDateAnyStage.subChannel || '',
+          source_raw: (normalizedLead as any).source_raw || (existingSameDateAnyStage as any).source_raw || '',
+          utm_source: (normalizedLead as any).utm_source || (existingSameDateAnyStage as any).utm_source || '',
+          utm_medium: (normalizedLead as any).utm_medium || (existingSameDateAnyStage as any).utm_medium || '',
+          utm_campaign: (normalizedLead as any).utm_campaign || (existingSameDateAnyStage as any).utm_campaign || '',
+          utm_content: (normalizedLead as any).utm_content || (existingSameDateAnyStage as any).utm_content || '',
+          utm_term: (normalizedLead as any).utm_term || (existingSameDateAnyStage as any).utm_term || '',
+          dbTier: nextStage,
+          status: nextStage,
+          updatedAt: now,
+        } as LeadRecord
+
+        await updateLeadAttribution({
+          phone: existingSameDateAnyStage.phone,
+          stage: existingSameDateAnyStage.dbTier,
+          matchDate: existingSameDateAnyStage.date,
+          registeredAt: (existingSameDateAnyStage as any).registeredAt,
+          date: refreshed.date,
+          originalDate: (refreshed as any).originalDate,
+          dateOverride: (refreshed as any).dateOverride,
+          dateOverrideReason: (refreshed as any).dateOverrideReason,
+          dateOverrideBy: (refreshed as any).dateOverrideBy,
+          dateOverrideAt: (refreshed as any).dateOverrideAt,
+          consultingNumber: (refreshed as any).consultingNumber,
+          name: refreshed.name,
+          address: (refreshed as any).address,
+          region: refreshed.region,
+          district: refreshed.district,
+          building: (refreshed as any).building,
+          channel: refreshed.channel,
+          subChannel: refreshed.subChannel,
+          sourceRaw: (refreshed as any).source_raw,
+          consultationResult: (refreshed as any).consultationResult,
+          memo: (refreshed as any).memo,
+          operator: (refreshed as any).operator,
+          status: refreshed.status || 'valid',
+          newStage: shouldCorrectStage ? nextStage : undefined,
+        })
+        byPhoneStageDate.delete(`${existingSameDateAnyStage.phone}_${existingSameDateAnyStage.dbTier}_${existingSameDateAnyStage.date}`)
+        byPhoneStageDate.delete(`${existingSameDateAnyStage.phone}_${baseTier(existingSameDateAnyStage.dbTier)}_${existingSameDateAnyStage.date}`)
+        byPhoneStageDate.set(`${refreshed.phone}_${refreshed.dbTier}_${refreshed.date}`, refreshed)
+        byPhoneStageDate.set(`${refreshed.phone}_${baseTier(refreshed.dbTier)}_${refreshed.date}`, refreshed)
+        byPhoneDate.set(`${refreshed.phone}_${refreshed.date}`, refreshed)
+        rememberLead(refreshed)
+        changed++
+        refreshedExisting++
+      }
+      continue
+    }
     if (existingSameDay) {
       if (shouldRefreshExistingAttribution(existingSameDay, normalizedLead)) {
         const refreshed: LeadRecord = {
@@ -1206,6 +1278,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
         })
         byPhoneStageDate.set(`${refreshed.phone}_${refreshed.dbTier}_${refreshed.date}`, refreshed)
         byPhoneStageDate.set(`${refreshed.phone}_${baseTier(refreshed.dbTier)}_${refreshed.date}`, refreshed)
+        byPhoneDate.set(`${refreshed.phone}_${refreshed.date}`, refreshed)
         rememberLead(refreshed)
         changed++
         refreshedExisting++
@@ -1223,6 +1296,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
 
     byPhoneStageDate.set(`${finalLead.phone}_${finalLead.dbTier}_${finalLead.date}`, finalLead)
     byPhoneStageDate.set(`${finalLead.phone}_${baseTier(finalLead.dbTier)}_${finalLead.date}`, finalLead)
+    byPhoneDate.set(`${finalLead.phone}_${finalLead.date}`, finalLead)
     if (!stageSeenByPhone.has(finalLead.phone)) stageSeenByPhone.set(finalLead.phone, new Set())
     stageSeenByPhone.get(finalLead.phone)!.add(baseTier(finalLead.dbTier))
     const currentBest = bestByPhone.get(finalLead.phone)
