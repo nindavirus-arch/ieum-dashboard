@@ -1,0 +1,7 @@
+2026-08-11 speed cache update
+
+- Main dashboard and related summary pages now reuse lightweight sheet data from browser storage for a short period.
+- Cached sheets: leads, ad spend, mapping, KPI targets, projects.
+- RAW sheets are intentionally excluded from browser storage so DB management can keep loading full source data without local storage bloat.
+- Upload, edit, delete, ad spend, KPI, and project saves invalidate the affected cache before notifying screens to refresh.
+- Apps Script replacement is not required for this frontend-only speed update.

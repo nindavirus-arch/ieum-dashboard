@@ -25,6 +25,8 @@ export type KpiTarget = {
 }
 const EXCLUDED_LEAD_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted'])
 const SHEET_CACHE_TTL_MS = 5 * 60_000
+const PERSISTED_SHEET_CACHE_TTL_MS = 10 * 60_000
+const PERSISTED_SHEET_TYPES = new Set<SheetType>(['leads', 'adSpend', 'mapping', 'kpiTargets', 'projects'])
 const sheetCache = new Map<SheetType, { expires: number; data?: any[]; promise?: Promise<any[]> }>()
 export const DATA_UPDATED_EVENT = 'ieum:data-updated'
 let updatedAtCache: { expires: number; value: string } | null = null
@@ -37,6 +39,7 @@ function notifyDataUpdated() {
 
 function clearSheetCache() {
   sheetCache.clear()
+  clearPersistedSheetCache()
 }
 
 function invalidateSheetCache(...types: SheetType[]) {
@@ -44,7 +47,54 @@ function invalidateSheetCache(...types: SheetType[]) {
     clearSheetCache()
     return
   }
-  types.forEach(type => sheetCache.delete(type))
+  types.forEach(type => {
+    sheetCache.delete(type)
+    removePersistedSheetCache(type)
+  })
+}
+
+function persistedSheetCacheKey(type: SheetType) {
+  return `ieum:sheet-cache:${type}`
+}
+
+function readPersistedSheetCache(type: SheetType) {
+  if (!PERSISTED_SHEET_TYPES.has(type) || typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(persistedSheetCacheKey(type))
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed?.expires || parsed.expires <= Date.now() || !Array.isArray(parsed.data)) {
+      window.localStorage.removeItem(persistedSheetCacheKey(type))
+      return null
+    }
+    return parsed.data as any[]
+  } catch {
+    return null
+  }
+}
+
+function writePersistedSheetCache(type: SheetType, data: any[]) {
+  if (!PERSISTED_SHEET_TYPES.has(type) || typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(persistedSheetCacheKey(type), JSON.stringify({
+      expires: Date.now() + PERSISTED_SHEET_CACHE_TTL_MS,
+      data,
+    }))
+  } catch {
+    removePersistedSheetCache(type)
+  }
+}
+
+function removePersistedSheetCache(type: SheetType) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(persistedSheetCacheKey(type))
+  } catch {}
+}
+
+function clearPersistedSheetCache() {
+  if (typeof window === 'undefined') return
+  PERSISTED_SHEET_TYPES.forEach(removePersistedSheetCache)
 }
 
 function cacheTypesForPost(type: PostSheetType): SheetType[] {
@@ -421,6 +471,12 @@ async function getSheetRows(type: SheetType) {
   if (cached?.data && cached.expires > now) return cached.data
   if (cached?.promise) return cached.promise
 
+  const persisted = readPersistedSheetCache(type)
+  if (persisted) {
+    sheetCache.set(type, { data: persisted, expires: now + SHEET_CACHE_TTL_MS })
+    return persisted
+  }
+
   const promise = (async () => {
     const res = await fetch(`${SHEET_API_URL}?type=${type}&token=${encodeURIComponent(getAuthToken())}&menu=${encodeURIComponent(currentMenu())}`)
     if (!res.ok) throw new Error('Google Sheets 데이터를 불러오지 못했습니다.')
@@ -428,6 +484,7 @@ async function getSheetRows(type: SheetType) {
     handleDataError(data)
     const rows = Array.isArray(data) ? data : []
     sheetCache.set(type, { data: rows, expires: Date.now() + SHEET_CACHE_TTL_MS })
+    writePersistedSheetCache(type, rows)
     return rows
   })()
 
