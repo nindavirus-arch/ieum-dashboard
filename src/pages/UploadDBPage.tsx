@@ -50,11 +50,14 @@ function tierRank(tier: string) {
 
 function reconcilePreviewWithExisting(parsed: ParsedLeadResult, existing: LeadRecord[]): ParsedLeadResult {
   const byPhoneDate = new Map<string, LeadRecord>()
+  const previewByPhoneDate = new Map<string, LeadRecord>()
   existing.forEach((lead) => {
     if (!lead.phone || !lead.date) return
     const key = `${lead.phone}_${lead.date}`
     const prev = byPhoneDate.get(key)
     if (!prev || tierRank(lead.dbTier) > tierRank(prev.dbTier)) byPhoneDate.set(key, lead)
+    const previewPrev = previewByPhoneDate.get(key)
+    if (!previewPrev || tierRank(lead.dbTier) > tierRank(previewPrev.dbTier)) previewByPhoneDate.set(key, lead)
   })
 
   const valid = parsed.valid.map((lead) => {
@@ -83,13 +86,33 @@ function reconcilePreviewWithExisting(parsed: ParsedLeadResult, existing: LeadRe
     return lead
   })
 
+  valid.forEach((lead) => {
+    const key = `${lead.phone}_${lead.date}`
+    const existingSameDate = previewByPhoneDate.get(key)
+    if (existingSameDate) {
+      previewByPhoneDate.set(key, {
+        ...existingSameDate,
+        channel: lead.channel || existingSameDate.channel,
+        subChannel: lead.subChannel || existingSameDate.subChannel,
+        source_raw: (lead as any).source_raw || (existingSameDate as any).source_raw,
+        dbTier: lead.dbTier,
+        status: lead.status,
+      } as LeadRecord)
+    } else {
+      previewByPhoneDate.set(key, lead as LeadRecord)
+    }
+  })
+
+  const previewValid = Array.from(previewByPhoneDate.values())
+
   return {
     ...parsed,
     valid,
-    retargetCount: valid.filter(v => v.dbTier === 'retarget').length,
-    firstCount: valid.filter(v => v.dbTier === 'first').length,
-    secondCount: valid.filter(v => v.dbTier === 'second').length,
-  }
+    retargetCount: previewValid.filter(v => baseTier(v.dbTier) === 'retarget').length,
+    firstCount: previewValid.filter(v => baseTier(v.dbTier) === 'first').length,
+    secondCount: previewValid.filter(v => baseTier(v.dbTier) === 'second').length,
+    previewValid,
+  } as ParsedLeadResult & { previewValid: LeadRecord[] }
 }
 
 function topCounts<T extends { count: number }>(items: T[], limit = 12) {
@@ -106,21 +129,22 @@ export default function UploadDBPage() {
 
   const audit = useMemo(() => {
     if (!result) return null
+    const auditRows = ((result as any).previewValid || result.valid) as LeadRecord[]
     const byChannel = new Map<string, { channel: string; label: string; count: number; first: number; second: number; retarget: number; samples: string[] }>()
     const byDate = new Map<string, number>()
     const byTier = new Map<string, number>()
-    result.valid.forEach((lead) => {
+    auditRows.forEach((lead) => {
       const channel = lead.channel || 'etc'
       const row = byChannel.get(channel) || { channel, label: CHANNEL_LABELS[channel] || channel, count: 0, first: 0, second: 0, retarget: 0, samples: [] }
       row.count++
-      if (lead.dbTier === 'first' || lead.dbTier === 'first_reentry') row.first++
-      else if (lead.dbTier === 'second' || lead.dbTier === 'second_reentry') row.second++
+      if (baseTier(lead.dbTier) === 'first') row.first++
+      else if (baseTier(lead.dbTier) === 'second') row.second++
       else row.retarget++
       const raw = String((lead as any).source_raw || lead.subChannel || '').trim()
       if (raw && !row.samples.includes(raw) && row.samples.length < 3) row.samples.push(raw)
       byChannel.set(channel, row)
       byDate.set(lead.date, (byDate.get(lead.date) || 0) + 1)
-      byTier.set(lead.dbTier, (byTier.get(lead.dbTier) || 0) + 1)
+      byTier.set(baseTier(lead.dbTier), (byTier.get(baseTier(lead.dbTier)) || 0) + 1)
     })
     return {
       channels: topCounts(Array.from(byChannel.values())),
@@ -266,14 +290,18 @@ export default function UploadDBPage() {
 
           {/* DB Tier breakdown */}
           <div className="card p-5 space-y-3">
-            <p className="text-sm font-semibold text-slate-700">DB 등급 분류</p>
+            <div>
+              <p className="text-sm font-semibold text-slate-700">DB 등급 분류</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">현재 저장된 DB에 이번 업로드 반영 후 예상되는 전체 단계 분포입니다.</p>
+            </div>
             <div className="grid grid-cols-3 gap-4">
               {[
                 { label: '리타겟 DB', count: result.retargetCount, color: 'bg-violet-500', light: 'text-violet-700' },
                 { label: '1차 DB', count: result.firstCount, color: 'bg-blue-500', light: 'text-blue-700' },
                 { label: '2차 DB', count: result.secondCount, color: 'bg-emerald-500', light: 'text-emerald-700' },
               ].map(({ label, count, color, light }) => {
-                const pct = result.valid.length > 0 ? Math.round(count/result.valid.length*100) : 0
+                const total = result.retargetCount + result.firstCount + result.secondCount
+                const pct = total > 0 ? Math.round(count/total*100) : 0
                 return (
                   <div key={label}>
                     <div className="flex justify-between mb-1.5">
