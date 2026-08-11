@@ -122,6 +122,30 @@ function isDirectSalesText(v: unknown) {
   return key.includes('직접영업') || key.includes('directsales')
 }
 
+function firstText(...values: unknown[]) {
+  for (const value of values) {
+    const text = String(value ?? '').trim()
+    if (text) return text
+  }
+  return ''
+}
+
+function sourceRawFromRow(row: any) {
+  const raw = row?.rawData || {}
+  const consultingType = firstText(
+    row?.consultingType, row?.consulting_type, row?.['컨설팅 타입'], row?.컨설팅타입, row?.['상담 타입'], row?.상담타입,
+    raw?.consultingType, raw?.consulting_type, raw?.['컨설팅 타입'], raw?.컨설팅타입, raw?.['상담 타입'], raw?.상담타입,
+  )
+  const route = firstText(
+    row?.source_raw, row?.sourceRaw, row?.['유입경로 원본'], row?.['유입 경로 원본'], row?.유입경로, row?.['유입 경로'],
+    row?.유입매체, row?.['유입 매체'], row?.광고매체, row?.['광고 매체'], row?.source, row?._parsed_source_raw,
+    raw?.source_raw, raw?.sourceRaw, raw?.['유입경로 원본'], raw?.['유입 경로 원본'], raw?.유입경로, raw?.['유입 경로'],
+    raw?.유입매체, raw?.['유입 매체'], raw?.광고매체, raw?.['광고 매체'], raw?.source, raw?._parsed_source_raw,
+    row?.subChannel, row?.상세매체, raw?.subChannel, raw?.상세매체,
+  )
+  return isDirectSalesText(consultingType) ? consultingType : (route || consultingType)
+}
+
 function normalizeMappingRow(row: any): MappingRow | null {
   const raw = String(row['원본값'] ?? row.raw ?? row.source ?? row.keyword ?? '').trim()
   if (!raw) return null
@@ -237,14 +261,12 @@ function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRe
   const phone = normalizePhone(row.phone ?? row.연락처 ?? row.휴대폰번호 ?? row['휴대폰 번호'] ?? row._parsed_phone ?? '')
   const consultingNumber = String(row.consultingNumber ?? row.consulting_number ?? row.consultingNo ?? row.consulting_no ?? row['컨설팅 번호'] ?? row['컨설팅번호'] ?? row._parsed_consultingNumber ?? '').trim()
 
-  const utm_source = String(row.utm_source ?? row.utmSource ?? row.source ?? row.소스 ?? row._parsed_utm_source ?? '')
-  const utm_medium = String(row.utm_medium ?? row.utmMedium ?? row.medium ?? row.미디엄 ?? '')
-  const utm_campaign = String(row.utm_campaign ?? row.utmCampaign ?? row.campaign ?? row.캠페인 ?? '')
-  const utm_content = String(row.utm_content ?? row.utmContent ?? row.content ?? row.콘텐츠 ?? '')
-  const utm_term = String(row.utm_term ?? row.utmTerm ?? row.term ?? row.키워드 ?? '')
-  const consultingType = row.consultingType ?? row.consulting_type ?? row['컨설팅 타입'] ?? row.컨설팅타입 ?? row['상담 타입'] ?? row.상담타입 ?? ''
-  const source_raw_base = String(row.source_raw ?? row.sourceRaw ?? row['유입경로 원본'] ?? row['유입 경로 원본'] ?? row.유입경로 ?? row['유입 경로'] ?? row.유입매체 ?? row['유입 매체'] ?? row.source ?? row._parsed_source_raw ?? '')
-  const source_raw = String(isDirectSalesText(consultingType) ? consultingType : (source_raw_base || consultingType))
+  const utm_source = firstText(row.utm_source, row.utmSource, row.source, row.소스, row._parsed_utm_source)
+  const utm_medium = firstText(row.utm_medium, row.utmMedium, row.medium, row.미디엄)
+  const utm_campaign = firstText(row.utm_campaign, row.utmCampaign, row.campaign, row.캠페인)
+  const utm_content = firstText(row.utm_content, row.utmContent, row.content, row.콘텐츠)
+  const utm_term = firstText(row.utm_term, row.utmTerm, row.term, row.키워드)
+  const source_raw = sourceRawFromRow(row)
   const baseChannel = normalizeChannel(row.channel ?? row.최종매체 ?? row.매체 ?? row._parsed_channel ?? '')
   const mapped = applyChannelMapping({ channel: baseChannel, subChannel: String(row.subChannel ?? row.상세매체 ?? ''), utm_source, source_raw, utm_medium, utm_campaign, utm_content, utm_term }, mappings)
   const safeSubChannel = sanitizeSubChannelForChannel(mapped.channel, mapped.subChannel, { source: utm_source, sourceRaw: source_raw, medium: utm_medium, campaign: utm_campaign, content: utm_content, term: utm_term })
@@ -993,6 +1015,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
   const dashboardToAppend: LeadRecord[] = []
   const correctionRows: any[] = []
   let changed = 0
+  let refreshedExisting = 0
 
   const firstRaw: Omit<LeadRecord, 'id' | 'uploadedAt'>[] = []
   const secondRaw: Omit<LeadRecord, 'id' | 'uploadedAt'>[] = []
@@ -1028,12 +1051,13 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
 
   for (const lead of leads) {
     if (!lead.phone) continue
+    const incomingSourceRaw = sourceRawFromRow(lead)
 
     const mapped = applyChannelMapping({
       channel: lead.channel,
       subChannel: (lead as any).subChannel,
       utm_source: (lead as any).utm_source,
-      source_raw: (lead as any).source_raw,
+      source_raw: incomingSourceRaw,
       utm_medium: (lead as any).utm_medium,
       utm_campaign: (lead as any).utm_campaign,
       utm_content: (lead as any).utm_content,
@@ -1046,7 +1070,8 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
       date: normalizeDate(lead.date, new Date(now)),
       phone: normalizePhone(lead.phone),
       channel: mapped.channel,
-      subChannel: sanitizeSubChannelForChannel(mapped.channel, mapped.subChannel, { source: (lead as any).utm_source, sourceRaw: (lead as any).source_raw, medium: (lead as any).utm_medium, campaign: (lead as any).utm_campaign, content: (lead as any).utm_content, term: (lead as any).utm_term }),
+      subChannel: sanitizeSubChannelForChannel(mapped.channel, mapped.subChannel, { source: (lead as any).utm_source, sourceRaw: incomingSourceRaw, medium: (lead as any).utm_medium, campaign: (lead as any).utm_campaign, content: (lead as any).utm_content, term: (lead as any).utm_term }),
+      source_raw: incomingSourceRaw,
       uploadedAt: now,
     } as LeadRecord
 
@@ -1165,6 +1190,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
         byPhoneStageDate.set(`${refreshed.phone}_${baseTier(refreshed.dbTier)}_${refreshed.date}`, refreshed)
         rememberLead(refreshed)
         changed++
+        refreshedExisting++
       }
       continue
     }
@@ -1197,7 +1223,15 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
   if (dashboardToAppend.length) await postSheetRows('leads', dashboardRowsFromLeads(dashboardToAppend), '/upload-db')
 
   notifyDataUpdated()
-  return changed
+  return {
+    changed,
+    inserted: dashboardToAppend.length,
+    refreshedExisting,
+    dateCorrections: correctionRows.length,
+    firstRaw: firstRaw.length,
+    secondRaw: secondRaw.length,
+    received: leads.length,
+  }
 }
 
 

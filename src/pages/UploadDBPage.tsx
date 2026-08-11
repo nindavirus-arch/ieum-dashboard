@@ -1,5 +1,5 @@
 // src/pages/UploadDBPage.tsx
-import { useState, useRef } from 'react'
+import { useMemo, useState, useRef } from 'react'
 import { Upload, CheckCircle, AlertCircle, FileSpreadsheet, X } from 'lucide-react'
 import { parseLeadExcel, type ParsedLeadResult } from '../lib/excelParser'
 import { uploadLeads } from '../lib/dataService'
@@ -7,12 +7,69 @@ import clsx from 'clsx'
 
 type Stage = 'idle' | 'parsing' | 'preview' | 'uploading' | 'done' | 'error'
 
+const CHANNEL_LABELS: Record<string, string> = {
+  naver: '네이버',
+  google: '구글',
+  meta: '메타',
+  youtube: '유튜브',
+  viral: '바이럴',
+  danggeun: '당근',
+  kakao_search: '카카오 검색광고',
+  kakao_moment: '카카오모먼트',
+  direct: '온라인 직접·자연',
+  tu_albarich: 'TU-알바리치',
+  tu_youtube: 'TU-유튜브',
+  tu_danggeun: 'TU-당근',
+  hugreen_danggeun: '휴그린-당근',
+  hugreen_mail: '휴그린-메일',
+  inbound_call: '인바운드',
+  etc: '기타',
+}
+
+const TIER_LABELS: Record<string, string> = {
+  retarget: '리타겟',
+  first: '1차DB',
+  second: '2차DB',
+  first_reentry: '1차 재인입',
+  second_reentry: '2차 재인입',
+}
+
+function topCounts<T extends { count: number }>(items: T[], limit = 12) {
+  return [...items].sort((a, b) => b.count - a.count).slice(0, limit)
+}
+
 export default function UploadDBPage() {
   const [stage, setStage] = useState<Stage>('idle')
   const [result, setResult] = useState<ParsedLeadResult | null>(null)
+  const [uploadSummary, setUploadSummary] = useState<any>(null)
   const [error, setError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
+
+  const audit = useMemo(() => {
+    if (!result) return null
+    const byChannel = new Map<string, { channel: string; label: string; count: number; first: number; second: number; retarget: number; samples: string[] }>()
+    const byDate = new Map<string, number>()
+    const byTier = new Map<string, number>()
+    result.valid.forEach((lead) => {
+      const channel = lead.channel || 'etc'
+      const row = byChannel.get(channel) || { channel, label: CHANNEL_LABELS[channel] || channel, count: 0, first: 0, second: 0, retarget: 0, samples: [] }
+      row.count++
+      if (lead.dbTier === 'first' || lead.dbTier === 'first_reentry') row.first++
+      else if (lead.dbTier === 'second' || lead.dbTier === 'second_reentry') row.second++
+      else row.retarget++
+      const raw = String((lead as any).source_raw || lead.subChannel || '').trim()
+      if (raw && !row.samples.includes(raw) && row.samples.length < 3) row.samples.push(raw)
+      byChannel.set(channel, row)
+      byDate.set(lead.date, (byDate.get(lead.date) || 0) + 1)
+      byTier.set(lead.dbTier, (byTier.get(lead.dbTier) || 0) + 1)
+    })
+    return {
+      channels: topCounts(Array.from(byChannel.values())),
+      dates: topCounts(Array.from(byDate.entries()).map(([date, count]) => ({ date, count })), 10),
+      tiers: Array.from(byTier.entries()).map(([tier, count]) => ({ tier, label: TIER_LABELS[tier] || tier, count })),
+    }
+  }, [result])
 
   async function handleFile(file: File) {
     setStage('parsing')
@@ -30,7 +87,8 @@ export default function UploadDBPage() {
     if (!result) return
     setStage('uploading')
     try {
-      await uploadLeads(result.valid)
+      const summary = await uploadLeads(result.valid)
+      setUploadSummary(summary)
       setStage('done')
     } catch (e: any) {
       setError(String(e?.message ?? e))
@@ -38,7 +96,7 @@ export default function UploadDBPage() {
     }
   }
 
-  function reset() { setStage('idle'); setResult(null); setError('') }
+  function reset() { setStage('idle'); setResult(null); setUploadSummary(null); setError('') }
 
   return (
     <div className="p-6 space-y-6">
@@ -100,6 +158,53 @@ export default function UploadDBPage() {
             ))}
           </div>
 
+          {audit && (
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+              <div className="card overflow-hidden xl:col-span-2">
+                <div className="px-4 py-3 border-b border-slate-100">
+                  <p className="text-xs font-semibold text-slate-600">엑셀 기준 매체별 검산</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">업로드 전 파싱 결과입니다. 여기서 기타로 보이면 엑셀 유입경로 인식 문제입니다.</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500">
+                        {['매체', '합계', '리타겟', '1차', '2차', '원본 예시'].map(h => <th key={h} className="text-left px-3 py-2 font-medium">{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {audit.channels.map(row => (
+                        <tr key={row.channel} className={clsx(row.channel === 'etc' && 'bg-amber-50/40')}>
+                          <td className="px-3 py-2 font-semibold text-slate-700">{row.label}</td>
+                          <td className="px-3 py-2 font-bold text-slate-800">{row.count.toLocaleString()}건</td>
+                          <td className="px-3 py-2 text-violet-700">{row.retarget.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-blue-700">{row.first.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-emerald-700">{row.second.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-slate-500 max-w-[260px] truncate" title={row.samples.join(', ')}>{row.samples.join(', ') || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="card overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-100">
+                  <p className="text-xs font-semibold text-slate-600">날짜별 검산</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">대시보드 일자별 DB와 대조할 때 봅니다.</p>
+                </div>
+                <div className="divide-y divide-slate-50 text-xs">
+                  {audit.dates.map(row => (
+                    <div key={row.date} className="flex items-center justify-between px-4 py-2">
+                      <span className="text-slate-500">{row.date}</span>
+                      <span className="font-semibold text-slate-800">{row.count.toLocaleString()}건</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* DB Tier breakdown */}
           <div className="card p-5 space-y-3">
             <p className="text-sm font-semibold text-slate-700">DB 등급 분류</p>
@@ -135,7 +240,7 @@ export default function UploadDBPage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-slate-50 text-slate-500">
-                    {['DB 유입일시','날짜','이름','전화번호','채널','DB등급','지역'].map(h => (
+                    {['DB 유입일시','날짜','이름','전화번호','매체','상세매체','유입경로 원본','DB등급','지역'].map(h => (
                       <th key={h} className="text-left px-3 py-2 font-medium">{h}</th>
                     ))}
                   </tr>
@@ -147,9 +252,9 @@ export default function UploadDBPage() {
                       <td className="px-3 py-2 text-slate-600">{r.date}</td>
                       <td className="px-3 py-2 font-medium text-slate-700">{r.name}</td>
                       <td className="px-3 py-2 text-slate-600">{r.phone}</td>
-                      <td className="px-3 py-2">
-                        <span className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600">{r.channel}</span>
-                      </td>
+                      <td className="px-3 py-2"><span className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600">{CHANNEL_LABELS[r.channel] || r.channel}</span></td>
+                      <td className="px-3 py-2 text-slate-600">{r.subChannel || '-'}</td>
+                      <td className="px-3 py-2 text-slate-500 max-w-[180px] truncate" title={(r as any).source_raw}>{(r as any).source_raw || '-'}</td>
                       <td className="px-3 py-2">
                         <span className={clsx('px-1.5 py-0.5 rounded font-medium',
                           r.dbTier === 'retarget' ? 'bg-violet-100 text-violet-700' :
@@ -187,7 +292,9 @@ export default function UploadDBPage() {
           <CheckCircle size={40} className="text-emerald-500" />
           <div className="text-center">
             <p className="text-sm font-semibold text-slate-700">업로드 완료</p>
-            <p className="text-xs text-slate-400 mt-1">{result?.valid.length}건이 저장되었습니다. 같은 연락처의 2차DB는 기존 1차DB 매체를 자동 승계합니다.</p>
+            <p className="text-xs text-slate-400 mt-1">
+              엑셀 유효 {uploadSummary?.received ?? result?.valid.length ?? 0}건 · 신규 저장 {uploadSummary?.inserted ?? 0}건 · 기존 분류 교정 {uploadSummary?.refreshedExisting ?? 0}건 · 날짜보정 {uploadSummary?.dateCorrections ?? 0}건
+            </p>
           </div>
           <button onClick={reset} className="btn-secondary">새 파일 업로드</button>
         </div>
