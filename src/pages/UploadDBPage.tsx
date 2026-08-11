@@ -102,7 +102,7 @@ export default function UploadDBPage() {
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-lg font-bold text-slate-800">DB 업로드</h1>
-        <p className="text-xs text-slate-500 mt-0.5">관리시스템 원본 엑셀을 그대로 업로드하면 1차/2차 파일을 자동 판별하고 중복·테스트·이상번호를 제거합니다.</p>
+        <p className="text-xs text-slate-500 mt-0.5">관리시스템 컨설팅리스트 엑셀을 업로드하면 컨설팅상태 기준으로 로켓견적확인은 1차DB, 로켓요청은 2차DB로 집계합니다.</p>
       </div>
 
       {/* Drop zone */}
@@ -146,7 +146,7 @@ export default function UploadDBPage() {
             {[
               { label: '총 데이터', value: result.valid.length + result.duplicateCount + result.testCount + result.invalidCount, color: 'text-slate-700', bg: 'bg-slate-50' },
               { label: '유효 DB', value: result.valid.length, color: 'text-blue-600', bg: 'bg-blue-50' },
-              { label: result.sourceKind === 'second_raw' ? '2차DB 파일' : result.sourceKind === 'first_raw' ? '1차DB 파일' : '자동판별', value: result.sourceKind === 'second_raw' ? '2차' : result.sourceKind === 'first_raw' ? '1차' : '기타', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+              { label: result.sourceKind === 'second_raw' ? '컨설팅리스트' : result.sourceKind === 'first_raw' ? 'UTM 파일' : '자동판별', value: result.sourceKind === 'second_raw' ? '상태 기준' : result.sourceKind === 'first_raw' ? 'UTM' : '기타', color: 'text-emerald-600', bg: 'bg-emerald-50' },
               { label: '중복 제거', value: result.duplicateCount, color: 'text-amber-600', bg: 'bg-amber-50' },
               { label: '테스트 제거', value: result.testCount, color: 'text-orange-600', bg: 'bg-orange-50' },
               { label: '이상번호', value: result.invalidCount, color: 'text-red-600', bg: 'bg-red-50' },

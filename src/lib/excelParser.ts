@@ -299,6 +299,14 @@ function parseDbTierLabel(value: unknown): DBTier | '' {
   return ''
 }
 
+function parseDbTierFromConsultingStatus(value: unknown): DBTier | '' {
+  const text = String(value ?? '').toLowerCase().replace(/[\s_\-\/]/g, '')
+  if (!text) return ''
+  if (text.includes('로켓요청') || text.includes('상담요청') || text.includes('rocketrequest')) return 'second'
+  if (text.includes('로켓견적확인') || text.includes('견적확인') || text.includes('rocketestimate')) return 'first'
+  return ''
+}
+
 // ── DB 엑셀 파싱 ──────────────────────────────────────────
 export interface ParsedLeadResult {
   valid: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
@@ -373,14 +381,19 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
           const pyeong = String(getCell(row, ['평형', '평수', '거주평형', 'area', 'flatSize', 'flatSizePh']) ?? '').trim()
           const operator = String(getCell(row, ['접수자', 'operator', '작업자', '처리자', '상담원', '상담담당자', '상담 담당자', '등록자']) ?? '').trim()
           const salesOwner = String(getCell(row, ['영업담당자', '영업 담당자', '영업 담당', '배정담당자', '배정 담당자', '배정', '담당자', 'manager', 'owner']) ?? '').trim()
+          const consultingStatus = String(getCell(row, ['컨설팅상태', '컨설팅 상태', '상태값', '상태', '진행상태', '진행 상태', 'consultingStatus', 'consulting_status']) ?? '').trim()
           const consultationResult = String(getCell(row, ['상담결과', '상담 결과', '상담상태', '상담 상태', '결과']) ?? '').trim()
           const memo = String(getCell(row, ['메모', '특이사항', '메모(특이사항)', '비고', '상담메모']) ?? '').trim()
 
           const channel = inferChannelStrict({ source, sourceRaw: mediaRoute, medium, campaign, content, term })
           const subChannel = inferSubChannel({ channel, source, sourceRaw: mediaRoute, medium, campaign, content, term })
           const explicitDbTier = parseDbTierLabel(getCell(row, ['DB유형', 'DB 유형', 'DB등급', 'DB 등급', 'dbTier', 'stage', 'status']))
+          const statusDbTier = parseDbTierFromConsultingStatus(consultingStatus)
 
-          if (explicitDbTier) {
+          if (statusDbTier) {
+            dbTier = statusDbTier
+            status = statusDbTier as DBStatus
+          } else if (explicitDbTier) {
             dbTier = explicitDbTier
             status = explicitDbTier as DBStatus
           } else if (sourceKind === 'second_raw') {
@@ -418,6 +431,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
             registeredAt,
             operator,
             salesOwner,
+            consultingStatus,
             consultationResult,
             memo,
           } as any)
