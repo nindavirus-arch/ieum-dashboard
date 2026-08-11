@@ -318,7 +318,7 @@ export default function DBManagePage() {
       setMappings(m)
     } finally { setLoading(false) }
   }
-  useEffect(() => { load(true) }, [])
+  useEffect(() => { load(false) }, [])
   useEffect(() => {
     try { window.sessionStorage.setItem(LEADS_SESSION_KEY, JSON.stringify(leads)) } catch {}
   }, [leads])

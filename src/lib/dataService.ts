@@ -24,7 +24,7 @@ export type KpiTarget = {
   updatedAt?: string
 }
 const EXCLUDED_LEAD_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted'])
-const SHEET_CACHE_TTL_MS = 60_000
+const SHEET_CACHE_TTL_MS = 5 * 60_000
 const sheetCache = new Map<SheetType, { expires: number; data?: any[]; promise?: Promise<any[]> }>()
 export const DATA_UPDATED_EVENT = 'ieum:data-updated'
 let updatedAtCache: { expires: number; value: string } | null = null
@@ -37,6 +37,24 @@ function notifyDataUpdated() {
 
 function clearSheetCache() {
   sheetCache.clear()
+}
+
+function invalidateSheetCache(...types: SheetType[]) {
+  if (!types.length) {
+    clearSheetCache()
+    return
+  }
+  types.forEach(type => sheetCache.delete(type))
+}
+
+function cacheTypesForPost(type: PostSheetType): SheetType[] {
+  if (type === 'leads' || type === 'leadCorrections') return ['leads']
+  if (type === 'firstRaw') return ['firstRaw']
+  if (type === 'secondRaw') return ['secondRaw']
+  if (type === 'adSpend' || type === 'adSpendReplace') return ['adSpend']
+  if (type === 'projects') return ['projects']
+  if (type === 'kpiTargets') return ['kpiTargets']
+  return []
 }
 
 function handleDataError(data: any) {
@@ -437,7 +455,7 @@ async function postSheetRows(type: PostSheetType, rows: any[], menuOverride?: st
     throw new Error(`권한 오류: ${type} 저장이 차단되었습니다. Apps Script 최신 코드 배포와 계정 권한을 확인하세요.`)
   }
   handleDataError(data)
-  clearSheetCache()
+  invalidateSheetCache(...cacheTypesForPost(type))
   notifyDataUpdated()
   return data
 }
@@ -453,7 +471,7 @@ export async function fetchDataUpdatedAt(): Promise<string> {
     handleDataError(data)
     const updatedAt = String(data?.updatedAt || '')
     if (!updatedAt) throw new Error('업데이트 시간이 없습니다.')
-    updatedAtCache = { value: updatedAt, expires: Date.now() + 60_000 }
+    updatedAtCache = { value: updatedAt, expires: Date.now() + 2 * 60_000 }
     return updatedAt
   })()
 
@@ -648,7 +666,7 @@ export async function updateLeadAttribution(params: {
   const data = await res.json()
   handleDataError(data)
   if (!data?.success || Number(data?.updated || 0) < 1) throw new Error('수정할 DB를 찾지 못했습니다.')
-  clearSheetCache()
+  invalidateSheetCache('leads')
   notifyDataUpdated()
   return data
 }
@@ -1501,7 +1519,7 @@ export async function updateAdSpendRecord(original: AdSpend, next: Omit<AdSpend,
   if (data?.error === 'Invalid type') throw new Error('광고비 관리 기능을 사용하려면 Apps Script를 최신 코드로 다시 배포해야 합니다.')
   if (data?.error === 'duplicate ad spend') throw new Error('같은 날짜·매체·상세매체·캠페인의 광고비가 이미 있습니다.')
   handleDataError(data)
-  clearSheetCache()
+  invalidateSheetCache('adSpend')
   notifyDataUpdated()
   return data
 }
@@ -1516,7 +1534,7 @@ export async function deleteAdSpendRecord(original: AdSpend) {
   const data = await res.json()
   if (data?.error === 'Invalid type') throw new Error('광고비 관리 기능을 사용하려면 Apps Script를 최신 코드로 다시 배포해야 합니다.')
   handleDataError(data)
-  clearSheetCache()
+  invalidateSheetCache('adSpend')
   notifyDataUpdated()
   return data
 }
