@@ -9,8 +9,16 @@ const SHEETS = {
   kpiTargets: 'KPI_TARGETS'
 };
 
+const REPORT_TIMEZONE = 'Asia/Seoul';
+const REPORT_ACTIVE_TOKENS = [
+  'ieum_report_ee453cdc66d0402381c67736311b1d5ca0894e54acbc48bbaa34454feac0b53f'
+];
+const REPORT_REVOKED_TOKENS = [];
+
 function doGet(e) {
   const type = e.parameter.type;
+  const action = e.parameter.action;
+  if (type === 'report' || action === 'report') return getReadOnlyReport(e.parameter || {});
   if (type === 'authStatus') return authStatus(e.parameter.token || '');
 
   const user = sessionUser(e.parameter.token || '');
@@ -33,6 +41,236 @@ function getDataUpdatedAt() {
   const book = SpreadsheetApp.getActive();
   const updatedAt = DriveApp.getFileById(book.getId()).getLastUpdated();
   return json({ updatedAt: updatedAt.toISOString() });
+}
+
+function getReadOnlyReport(params) {
+  const reportToken = String(params.reportToken || params.token || '');
+  if (!isActiveReportToken(reportToken)) {
+    return json({ error: 'forbidden' });
+  }
+
+  const from = normalizeReportDate(params.from || params.start);
+  const to = normalizeReportDate(params.to || params.end);
+  if (!from || !to) return json({ error: 'from/to required. Use YYYY-MM-DD.' });
+  if (from > to) return json({ error: 'invalid range' });
+
+  const leads = readRowsAsObjects(SHEETS.leads)
+    .filter(function(row) { return isReportDateInRange(row.date, from, to); })
+    .filter(function(row) { return !isExcludedReportLead(row); });
+  const adSpendRows = readRowsAsObjects(SHEETS.adSpend)
+    .filter(function(row) { return isReportDateInRange(row.date, from, to); });
+
+  const fileUpdatedAt = formatReportDateTime(DriveApp.getFileById(SpreadsheetApp.getActive().getId()).getLastUpdated());
+  const lastDbUploadedAt = latestReportTimestamp(leads, ['updatedAt', 'uploadedAt', 'dateOverrideAt', 'registeredAt', 'date']) || fileUpdatedAt;
+  const lastAdSpendUpdatedAt = latestReportTimestamp(adSpendRows, ['updatedAt', 'uploadedAt', 'createdAt', 'date']) || fileUpdatedAt;
+  const totals = blankReportMetric();
+  const byDate = {};
+  const byChannel = {};
+  const bySubChannel = {};
+
+  leads.forEach(function(row) {
+    const date = String(row.date || '').slice(0, 10);
+    const channel = reportChannel(row.channel || 'unknown');
+    const subChannel = reportSubChannel(row.subChannel || row.source_raw || channel);
+    const stage = baseLeadStage(row.stage || row.dbTier || row.status);
+    addLeadMetric(totals, stage);
+    addLeadMetric(ensureReportMetric(byDate, date), stage);
+    addLeadMetric(ensureReportMetric(byChannel, channel), stage);
+    addLeadMetric(ensureReportMetric(bySubChannel, channel + '|' + subChannel, {
+      channel: channel,
+      subChannel: subChannel
+    }), stage);
+  });
+
+  adSpendRows.forEach(function(row) {
+    const date = String(row.date || '').slice(0, 10);
+    const channel = reportChannel(row.channel || 'unknown');
+    const subChannel = reportSubChannel(row.subChannel || row.source_raw || channel);
+    const amount = reportNumber(row.amount || row.cost || row['광고비'] || row['비용']);
+    addSpendMetric(totals, amount);
+    addSpendMetric(ensureReportMetric(byDate, date), amount);
+    addSpendMetric(ensureReportMetric(byChannel, channel), amount);
+    addSpendMetric(ensureReportMetric(bySubChannel, channel + '|' + subChannel, {
+      channel: channel,
+      subChannel: subChannel
+    }), amount);
+  });
+
+  finalizeReportMetric(totals);
+  Object.keys(byDate).forEach(function(key) { finalizeReportMetric(byDate[key]); });
+  Object.keys(byChannel).forEach(function(key) { finalizeReportMetric(byChannel[key]); });
+  Object.keys(bySubChannel).forEach(function(key) { finalizeReportMetric(bySubChannel[key]); });
+
+  return json({
+    success: true,
+    timezone: REPORT_TIMEZONE,
+    range: { from: from, to: to },
+    updatedAt: fileUpdatedAt,
+    lastDbUploadedAt: lastDbUploadedAt,
+    lastAdSpendUpdatedAt: lastAdSpendUpdatedAt,
+    totals: totals,
+    byDate: objectValues(byDate).sort(function(a, b) { return String(a.date).localeCompare(String(b.date)); }),
+    byChannel: objectValues(byChannel).sort(sortReportMetric),
+    bySubChannel: objectValues(bySubChannel).sort(sortReportMetric),
+    criteria: {
+      adSpendVat: 'AD_SPEND 시트에 저장된 금액 그대로 사용합니다. 현재 대시보드 기준은 입력 광고비 금액 기준이며, VAT 포함/별도 여부는 업로드 금액 기준을 따릅니다.',
+      duplicatePolicy: 'DASHBOARD_LEADS 원장 기준으로 이미 정제·중복 제거된 행만 집계합니다. 상태가 invalid/test/duplicate/deleted인 행은 제외합니다.',
+      validDbPolicy: '유효 DB는 1차 DB와 2차 DB 합계입니다. 리타겟 DB는 총 DB에는 포함하지만 CPL 산정용 유효 DB에서는 제외합니다.',
+      cplFormula: 'CPL = 총 광고비 / 유효 DB. 유효 DB가 0이면 CPL은 0으로 반환합니다.',
+      datePolicy: 'date 컬럼 기준으로 from/to 기간을 포함 조회합니다. 모든 날짜·시각 표기는 Asia/Seoul 기준입니다.',
+      privacyPolicy: '개인정보, 연락처, 이름, 주소, 원본 DB 행은 반환하지 않습니다.'
+    },
+    tokenPolicy: {
+      type: 'static_random_token',
+      rotation: 'APPS_SCRIPT_CODE.txt의 REPORT_ACTIVE_TOKENS에 새 토큰을 추가하고 이전 토큰을 REPORT_REVOKED_TOKENS에 넣으면 교체·폐기할 수 있습니다.',
+      revokedTokenBlocked: true
+    },
+    privacy: {
+      personalDataIncluded: false,
+      fields: ['date', 'channel', 'subChannel', 'adSpend', 'db', 'retarget', 'firstDb', 'secondDb', 'validDb', 'cpl']
+    }
+  });
+}
+
+function isActiveReportToken(token) {
+  if (!token) return false;
+  if (REPORT_REVOKED_TOKENS.indexOf(token) >= 0) return false;
+  return REPORT_ACTIVE_TOKENS.indexOf(token) >= 0;
+}
+
+function readRowsAsObjects(sheetName) {
+  const sheet = SpreadsheetApp.getActive().getSheetByName(sheetName);
+  if (!sheet) return [];
+  const values = sheet.getDataRange().getDisplayValues();
+  if (!values || values.length <= 1) return [];
+  const headers = values.shift();
+  return values
+    .filter(function(row) { return row.some(function(cell) { return cell !== ''; }); })
+    .map(function(row) {
+      const obj = {};
+      headers.forEach(function(header, index) { obj[header] = row[index]; });
+      return obj;
+    });
+}
+
+function normalizeReportDate(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (!match) return '';
+  return match[1] + '-' + ('0' + match[2]).slice(-2) + '-' + ('0' + match[3]).slice(-2);
+}
+
+function normalizeReportDateTime(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const date = normalizeReportDate(text);
+  const timeMatch = text.replace('T', ' ').match(/\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);
+  if (!date || !timeMatch) return date;
+  return date + ' ' + ('0' + timeMatch[1]).slice(-2) + ':' + ('0' + timeMatch[2]).slice(-2) + ':' + ('0' + (timeMatch[3] || '00')).slice(-2);
+}
+
+function formatReportDateTime(value) {
+  try {
+    return Utilities.formatDate(new Date(value), REPORT_TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+  } catch (err) {
+    return normalizeReportDateTime(value);
+  }
+}
+
+function latestReportTimestamp(rows, keys) {
+  let latestRaw = '';
+  let latestKey = '';
+  rows.forEach(function(row) {
+    keys.forEach(function(key) {
+      const raw = String(row[key] || '').trim();
+      const normalized = normalizeReportDateTime(raw);
+      if (normalized && normalized > latestKey) {
+        latestKey = normalized;
+        latestRaw = raw;
+      }
+    });
+  });
+  return latestRaw ? formatReportDateTime(latestRaw) : '';
+}
+
+function isReportDateInRange(value, from, to) {
+  const date = normalizeReportDate(value);
+  return date && date >= from && date <= to;
+}
+
+function isExcludedReportLead(row) {
+  const status = String(row.status || '').toLowerCase();
+  return ['invalid', 'test', 'duplicate', 'deleted'].indexOf(status) >= 0;
+}
+
+function reportNumber(value) {
+  return Number(String(value || '').replace(/[^0-9.-]/g, '')) || 0;
+}
+
+function reportChannel(value) {
+  return String(value || 'unknown').trim() || 'unknown';
+}
+
+function reportSubChannel(value) {
+  return String(value || 'unknown').trim() || 'unknown';
+}
+
+function blankReportMetric(extra) {
+  const base = {
+    adSpend: 0,
+    db: 0,
+    retarget: 0,
+    firstDb: 0,
+    secondDb: 0,
+    validDb: 0,
+    cpl: 0
+  };
+  if (extra) {
+    Object.keys(extra).forEach(function(key) { base[key] = extra[key]; });
+  }
+  return base;
+}
+
+function ensureReportMetric(bucket, key, extra) {
+  if (!bucket[key]) {
+    bucket[key] = blankReportMetric(extra || {});
+    if (key && !bucket[key].date && String(key).indexOf('|') < 0) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(String(key))) bucket[key].date = key;
+      else bucket[key].channel = key;
+    }
+  }
+  return bucket[key];
+}
+
+function addLeadMetric(metric, stage) {
+  metric.db += 1;
+  if (stage === 'retarget') metric.retarget += 1;
+  else if (stage === 'first') {
+    metric.firstDb += 1;
+    metric.validDb += 1;
+  } else if (stage === 'second') {
+    metric.secondDb += 1;
+    metric.validDb += 1;
+  } else {
+    metric.validDb += 1;
+  }
+}
+
+function addSpendMetric(metric, amount) {
+  metric.adSpend += amount;
+}
+
+function finalizeReportMetric(metric) {
+  metric.cpl = metric.validDb > 0 ? Math.round(metric.adSpend / metric.validDb) : 0;
+}
+
+function objectValues(obj) {
+  return Object.keys(obj).map(function(key) { return obj[key]; });
+}
+
+function sortReportMetric(a, b) {
+  if (b.validDb !== a.validDb) return b.validDb - a.validDb;
+  return b.adSpend - a.adSpend;
 }
 
 function doPost(e) {
