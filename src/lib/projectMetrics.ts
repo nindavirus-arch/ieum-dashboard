@@ -7,6 +7,19 @@ export interface AttributedProject extends ProjectRecord {
   attributionSource: 'project' | 'consultingNumber' | 'phone' | 'unknown'
 }
 
+const PAID_ATTRIBUTION_CHANNELS = new Set<Channel>([
+  'naver',
+  'google',
+  'meta',
+  'youtube',
+  'viral',
+  'danggeun',
+  'kakao_search',
+  'kakao_moment',
+])
+
+const WEAK_ATTRIBUTION_CHANNELS = new Set<Channel>(['direct', 'inbound_call', 'etc'])
+
 function leadSortValue(lead: LeadRecord) {
   return String(lead.registeredAt || lead.date || lead.uploadedAt || '')
 }
@@ -14,7 +27,7 @@ function leadSortValue(lead: LeadRecord) {
 function hasOwner(value?: string) {
   const owner = String(value || '').trim()
   if (!owner || owner === '-') return false
-  return !['미배정', '시스템', 'system'].includes(owner.toLowerCase())
+  return !['\uBBF8\uBC30\uC815', '\uC2DC\uC2A4\uD15C', 'system'].includes(owner.toLowerCase())
 }
 
 function chooseBetterLead(current: LeadRecord | undefined, next: LeadRecord) {
@@ -24,6 +37,29 @@ function chooseBetterLead(current: LeadRecord | undefined, next: LeadRecord) {
   if (!currentHasOwner && nextHasOwner) return next
   if (currentHasOwner && !nextHasOwner) return current
   return leadSortValue(next).localeCompare(leadSortValue(current)) > 0 ? next : current
+}
+
+function isPaidAttribution(lead?: LeadRecord) {
+  return Boolean(lead?.channel && PAID_ATTRIBUTION_CHANNELS.has(lead.channel))
+}
+
+function isWeakAttribution(lead?: LeadRecord) {
+  return !lead?.channel || WEAK_ATTRIBUTION_CHANNELS.has(lead.channel)
+}
+
+function chooseAttributionLead(current: LeadRecord | undefined, next: LeadRecord | undefined) {
+  if (!current) return next
+  if (!next) return current
+
+  const currentPaid = isPaidAttribution(current)
+  const nextPaid = isPaidAttribution(next)
+  if (currentPaid !== nextPaid) return nextPaid ? next : current
+
+  const currentWeak = isWeakAttribution(current)
+  const nextWeak = isWeakAttribution(next)
+  if (currentWeak !== nextWeak) return currentWeak ? next : current
+
+  return chooseBetterLead(current, next)
 }
 
 function preferredOwner(matchedLead: LeadRecord | undefined, project: ProjectRecord) {
@@ -48,19 +84,19 @@ export function buildProjectAttribution(projects: ProjectRecord[], leads: LeadRe
   return projects.map(project => {
     const consultingLead = project.consultingNumber ? byConsulting.get(project.consultingNumber) : undefined
     const phoneLead = project.phone ? byPhone.get(project.phone) : undefined
-    const matchedLead = consultingLead || phoneLead
-    const attributionSource = project.channel
-      ? 'project'
-      : consultingLead
+    const matchedLead = chooseAttributionLead(consultingLead, phoneLead)
+    const attributionSource = matchedLead
+      ? matchedLead === consultingLead
         ? 'consultingNumber'
-        : phoneLead
-          ? 'phone'
-          : 'unknown'
+        : 'phone'
+      : project.channel
+        ? 'project'
+        : 'unknown'
 
     return {
       ...project,
-      attributedChannel: project.channel || matchedLead?.channel || 'etc',
-      attributedSubChannel: project.subChannel || matchedLead?.subChannel || project.sourceRaw || '미확인',
+      attributedChannel: matchedLead?.channel || project.channel || 'etc',
+      attributedSubChannel: matchedLead?.subChannel || project.subChannel || project.sourceRaw || 'unknown',
       attributedSalesOwner: preferredOwner(matchedLead, project),
       attributionSource,
     }
