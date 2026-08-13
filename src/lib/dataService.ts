@@ -1069,7 +1069,11 @@ function isDateCorrectionClearLead(lead: LeadRecord) {
   return values.some((value) => ['true', 'y', 'yes', '1', '수동보정해제', '보정해제'].includes(String(value ?? '').trim().toLowerCase()))
 }
 
-export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]) {
+type UploadLeadsOptions = {
+  mode?: 'normal' | 'utmAttributionCorrection'
+}
+
+export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[], options: UploadLeadsOptions = {}) {
   const mappings = await fetchMappings()
   // 기존 DASHBOARD_LEADS를 기준으로 중복/승격 판단
   const existing = (await getSheetRows('leads')).map((r, i) => normalizeLead(r, i, mappings))
@@ -1099,6 +1103,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
   })
 
   const now = new Date().toISOString()
+  const attributionCorrectionOnly = options.mode === 'utmAttributionCorrection'
   const dashboardToAppend: LeadRecord[] = []
   const correctionRows: any[] = []
   let changed = 0
@@ -1123,7 +1128,37 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
         const aChannel = a.channel === lead.channel ? 1 : 0
         const bChannel = b.channel === lead.channel ? 1 : 0
         return (bName + bChannel + tierRank(b.dbTier)) - (aName + aChannel + tierRank(a.dbTier))
-      })[0]
+    })[0]
+  }
+
+  const findAttributionCorrectionTargets = (lead: LeadRecord) => {
+    const targets: LeadRecord[] = []
+    const seen = new Set<string>()
+    const addTarget = (target?: LeadRecord) => {
+      if (!target) return
+      const key = [
+        target.phone,
+        target.dbTier,
+        target.date,
+        String((target as any).registeredAt || ''),
+        String((target as any).consultingNumber || ''),
+      ].join('_')
+      if (seen.has(key)) return
+      seen.add(key)
+      targets.push(target)
+    }
+
+    const consultingNumber = String((lead as any).consultingNumber || '').trim()
+    if (consultingNumber && byConsultingNumber.has(consultingNumber)) {
+      addTarget(byConsultingNumber.get(consultingNumber))
+      return targets
+    }
+
+    ;(byPhone.get(lead.phone) || [])
+      .filter((row) => row.date === lead.date)
+      .forEach(addTarget)
+
+    return targets
   }
 
   const rememberLead = (lead: LeadRecord) => {
@@ -1165,6 +1200,54 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
     const consultingStatusTier = explicitConsultingStatusTier(normalizedLead)
     const bTier = baseTier(normalizedLead.dbTier)
     const incomingConsultingNumber = String((normalizedLead as any).consultingNumber || '').trim()
+
+    if (attributionCorrectionOnly) {
+      if (!hasUsefulAttribution(normalizedLead)) continue
+      const targets = findAttributionCorrectionTargets(normalizedLead)
+      for (const target of targets) {
+        if (!shouldRefreshExistingAttribution(target, normalizedLead)) continue
+        const refreshed: LeadRecord = {
+          ...target,
+          channel: normalizedLead.channel || target.channel,
+          subChannel: normalizedLead.subChannel || target.subChannel || '',
+          source_raw: (normalizedLead as any).source_raw || (target as any).source_raw || '',
+          utm_source: (normalizedLead as any).utm_source || (target as any).utm_source || '',
+          utm_medium: (normalizedLead as any).utm_medium || (target as any).utm_medium || '',
+          utm_campaign: (normalizedLead as any).utm_campaign || (target as any).utm_campaign || '',
+          utm_content: (normalizedLead as any).utm_content || (target as any).utm_content || '',
+          utm_term: (normalizedLead as any).utm_term || (target as any).utm_term || '',
+          updatedAt: now,
+        } as LeadRecord
+
+        correctionRows.push({
+          phone: target.phone,
+          stage: target.dbTier,
+          matchDate: target.date,
+          registeredAt: (target as any).registeredAt,
+          consultingNumber: (target as any).consultingNumber,
+          patch: {
+            channel: refreshed.channel,
+            subChannel: refreshed.subChannel,
+            source_raw: (refreshed as any).source_raw,
+            utm_source: (refreshed as any).utm_source,
+            utm_medium: (refreshed as any).utm_medium,
+            utm_campaign: (refreshed as any).utm_campaign,
+            utm_content: (refreshed as any).utm_content,
+            utm_term: (refreshed as any).utm_term,
+            updatedBy: (normalizedLead as any).operator || 'UTM 보정',
+            updatedAt: now,
+          },
+        })
+        byPhoneStageDate.set(`${refreshed.phone}_${refreshed.dbTier}_${refreshed.date}`, refreshed)
+        byPhoneStageDate.set(`${refreshed.phone}_${baseTier(refreshed.dbTier)}_${refreshed.date}`, refreshed)
+        byPhoneDate.set(`${refreshed.phone}_${refreshed.date}`, refreshed)
+        rememberLead(refreshed)
+        changed++
+        refreshedExisting++
+      }
+      continue
+    }
+
     const explicitDateCorrection = isExplicitDateCorrectionLead(normalizedLead)
     const shouldClearDateOverride = isDateCorrectionClearLead(normalizedLead)
     const correctionTarget = findCorrectionTarget(normalizedLead, explicitDateCorrection)

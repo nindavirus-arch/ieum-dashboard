@@ -119,6 +119,10 @@ function topCounts<T extends { count: number }>(items: T[], limit = 12) {
   return [...items].sort((a, b) => b.count - a.count).slice(0, limit)
 }
 
+function isUtmCorrectionResult(result?: ParsedLeadResult | null) {
+  return result?.correctionMode === 'utm_attribution'
+}
+
 export default function UploadDBPage() {
   const [stage, setStage] = useState<Stage>('idle')
   const [result, setResult] = useState<ParsedLeadResult | null>(null)
@@ -170,7 +174,8 @@ export default function UploadDBPage() {
     if (!result) return
     setStage('uploading')
     try {
-      const summary = await uploadLeads(result.valid)
+      const correctionMode = isUtmCorrectionResult(result)
+      const summary = await uploadLeads(result.valid, { mode: correctionMode ? 'utmAttributionCorrection' : 'normal' })
       setUploadSummary(summary)
       setStage('done')
     } catch (e: any) {
@@ -229,7 +234,7 @@ export default function UploadDBPage() {
             {[
               { label: '총 데이터', value: result.valid.length + result.duplicateCount + result.testCount + result.invalidCount, color: 'text-slate-700', bg: 'bg-slate-50' },
               { label: '유효 DB', value: result.valid.length, color: 'text-blue-600', bg: 'bg-blue-50' },
-              { label: result.sourceKind === 'second_raw' ? '컨설팅리스트' : result.sourceKind === 'first_raw' ? 'UTM 파일' : '자동판별', value: result.sourceKind === 'second_raw' ? '상태 기준' : result.sourceKind === 'first_raw' ? 'UTM' : '기타', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+              { label: isUtmCorrectionResult(result) ? '컨설팅UTM' : result.sourceKind === 'second_raw' ? '컨설팅리스트' : result.sourceKind === 'first_raw' ? 'UTM 파일' : '자동판별', value: isUtmCorrectionResult(result) ? '유입경로 보정' : result.sourceKind === 'second_raw' ? '상태 기준' : result.sourceKind === 'first_raw' ? 'UTM' : '기타', color: 'text-emerald-600', bg: 'bg-emerald-50' },
               { label: '중복 제거', value: result.duplicateCount, color: 'text-amber-600', bg: 'bg-amber-50' },
               { label: '테스트 제거', value: result.testCount, color: 'text-orange-600', bg: 'bg-orange-50' },
               { label: '이상번호', value: result.invalidCount, color: 'text-red-600', bg: 'bg-red-50' },
@@ -240,6 +245,12 @@ export default function UploadDBPage() {
               </div>
             ))}
           </div>
+
+          {isUtmCorrectionResult(result) && (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-700">
+              컨설팅UTM 유입경로 보정 전용 모드입니다. 신규 DB 저장이나 리타겟/1차/2차 단계 변경 없이, 같은 연락처와 날짜로 이미 저장된 DB의 매체·상세매체·UTM 정보만 보정합니다.
+            </div>
+          )}
 
           {audit && (
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
@@ -321,7 +332,7 @@ export default function UploadDBPage() {
           <div className="card overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
               <p className="text-xs font-semibold text-slate-600">미리보기 (상위 10건)</p>
-              <span className="text-xs text-slate-400">총 {result.valid.length}건 업로드 예정</span>
+              <span className="text-xs text-slate-400">총 {result.valid.length}건 {isUtmCorrectionResult(result) ? '보정 확인 예정' : '업로드 예정'}</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -359,7 +370,7 @@ export default function UploadDBPage() {
 
           <div className="flex gap-3">
             <button onClick={handleUpload} className="btn-primary">
-              <Upload size={14} /> {result.valid.length}건 업로드
+              <Upload size={14} /> {result.valid.length}건 {isUtmCorrectionResult(result) ? '유입경로 보정' : '업로드'}
             </button>
             <button onClick={reset} className="btn-secondary"><X size={14} /> 취소</button>
           </div>
@@ -381,7 +392,9 @@ export default function UploadDBPage() {
           <div className="text-center">
             <p className="text-sm font-semibold text-slate-700">업로드 완료</p>
             <p className="text-xs text-slate-400 mt-1">
-              엑셀 유효 {uploadSummary?.received ?? result?.valid.length ?? 0}건 · 신규 저장 {uploadSummary?.inserted ?? 0}건 · 기존 분류 교정 {uploadSummary?.refreshedExisting ?? 0}건 · 날짜보정 {uploadSummary?.dateCorrections ?? 0}건
+              {isUtmCorrectionResult(result)
+                ? `엑셀 유효 ${uploadSummary?.received ?? result?.valid.length ?? 0}건 · 유입경로 보정 ${uploadSummary?.refreshedExisting ?? 0}건 · 신규 저장 ${uploadSummary?.inserted ?? 0}건`
+                : `엑셀 유효 ${uploadSummary?.received ?? result?.valid.length ?? 0}건 · 신규 저장 ${uploadSummary?.inserted ?? 0}건 · 기존 분류 교정 ${uploadSummary?.refreshedExisting ?? 0}건 · 날짜보정 ${uploadSummary?.dateCorrections ?? 0}건`}
             </p>
           </div>
           <button onClick={reset} className="btn-secondary">새 파일 업로드</button>

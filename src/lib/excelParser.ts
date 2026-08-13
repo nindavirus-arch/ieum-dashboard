@@ -244,6 +244,11 @@ function detectSourceKind(headers: string[], fileName = ''): SourceKind {
   return 'unknown'
 }
 
+function isUtmAttributionCorrectionFile(fileName = '') {
+  const lowerName = fileName.toLowerCase().replace(/\s+/g, '')
+  return lowerName.includes('컨설팅utm') || lowerName.includes('utm')
+}
+
 function isDateCorrectionFile(fileName = '') {
   const text = fileName.toLowerCase().replace(/\s+/g, '')
   return [
@@ -328,6 +333,7 @@ export interface ParsedLeadResult {
   firstCount: number
   secondCount: number
   sourceKind: SourceKind
+  correctionMode?: 'utm_attribution'
 }
 
 export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
@@ -341,6 +347,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
         const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '', raw: false })
         const headers = rows.length ? Object.keys(rows[0]) : []
         const sourceKind = detectSourceKind(headers, file.name)
+        const correctionMode = isUtmAttributionCorrectionFile(file.name) ? 'utm_attribution' : undefined
         const dateCorrectionByFileName = isDateCorrectionFileSafe(file.name)
         const dateCorrectionClearByFileName = isDateCorrectionClearFile(file.name)
 
@@ -452,7 +459,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
         const retargetCount = valid.filter(v => v.dbTier === 'retarget').length
         const firstCount = valid.filter(v => v.dbTier === 'first').length
         const secondCount = valid.filter(v => v.dbTier === 'second').length
-        resolve({ valid, duplicateCount, testCount, invalidCount, retargetCount, firstCount, secondCount, sourceKind })
+        resolve({ valid, duplicateCount, testCount, invalidCount, retargetCount, firstCount, secondCount, sourceKind, correctionMode })
       } catch (err) {
         reject(err)
       }
