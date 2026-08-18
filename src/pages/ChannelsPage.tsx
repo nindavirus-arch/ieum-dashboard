@@ -129,12 +129,13 @@ export default function ChannelsPage() {
     const firstDB = chLeads.filter(l => l.dbTier === 'first').length
     const secondDB = chLeads.filter(l => l.dbTier === 'second').length
     const validDB = firstDB + secondDB
+    const totalDB = cFunnel + validDB
     const spend = isPaidChannel(ch) ? periodSpends.filter(s => s.channel === ch).reduce((a, b) => a + b.amount, 0) : 0
     const cpl = validDB > 0 ? Math.round(spend / validDB) : 0
     const contracts = periodContracts.filter(project => project.attributedChannel === ch && (channelScope === 'all' || channelScope === 'paid'))
     const contractCount = contracts.length
     const contractAmount = contracts.reduce((sum, project) => sum + project.contractAmount, 0)
-    const contractRate = validDB > 0 ? ((contractCount / validDB) * 100).toFixed(1) : '0.0'
+    const contractRate = totalDB > 0 ? ((contractCount / totalDB) * 100).toFixed(1) : '0.0'
     const costPerContract = contractCount > 0 ? Math.round(spend / contractCount) : 0
     const converted = periodJourneys.filter(journey => journey.lead.channel === ch && leadInScope(journey.lead) && journey.secondType === 'estimate_to_consult').length
     const convRate = firstDB + converted > 0 ? ((converted / (firstDB + converted)) * 100).toFixed(1) : '0.0'
@@ -149,21 +150,22 @@ export default function ChannelsPage() {
             : CHANNEL_LABELS[ch]
     const estimateBase = firstDB + converted
     const directSecond = Math.max(secondDB - converted, 0)
-    return { ch, label, color: CHANNEL_COLORS[ch], spend, cFunnel, firstDB, validDB, secondDB, cpl, contractCount, contractAmount, contractRate, costPerContract, converted, estimateBase, directSecond, convRate }
+    return { ch, label, color: CHANNEL_COLORS[ch], spend, cFunnel, firstDB, validDB, totalDB, secondDB, cpl, contractCount, contractAmount, contractRate, costPerContract, converted, estimateBase, directSecond, convRate }
   })
 
   const totalStatSpend = baseStats.reduce((sum, row) => sum + row.spend, 0)
-  const totalStatDB = baseStats.reduce((sum, row) => sum + row.validDB, 0)
+  const totalStatDB = baseStats.reduce((sum, row) => sum + row.totalDB, 0)
+  const totalCplDB = baseStats.reduce((sum, row) => sum + row.validDB, 0)
   const stats = baseStats.map(row => ({
     ...row,
     spendShare: totalStatSpend > 0 ? (row.spend / totalStatSpend) * 100 : 0,
-    dbShare: totalStatDB > 0 ? (row.validDB / totalStatDB) * 100 : 0,
-    efficiency: row.spend > 0 && row.validDB > 0 && totalStatSpend > 0 && totalStatDB > 0
-      ? Math.round(((row.validDB / totalStatDB) / (row.spend / totalStatSpend)) * 100)
+    dbShare: totalStatDB > 0 ? (row.totalDB / totalStatDB) * 100 : 0,
+    efficiency: row.spend > 0 && row.totalDB > 0 && totalStatSpend > 0 && totalStatDB > 0
+      ? Math.round(((row.totalDB / totalStatDB) / (row.spend / totalStatSpend)) * 100)
       : 0,
   }))
   const maxSpend = Math.max(...stats.map(s => s.spend), 1)
-  const maxDB = Math.max(...stats.map(s => s.secondDB), 1)
+  const maxDB = Math.max(...stats.map(s => s.totalDB), 1)
   const visibleJourneys = periodJourneys.filter(journey =>
     leadInScope(journey.lead) && (filterChannel === 'all' || journey.lead.channel === filterChannel)
   )
@@ -181,6 +183,7 @@ export default function ChannelsPage() {
     const firstDB = detailLeads.filter(l => l.dbTier === 'first').length
     const secondDB = detailLeads.filter(l => l.dbTier === 'second').length
     const validDB = firstDB + secondDB
+    const totalDB = cFunnel + validDB
     const spend = isPaidChannel(ch) ? periodSpends
       .filter(s => s.channel === ch && detailLabel(s.channel, s.subChannel) === label)
       .reduce((a, b) => a + b.amount, 0) : 0
@@ -189,9 +192,9 @@ export default function ChannelsPage() {
     const contractCount = contracts.length
     const contractAmount = contracts.reduce((sum, project) => sum + project.contractAmount, 0)
     const costPerContract = contractCount > 0 ? Math.round(spend / contractCount) : 0
-    const contractRate = validDB > 0 ? ((contractCount / validDB) * 100).toFixed(1) : '0.0'
-    return { key, ch, channelLabel: CHANNEL_LABELS[ch] || ch, label, color: CHANNEL_COLORS[ch] || '#94A3B8', spend, cFunnel, firstDB, validDB, secondDB, cpl, contractCount, contractAmount, costPerContract, contractRate }
-  }).filter(r => r.spend > 0 || r.validDB > 0 || r.cFunnel > 0)
+    const contractRate = totalDB > 0 ? ((contractCount / totalDB) * 100).toFixed(1) : '0.0'
+    return { key, ch, channelLabel: CHANNEL_LABELS[ch] || ch, label, color: CHANNEL_COLORS[ch] || '#94A3B8', spend, cFunnel, firstDB, validDB, totalDB, secondDB, cpl, contractCount, contractAmount, costPerContract, contractRate }
+  }).filter(r => r.spend > 0 || r.totalDB > 0)
     .sort((a, b) => {
       const channelDiff = CHANNELS.indexOf(a.ch as typeof CHANNELS[number]) - CHANNELS.indexOf(b.ch as typeof CHANNELS[number])
       if (channelDiff) return channelDiff
@@ -282,6 +285,9 @@ export default function ChannelsPage() {
                 <Bar yAxisId="spend" dataKey="spendMan" fill="#8b5cf6" radius={[4, 4, 0, 0]} maxBarSize={30}>
                   <LabelList dataKey="spendMan" position="top" formatter={(value: number) => value > 0 ? `${value}만` : ''} style={{ fontSize: 10, fill: '#7c3aed', fontWeight: 600 }} />
                 </Bar>
+                <Bar yAxisId="db" dataKey="cFunnel" fill="#a855f7" radius={[4, 4, 0, 0]} maxBarSize={30}>
+                  <LabelList dataKey="cFunnel" position="top" formatter={(value: number) => value > 0 ? `${value}` : ''} style={{ fontSize: 10, fill: '#7e22ce', fontWeight: 600 }} />
+                </Bar>
                 <Bar yAxisId="db" dataKey="firstDB" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={30}>
                   <LabelList dataKey="firstDB" position="top" formatter={(value: number) => value > 0 ? `${value}` : ''} style={{ fontSize: 10, fill: '#2563eb', fontWeight: 600 }} />
                 </Bar>
@@ -301,17 +307,17 @@ export default function ChannelsPage() {
             <MetricExplain
               lines={row.efficiency > 0 ? [
                 `DB 점유율 ${row.dbShare.toFixed(1)}% ÷ 광고비 점유율 ${row.spendShare.toFixed(1)}% × 100`,
-                `유효 DB ${row.validDB}건 ÷ 전체 ${totalStatDB}건`,
+                `최종 DB ${row.totalDB}건 ÷ 전체 ${totalStatDB}건`,
                 `광고비 ${fmtKRW(row.spend)}원 ÷ 전체 ${fmtKRW(totalStatSpend)}원`,
                 `결과: 광고효율 ${row.efficiency}% (100%가 전체 평균)`,
-              ] : ['광고비 또는 유효 DB가 없어 광고효율을 계산하지 않습니다.']}
+              ] : ['광고비 또는 최종 DB가 없어 광고효율을 계산하지 않습니다.']}
             >
               <span className={clsx('rounded-md px-2 py-1 text-xs font-semibold', row.efficiency >= 100 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600')}>광고 효율 {row.efficiency > 0 ? `${row.efficiency}%` : '-'}</span>
             </MetricExplain>
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2 text-center">
             <div className="rounded-lg bg-violet-50 px-2 py-2"><div className="text-[10px] text-violet-500">광고비</div><div className="mt-0.5 text-sm font-bold text-violet-700">{fmtKRW(row.spend)}원</div></div>
-            <div className="rounded-lg bg-blue-50 px-2 py-2"><div className="text-[10px] text-blue-500">유효 DB</div><div className="mt-0.5 text-sm font-bold text-blue-700">{row.validDB}건</div></div>
+            <div className="rounded-lg bg-blue-50 px-2 py-2"><div className="text-[10px] text-blue-500">최종 DB</div><div className="mt-0.5 text-sm font-bold text-blue-700">{row.totalDB}건</div></div>
             <MetricExplain
               align="left"
               className="w-full justify-center"
@@ -361,7 +367,7 @@ export default function ChannelsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {stats.map(({ ch, label, color, spend, cFunnel, firstDB, validDB, secondDB, cpl, contractCount, contractAmount, contractRate, costPerContract, converted, estimateBase, directSecond, convRate, spendShare, dbShare, efficiency }) => (
+            {stats.map(({ ch, label, color, spend, cFunnel, firstDB, validDB, totalDB, secondDB, cpl, contractCount, contractAmount, contractRate, costPerContract, converted, estimateBase, directSecond, convRate, spendShare, dbShare, efficiency }) => (
               <tr key={ch} className="hover:bg-slate-50/60 transition-colors">
                 <td className="px-4 py-3.5">
                   <div className="flex items-center gap-2.5">
@@ -400,12 +406,12 @@ export default function ChannelsPage() {
                 <td className="px-4 py-3.5 text-right font-semibold text-indigo-700">{contractCount.toLocaleString()}</td>
                 <td className="px-4 py-3.5 text-right font-medium text-slate-700">{fmtKRW(contractAmount)}원</td>
                 <td className="px-4 py-3.5 text-right">
-                  <MetricExplain lines={validDB > 0 ? [
-                    `계약 ${contractCount}건 ÷ 유효 DB ${validDB}건 × 100`,
-                    `유효 DB = 1차 ${firstDB}건 + 2차 ${secondDB}건`,
+                  <MetricExplain lines={totalDB > 0 ? [
+                    `계약 ${contractCount}건 ÷ 최종 DB ${totalDB}건 × 100`,
+                    `최종 DB = 리타겟 ${cFunnel}건 + 1차 ${firstDB}건 + 2차 ${secondDB}건`,
                     `결과: ${contractRate}%`,
-                  ] : ['유효 DB가 없어 DB 대비 계약율을 계산하지 않습니다.']}>
-                    <span className="font-medium text-slate-700">{validDB > 0 ? `${contractRate}%` : '-'}</span>
+                  ] : ['최종 DB가 없어 DB 대비 계약율을 계산하지 않습니다.']}>
+                    <span className="font-medium text-slate-700">{totalDB > 0 ? `${contractRate}%` : '-'}</span>
                   </MetricExplain>
                 </td>
                 <td className="px-4 py-3.5 text-right">
@@ -419,7 +425,7 @@ export default function ChannelsPage() {
                 <td className="px-4 py-3.5 text-right">
                   <MetricExplain lines={efficiency > 0 ? [
                     `DB 점유율 ${dbShare.toFixed(1)}% ÷ 광고비 점유율 ${spendShare.toFixed(1)}% × 100`,
-                    `유효 DB ${validDB}건 ÷ 전체 ${totalStatDB}건`,
+                    `최종 DB ${totalDB}건 ÷ 전체 ${totalStatDB}건`,
                     `광고비 ${fmtKRW(spend)}원 ÷ 전체 ${fmtKRW(totalStatSpend)}원`,
                     `결과: 광고효율 ${efficiency}% (100%가 전체 평균)`,
                   ] : ['광고비 또는 유효 DB가 없어 광고효율을 계산하지 않습니다.']}>
@@ -464,12 +470,12 @@ export default function ChannelsPage() {
                 {stats.reduce((a,b)=>a+b.secondDB,0).toLocaleString()}
               </td>
               <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">
-                <MetricExplain lines={totalStatDB > 0 ? [
+                <MetricExplain lines={totalCplDB > 0 ? [
                   `전체 광고비 ${totalStatSpend.toLocaleString()}원 ÷ 전체 유효 DB ${totalStatDB}건`,
                   `유효 DB = 1차 ${stats.reduce((a,b)=>a+b.firstDB,0)}건 + 2차 ${stats.reduce((a,b)=>a+b.secondDB,0)}건`,
-                  `결과: 건당 ${Math.round(totalStatSpend/totalStatDB).toLocaleString()}원`,
+                  `결과: 건당 ${Math.round(totalStatSpend/totalCplDB).toLocaleString()}원`,
                 ] : ['유효 DB가 없어 CPL을 계산하지 않습니다.']}>
-                  <span>{totalStatDB > 0 ? `${fmtKRW(Math.round(totalStatSpend/totalStatDB))}원` : '-'}</span>
+                  <span>{totalCplDB > 0 ? `${fmtKRW(Math.round(totalStatSpend/totalCplDB))}원` : '-'}</span>
                 </MetricExplain>
               </td>
               <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">{stats.reduce((a,b)=>a+b.contractCount,0).toLocaleString()}</td>

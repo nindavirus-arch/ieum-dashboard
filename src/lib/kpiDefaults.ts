@@ -1,0 +1,2 @@
+export const DEFAULT_KPI_MIN_DAILY = 30
+export const DEFAULT_KPI_STRETCH_DAILY = 40

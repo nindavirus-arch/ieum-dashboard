@@ -9,6 +9,7 @@ import ChannelBar from '../components/channels/ChannelBar'
 import DataUpdatedAt from '../components/DataUpdatedAt'
 import clsx from 'clsx'
 import { buildLeadJourneys, isDirectSales, isPaidChannel, trafficGroup, type TrafficGroup } from '../lib/leadMetrics'
+import { DEFAULT_KPI_MIN_DAILY, DEFAULT_KPI_STRETCH_DAILY } from '../lib/kpiDefaults'
 
 const today = format(new Date(), 'yyyy-MM-dd')
 const PAID_CHANNEL_LIST = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment'] as const
@@ -350,8 +351,8 @@ export default function DashboardPage() {
   const compareCpl = comparePaidValidLeads.length > 0 ? Math.round(compareSpend / comparePaidValidLeads.length) : 0
   const periodDays = eachDayOfInterval({ start: safeDate(range.activeStart), end: safeDate(range.activeEnd) }).length
   const activeTarget = targets.find(target => target.month === range.activeEnd.slice(0, 7))
-  const minDailyTarget = activeTarget?.minDaily || 40
-  const stretchDailyTarget = Math.max(activeTarget?.stretchDaily || 60, minDailyTarget)
+  const minDailyTarget = activeTarget?.minDaily || DEFAULT_KPI_MIN_DAILY
+  const stretchDailyTarget = Math.max(activeTarget?.stretchDaily || DEFAULT_KPI_STRETCH_DAILY, minDailyTarget)
   const periodMinTarget = minDailyTarget * periodDays
   const periodStretchTarget = stretchDailyTarget * periodDays
   const targetRate = periodMinTarget > 0 ? Math.round((totalDB / periodMinTarget) * 100) : 0

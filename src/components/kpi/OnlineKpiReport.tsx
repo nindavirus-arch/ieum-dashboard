@@ -5,6 +5,7 @@ import { FileDown, Printer, X } from 'lucide-react'
 import type { AdSpend } from '../../types'
 import type { KpiTarget } from '../../lib/dataService'
 import { isPaidChannel } from '../../lib/leadMetrics'
+import { DEFAULT_KPI_MIN_DAILY, DEFAULT_KPI_STRETCH_DAILY } from '../../lib/kpiDefaults'
 
 type ReportMode = 'daily' | 'weekly' | 'monthly'
 
@@ -100,8 +101,8 @@ export default function OnlineKpiReport({ acquisitions, conversions, spends, tar
     const days = eachDayOfInterval({ start: parseISO(range.start), end: parseISO(range.end) })
     const targetMonth = range.end.slice(0, 7)
     const target = targets.find(row => row.month === targetMonth)
-    const minDaily = target?.minDaily || 40
-    const stretchDaily = Math.max(target?.stretchDaily || 60, minDaily)
+    const minDaily = target?.minDaily || DEFAULT_KPI_MIN_DAILY
+    const stretchDaily = Math.max(target?.stretchDaily || DEFAULT_KPI_STRETCH_DAILY, minDaily)
     const minTarget = minDaily * days.length
     const stretchTarget = stretchDaily * days.length
     const paidDb = rows.filter(row => isPaidChannel(row.channel)).length

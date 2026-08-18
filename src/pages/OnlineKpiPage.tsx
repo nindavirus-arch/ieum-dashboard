@@ -19,6 +19,7 @@ import { useAuth } from '../contexts/AuthContext'
 import DataUpdatedAt from '../components/DataUpdatedAt'
 import { normalizeDate } from '../lib/excelParser'
 import OnlineKpiReport from '../components/kpi/OnlineKpiReport'
+import { DEFAULT_KPI_MIN_DAILY, DEFAULT_KPI_STRETCH_DAILY } from '../lib/kpiDefaults'
 
 const today = format(new Date(), 'yyyy-MM-dd')
 const currentMonth = today.slice(0, 7)
@@ -191,8 +192,8 @@ export default function OnlineKpiPage() {
   const [notice, setNotice] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
-  const [draftMin, setDraftMin] = useState(40)
-  const [draftStretch, setDraftStretch] = useState(60)
+  const [draftMin, setDraftMin] = useState(DEFAULT_KPI_MIN_DAILY)
+  const [draftStretch, setDraftStretch] = useState(DEFAULT_KPI_STRETCH_DAILY)
   const [saving, setSaving] = useState(false)
   const [includeRetarget, setIncludeRetarget] = useState(false)
 
@@ -222,8 +223,8 @@ export default function OnlineKpiPage() {
   useEffect(() => { load() }, [])
 
   const configuredTarget = targets.find(target => target.month === selectedMonth)
-  const minDaily = configuredTarget?.minDaily || 40
-  const stretchDaily = Math.max(configuredTarget?.stretchDaily || 60, minDaily)
+  const minDaily = configuredTarget?.minDaily || DEFAULT_KPI_MIN_DAILY
+  const stretchDaily = Math.max(configuredTarget?.stretchDaily || DEFAULT_KPI_STRETCH_DAILY, minDaily)
   const monthDate = parseISO(`${selectedMonth}-01`)
   const daysInMonth = getDaysInMonth(monthDate)
   const monthStart = `${selectedMonth}-01`
