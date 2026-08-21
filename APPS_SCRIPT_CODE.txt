@@ -803,6 +803,7 @@ const USER_HEADERS = ['id', 'name', 'passwordHash', 'salt', 'role', 'permissions
 const SESSION_CACHE_TTL_SECONDS = 21600;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const SESSION_PROPERTY_PREFIX = 'admin_session_v2_';
+const SESSION_TOKEN_VERSION = 3;
 const SALES_SUPPORT_MENUS = ['/db-manage', '/upload-db', '/region'];
 const VALID_MENUS = [
   '/dashboard', '/channels', '/kpi', '/funnel', '/region', '/db-manage',
@@ -877,21 +878,15 @@ function hashPassword(password, salt) {
 }
 
 function createSession(userId) {
-  const token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
-  const session = {
-    userId: String(userId),
-    expiresAt: Date.now() + SESSION_TTL_MS
-  };
-  PropertiesService.getScriptProperties().setProperty(
-    SESSION_PROPERTY_PREFIX + token,
-    JSON.stringify(session)
-  );
-  CacheService.getScriptCache().put(
-    'admin_session_' + token,
-    JSON.stringify(session),
-    SESSION_CACHE_TTL_SECONDS
-  );
-  return token;
+  const user = findUser(userId);
+  if (!user) throw new Error('user not found');
+  const payloadPart = sessionBase64Encode(JSON.stringify({
+    version: SESSION_TOKEN_VERSION,
+    userId: String(user.id),
+    expiresAt: Date.now() + SESSION_TTL_MS,
+    nonce: Utilities.getUuid()
+  }));
+  return payloadPart + '.' + signSessionPayload(payloadPart, user);
 }
 
 function removeSession(token) {
@@ -904,6 +899,24 @@ function removeSession(token) {
 function readSession(token) {
   if (!token) return null;
   const key = String(token);
+  const parts = key.split('.');
+  if (parts.length === 2) {
+    try {
+      const payload = JSON.parse(sessionBase64Decode(parts[0]));
+      if (Number(payload.version || 0) !== SESSION_TOKEN_VERSION) return null;
+      if (!payload.userId || Number(payload.expiresAt || 0) <= Date.now()) return null;
+      const user = findUser(payload.userId);
+      if (!user || !publicUser(user).active) return null;
+      const expected = signSessionPayload(parts[0], user);
+      if (!sessionSafeEquals(parts[1], expected)) return null;
+      payload.user = user;
+      return payload;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  // 이전 배포에서 발급한 저장형 토큰은 만료 전까지 호환합니다.
   const cacheKey = 'admin_session_' + key;
   const propertyKey = SESSION_PROPERTY_PREFIX + key;
   let raw = CacheService.getScriptCache().get(cacheKey);
@@ -931,7 +944,7 @@ function readSession(token) {
 function sessionUser(token) {
   const session = readSession(token);
   if (!session) return null;
-  const user = findUser(session.userId);
+  const user = session.user || findUser(session.userId);
   if (!user || !publicUser(user).active) {
     removeSession(token);
     return null;
@@ -939,11 +952,46 @@ function sessionUser(token) {
   return user;
 }
 
+function sessionBase64Encode(value) {
+  return Utilities.base64EncodeWebSafe(String(value), Utilities.Charset.UTF_8).replace(/=+$/g, '');
+}
+
+function sessionBase64Decode(value) {
+  let encoded = String(value || '');
+  while (encoded.length % 4) encoded += '=';
+  return Utilities.newBlob(Utilities.base64DecodeWebSafe(encoded)).getDataAsString('UTF-8');
+}
+
+function sessionSigningKey(user) {
+  const spreadsheetId = SpreadsheetApp.getActive().getId();
+  return spreadsheetId + ':' + String(user.id || '') + ':' + String(user.passwordHash || '') + ':' + String(user.salt || '');
+}
+
+function signSessionPayload(payloadPart, user) {
+  const signature = Utilities.computeHmacSha256Signature(
+    String(payloadPart),
+    sessionSigningKey(user),
+    Utilities.Charset.UTF_8
+  );
+  return Utilities.base64EncodeWebSafe(signature).replace(/=+$/g, '');
+}
+
+function sessionSafeEquals(left, right) {
+  const a = String(left || '');
+  const b = String(right || '');
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let index = 0; index < a.length; index++) {
+    mismatch |= a.charCodeAt(index) ^ b.charCodeAt(index);
+  }
+  return mismatch === 0;
+}
+
 function authStatus(token) {
   const users = getUsers();
-  if (users.length === 0) return json({ setupRequired: true });
+  if (users.length === 0) return json({ setupRequired: true, authVersion: SESSION_TOKEN_VERSION });
   const user = sessionUser(token);
-  return json({ setupRequired: false, user: user ? publicUser(user) : null });
+  return json({ setupRequired: false, user: user ? publicUser(user) : null, authVersion: SESSION_TOKEN_VERSION });
 }
 
 function authSetup(body) {
@@ -982,7 +1030,7 @@ function authLogin(body) {
   if (!user || !publicUser(user).active) return json({ error: 'invalid credentials' });
   const actual = hashPassword(String(body.password || ''), user.salt);
   if (actual !== String(user.passwordHash || '')) return json({ error: 'invalid credentials' });
-  return json({ success: true, token: createSession(user.id), user: publicUser(user) });
+  return json({ success: true, token: createSession(user.id), user: publicUser(user), authVersion: SESSION_TOKEN_VERSION });
 }
 
 function authLogout(token) {

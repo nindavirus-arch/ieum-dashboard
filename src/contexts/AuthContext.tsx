@@ -47,7 +47,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           const status = await fetchAuthStatus()
           setSetupRequired(status.setupRequired)
-          setUser(status.user || null)
+          // 데이터 요청 한 번의 인증 지연만으로 현재 화면을 로그아웃시키지 않습니다.
+          // 명시적인 로그인 만료 응답은 AUTH_INVALID_EVENT에서 처리합니다.
+          if (status.user) setUser(status.user)
         } catch {
           // 일시적인 네트워크 실패라면 현재 화면과 세션을 유지합니다.
         }
