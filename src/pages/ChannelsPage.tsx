@@ -6,20 +6,22 @@ import { Bar, CartesianGrid, ComposedChart, LabelList, Legend, ResponsiveContain
 import { fetchLeads, fetchAdSpend, fetchProjects } from '../lib/dataService'
 import type { LeadRecord, AdSpend, ViewMode, ProjectRecord } from '../types'
 import clsx from 'clsx'
-import { buildLeadJourneys, isPaidChannel, trafficGroup, type TrafficGroup } from '../lib/leadMetrics'
+import { buildLeadJourneys, isDirectSales, isPaidChannel, trafficGroup, type TrafficGroup } from '../lib/leadMetrics'
 import { buildProjectAttribution, contractedProjects } from '../lib/projectMetrics'
 import DataUpdatedAt from '../components/DataUpdatedAt'
 
 const CHANNELS = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment','direct','tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','inbound_call','etc'] as const
+type ChannelRowKey = typeof CHANNELS[number] | 'direct_sales'
+const CHANNEL_ROWS: ChannelRowKey[] = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment','inbound_call','direct','direct_sales','tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','etc']
 const CHANNEL_LABELS: Record<string, string> = {
   naver:'네이버', google:'구글', meta:'메타', youtube:'유튜브', viral:'바이럴', danggeun:'당근', direct:'직접유입',
   kakao_search:'카카오 검색광고', kakao_moment:'카카오모먼트',
-  tu_albarich:'TU-알바리치', tu_youtube:'TU-유튜브', tu_danggeun:'TU-당근',
+  direct_sales:'직접영업', tu_albarich:'TU-알바리치', tu_youtube:'TU-유튜브', tu_danggeun:'TU-당근',
   hugreen_danggeun:'휴그린-당근', hugreen_mail:'휴그린-메일', inbound_call:'인바운드-인입콜', etc:'기타'
 }
 const CHANNEL_COLORS: Record<string, string> = {
   naver:'#03C75A', google:'#4285F4', meta:'#1877F2', youtube:'#FF0000', viral:'#7C3AED', danggeun:'#FF6F0F', kakao_search:'#FEE500', kakao_moment:'#111827', direct:'#64748B',
-  tu_albarich:'#0EA5E9', tu_youtube:'#EF4444', tu_danggeun:'#F97316',
+  direct_sales:'#475569', tu_albarich:'#0EA5E9', tu_youtube:'#EF4444', tu_danggeun:'#F97316',
   hugreen_danggeun:'#22C55E', hugreen_mail:'#14B8A6', inbound_call:'#334155', etc:'#94A3B8'
 }
 const today = format(new Date(), 'yyyy-MM-dd')
@@ -79,6 +81,7 @@ function MetricExplain({ children, lines, align = 'right', className }: {
 function detailLabel(ch: string, subChannel?: string) {
   const label = String(subChannel || '').trim()
   const normalized = label.toLowerCase().replace(/[\s_\-\/()\[\].]/g, '')
+  if (ch === 'direct_sales') return '직접영업'
   if (ch === 'naver' && normalized.includes('gfa')) return '네이버 GFA'
   if (ch === 'naver' && (normalized.includes('브랜드검색') || normalized.includes('brand'))) return '네이버 브랜드검색'
   if (ch === 'naver' && (normalized.includes('sa') || normalized.includes('파워링크'))) return '네이버 SA'
@@ -87,6 +90,35 @@ function detailLabel(ch: string, subChannel?: string) {
   if (ch === 'google' && (normalized.includes('유튜브') || normalized.includes('youtube'))) return '구글 유튜브'
   if (ch === 'google' && (normalized.includes('검색') || normalized.includes('search') || normalized.includes('sa'))) return '구글 검색광고'
   return label || CHANNEL_LABELS[ch] || '기타'
+}
+
+function normalizedProjectText(project: { attributedSubChannel?: string; sourceRaw?: string; subChannel?: string }) {
+  return `${project.attributedSubChannel || ''} ${project.sourceRaw || ''} ${project.subChannel || ''}`
+    .toLowerCase()
+    .replace(/[\s_\-\/()\[\].]/g, '')
+}
+
+function isDirectSalesProject(project: { attributedSubChannel?: string; sourceRaw?: string; subChannel?: string }) {
+  const text = normalizedProjectText(project)
+  return text.includes('직접영업') || text.includes('directsales')
+}
+
+function rowKeyForLead(lead: LeadRecord): ChannelRowKey {
+  return isDirectSales(lead) ? 'direct_sales' : lead.channel
+}
+
+function rowKeyForProject(project: ReturnType<typeof buildProjectAttribution>[number]): ChannelRowKey {
+  return isDirectSalesProject(project) ? 'direct_sales' : project.attributedChannel
+}
+
+function projectTrafficGroup(project: ReturnType<typeof buildProjectAttribution>[number]): TrafficGroup {
+  const key = rowKeyForProject(project)
+  if (key === 'direct_sales') return 'external'
+  if (key === 'inbound_call') return 'paid'
+  if (key === 'tu_albarich' || key === 'tu_youtube' || key === 'tu_danggeun' || key === 'hugreen_danggeun' || key === 'hugreen_mail') return 'external'
+  if (key === 'direct') return 'organic'
+  if (key === 'etc') return 'unclassified'
+  return isPaidChannel(key) ? 'paid' : 'unclassified'
 }
 
 export default function ChannelsPage() {
@@ -101,8 +133,18 @@ export default function ChannelsPage() {
 
   async function load() {
     setLoading(true)
-    const [l, s, p] = await Promise.all([fetchLeads(), fetchAdSpend(), fetchProjects().catch(() => [])])
-    setLeads(l); setSpends(s); setProjects(p); setLoading(false)
+    try {
+      const [leadResult, spendResult, projectResult] = await Promise.allSettled([
+        fetchLeads(),
+        fetchAdSpend(),
+        fetchProjects().catch(() => []),
+      ])
+      if (leadResult.status === 'fulfilled') setLeads(leadResult.value)
+      if (spendResult.status === 'fulfilled') setSpends(spendResult.value)
+      if (projectResult.status === 'fulfilled') setProjects(projectResult.value)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => { load() }, [])
@@ -116,15 +158,16 @@ export default function ChannelsPage() {
     leads
   )
   const leadInScope = (lead: LeadRecord) => channelScope === 'all' || trafficGroup(lead) === channelScope
-  const scopedChannels = CHANNELS.filter(ch =>
-    periodLeads.some(lead => lead.channel === ch && leadInScope(lead)) ||
+  const projectInScope = (project: ReturnType<typeof buildProjectAttribution>[number]) => channelScope === 'all' || projectTrafficGroup(project) === channelScope
+  const scopedChannels = CHANNEL_ROWS.filter(ch =>
+    periodLeads.some(lead => rowKeyForLead(lead) === ch && leadInScope(lead)) ||
     periodSpends.some(spend => spend.channel === ch && isPaidChannel(spend.channel) && (channelScope === 'all' || channelScope === 'paid')) ||
-    periodContracts.some(project => project.attributedChannel === ch && (channelScope === 'all' || channelScope === 'paid'))
+    periodContracts.some(project => rowKeyForProject(project) === ch && projectInScope(project))
   )
   const visibleChannels = filterChannel === 'all' ? scopedChannels : scopedChannels.filter(ch => ch === filterChannel)
 
   const baseStats = visibleChannels.map(ch => {
-    const chLeads = periodLeads.filter(l => l.channel === ch && leadInScope(l))
+    const chLeads = periodLeads.filter(l => rowKeyForLead(l) === ch && leadInScope(l))
     const cFunnel = chLeads.filter(l => l.dbTier === 'retarget').length
     const firstDB = chLeads.filter(l => l.dbTier === 'first').length
     const secondDB = chLeads.filter(l => l.dbTier === 'second').length
@@ -132,16 +175,14 @@ export default function ChannelsPage() {
     const totalDB = cFunnel + validDB
     const spend = isPaidChannel(ch) ? periodSpends.filter(s => s.channel === ch).reduce((a, b) => a + b.amount, 0) : 0
     const cpl = validDB > 0 ? Math.round(spend / validDB) : 0
-    const contracts = periodContracts.filter(project => project.attributedChannel === ch && (channelScope === 'all' || channelScope === 'paid'))
+    const contracts = periodContracts.filter(project => rowKeyForProject(project) === ch && projectInScope(project))
     const contractCount = contracts.length
     const contractAmount = contracts.reduce((sum, project) => sum + project.contractAmount, 0)
     const contractRate = totalDB > 0 ? ((contractCount / totalDB) * 100).toFixed(1) : '0.0'
     const costPerContract = contractCount > 0 ? Math.round(spend / contractCount) : 0
-    const converted = periodJourneys.filter(journey => journey.lead.channel === ch && leadInScope(journey.lead) && journey.secondType === 'estimate_to_consult').length
+    const converted = periodJourneys.filter(journey => rowKeyForLead(journey.lead) === ch && leadInScope(journey.lead) && journey.secondType === 'estimate_to_consult').length
     const convRate = firstDB + converted > 0 ? ((converted / (firstDB + converted)) * 100).toFixed(1) : '0.0'
-    const label = ch === 'direct' && channelScope === 'external'
-      ? '직접영업'
-      : ch === 'direct'
+    const label = ch === 'direct'
         ? '홈페이지 직접유입'
         : ch === 'etc' && channelScope === 'organic'
           ? '온라인-기타'
@@ -167,18 +208,24 @@ export default function ChannelsPage() {
   const maxSpend = Math.max(...stats.map(s => s.spend), 1)
   const maxDB = Math.max(...stats.map(s => s.totalDB), 1)
   const visibleJourneys = periodJourneys.filter(journey =>
-    leadInScope(journey.lead) && (filterChannel === 'all' || journey.lead.channel === filterChannel)
+    leadInScope(journey.lead) && (filterChannel === 'all' || rowKeyForLead(journey.lead) === filterChannel)
   )
   const totalConverted = visibleJourneys.filter(journey => journey.secondType === 'estimate_to_consult').length
   const totalFirstOnly = visibleJourneys.filter(journey => journey.stage === 'first').length
   const detailKeys = new Set<string>()
-  const channelMatches = (lead: LeadRecord) => leadInScope(lead) && (filterChannel === 'all' || lead.channel === filterChannel)
-  periodLeads.filter(channelMatches).forEach(l => detailKeys.add(`${l.channel}__${detailLabel(l.channel, l.subChannel)}`))
+  const channelMatches = (lead: LeadRecord) => leadInScope(lead) && (filterChannel === 'all' || rowKeyForLead(lead) === filterChannel)
+  periodLeads.filter(channelMatches).forEach(l => {
+    const key = rowKeyForLead(l)
+    detailKeys.add(`${key}__${detailLabel(key, l.subChannel)}`)
+  })
   periodSpends.filter(s => (channelScope === 'all' || channelScope === 'paid') && (filterChannel === 'all' || s.channel === filterChannel)).forEach(s => detailKeys.add(`${s.channel}__${detailLabel(s.channel, s.subChannel)}`))
-  periodContracts.filter(project => filterChannel === 'all' || project.attributedChannel === filterChannel).forEach(project => detailKeys.add(`${project.attributedChannel}__${detailLabel(project.attributedChannel, project.attributedSubChannel)}`))
+  periodContracts.filter(project => projectInScope(project) && (filterChannel === 'all' || rowKeyForProject(project) === filterChannel)).forEach(project => {
+    const key = rowKeyForProject(project)
+    detailKeys.add(`${key}__${detailLabel(key, project.attributedSubChannel)}`)
+  })
   const detailStats = Array.from(detailKeys).map(key => {
     const [ch, label] = key.split('__')
-    const detailLeads = periodLeads.filter(l => l.channel === ch && leadInScope(l) && detailLabel(l.channel, l.subChannel) === label)
+    const detailLeads = periodLeads.filter(l => rowKeyForLead(l) === ch && leadInScope(l) && detailLabel(rowKeyForLead(l), l.subChannel) === label)
     const cFunnel = detailLeads.filter(l => l.dbTier === 'retarget').length
     const firstDB = detailLeads.filter(l => l.dbTier === 'first').length
     const secondDB = detailLeads.filter(l => l.dbTier === 'second').length
@@ -188,7 +235,7 @@ export default function ChannelsPage() {
       .filter(s => s.channel === ch && detailLabel(s.channel, s.subChannel) === label)
       .reduce((a, b) => a + b.amount, 0) : 0
     const cpl = validDB > 0 ? Math.round(spend / validDB) : 0
-    const contracts = periodContracts.filter(project => project.attributedChannel === ch && detailLabel(project.attributedChannel, project.attributedSubChannel) === label)
+    const contracts = periodContracts.filter(project => rowKeyForProject(project) === ch && projectInScope(project) && detailLabel(rowKeyForProject(project), project.attributedSubChannel) === label)
     const contractCount = contracts.length
     const contractAmount = contracts.reduce((sum, project) => sum + project.contractAmount, 0)
     const costPerContract = contractCount > 0 ? Math.round(spend / contractCount) : 0
@@ -196,7 +243,7 @@ export default function ChannelsPage() {
     return { key, ch, channelLabel: CHANNEL_LABELS[ch] || ch, label, color: CHANNEL_COLORS[ch] || '#94A3B8', spend, cFunnel, firstDB, validDB, totalDB, secondDB, cpl, contractCount, contractAmount, costPerContract, contractRate }
   }).filter(r => r.spend > 0 || r.totalDB > 0)
     .sort((a, b) => {
-      const channelDiff = CHANNELS.indexOf(a.ch as typeof CHANNELS[number]) - CHANNELS.indexOf(b.ch as typeof CHANNELS[number])
+      const channelDiff = CHANNEL_ROWS.indexOf(a.ch as ChannelRowKey) - CHANNEL_ROWS.indexOf(b.ch as ChannelRowKey)
       if (channelDiff) return channelDiff
       const aRank = DETAIL_ORDER.indexOf(a.label)
       const bRank = DETAIL_ORDER.indexOf(b.label)
@@ -207,8 +254,11 @@ export default function ChannelsPage() {
     .sort((a, b) => b.contractCount - a.contractCount || b.contractAmount - a.contractAmount)
     .slice(0, 5)
   const contractList = [...periodContracts]
-    .filter(project => filterChannel === 'all' || project.attributedChannel === filterChannel)
+    .filter(project => projectInScope(project) && (filterChannel === 'all' || rowKeyForProject(project) === filterChannel))
     .sort((a, b) => b.contractDate.localeCompare(a.contractDate))
+  const contractCostCount = stats
+    .filter(row => row.spend > 0)
+    .reduce((sum, row) => sum + row.contractCount, 0)
   const inputValue = viewMode === 'monthly' ? selectedDate.slice(0, 7) : viewMode === 'yearly' ? selectedDate.slice(0, 4) : selectedDate
   function changeDate(value: string) {
     if (!value) return
@@ -415,11 +465,11 @@ export default function ChannelsPage() {
                   </MetricExplain>
                 </td>
                 <td className="px-4 py-3.5 text-right">
-                  <MetricExplain lines={contractCount > 0 ? [
+                  <MetricExplain lines={spend > 0 && contractCount > 0 ? [
                     `광고비 ${spend.toLocaleString()}원 ÷ 계약 ${contractCount}건`,
                     `결과: 계약당 ${costPerContract.toLocaleString()}원`,
-                  ] : ['계약건수가 없어 계약당 광고비를 계산하지 않습니다.']}>
-                    <span className="font-medium text-slate-700">{contractCount > 0 ? `${fmtKRW(costPerContract)}원` : '-'}</span>
+                  ] : ['광고비 또는 계약건수가 없어 계약당 광고비를 계산하지 않습니다.']}>
+                    <span className="font-medium text-slate-700">{spend > 0 && contractCount > 0 ? `${fmtKRW(costPerContract)}원` : '-'}</span>
                   </MetricExplain>
                 </td>
                 <td className="px-4 py-3.5 text-right">
@@ -484,7 +534,7 @@ export default function ChannelsPage() {
                 {totalStatDB > 0 ? `${((stats.reduce((a,b)=>a+b.contractCount,0) / totalStatDB) * 100).toFixed(1)}%` : '-'}
               </td>
               <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">
-                {stats.reduce((a,b)=>a+b.contractCount,0) > 0 ? `${fmtKRW(Math.round(totalStatSpend / stats.reduce((a,b)=>a+b.contractCount,0)))}원` : '-'}
+                {contractCostCount > 0 ? `${fmtKRW(Math.round(totalStatSpend / contractCostCount))}원` : '-'}
               </td>
               <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">
                 <MetricExplain lines={totalStatSpend > 0 && totalStatDB > 0 ? [
@@ -525,7 +575,7 @@ export default function ChannelsPage() {
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-bold text-indigo-700">{row.contractCount}건</p>
-                  <p className="text-xs text-slate-400">계약당 {row.costPerContract > 0 ? `${fmtKRW(row.costPerContract)}원` : '-'}</p>
+                  <p className="text-xs text-slate-400">계약당 {row.spend > 0 && row.costPerContract > 0 ? `${fmtKRW(row.costPerContract)}원` : '-'}</p>
                 </div>
               </div>
             ))}
@@ -550,8 +600,8 @@ export default function ChannelsPage() {
                   <tr key={`${project.contractDate}_${project.phone}_${project.projectNumber}`} className="hover:bg-slate-50">
                     <td className="px-3 py-2 text-slate-600">{project.contractDate}</td>
                     <td className="px-3 py-2 font-medium text-slate-700">{project.customerName || '-'}</td>
-                    <td className="px-3 py-2 text-slate-600">{CHANNEL_LABELS[project.attributedChannel] || project.attributedChannel}</td>
-                    <td className="px-3 py-2 text-slate-600">{detailLabel(project.attributedChannel, project.attributedSubChannel)}</td>
+                    <td className="px-3 py-2 text-slate-600">{CHANNEL_LABELS[rowKeyForProject(project)] || rowKeyForProject(project)}</td>
+                    <td className="px-3 py-2 text-slate-600">{detailLabel(rowKeyForProject(project), project.attributedSubChannel)}</td>
                     <td className="px-3 py-2 text-slate-600">{project.salesOwner || '-'}</td>
                     <td className="px-3 py-2 text-right font-semibold text-slate-800">{fmtKRW(project.contractAmount)}원</td>
                   </tr>
@@ -636,7 +686,7 @@ export default function ChannelsPage() {
                   </td>
                   <td className="px-4 py-3 text-right font-semibold text-indigo-700">{contractCount.toLocaleString()}</td>
                   <td className="px-4 py-3 text-right font-semibold text-slate-800">{fmtKRW(contractAmount)}원</td>
-                  <td className="px-4 py-3 text-right font-semibold text-slate-800">{contractCount > 0 ? `${fmtKRW(costPerContract)}원` : '-'}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-800">{spend > 0 && contractCount > 0 ? `${fmtKRW(costPerContract)}원` : '-'}</td>
                 </tr>
               ))}
               {!detailStats.length && (

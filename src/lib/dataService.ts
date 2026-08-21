@@ -27,6 +27,7 @@ const EXCLUDED_LEAD_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted
 const SHEET_CACHE_TTL_MS = 5 * 60_000
 const PERSISTED_SHEET_CACHE_TTL_MS = 10 * 60_000
 const PERSISTED_SHEET_TYPES = new Set<SheetType>(['leads', 'adSpend', 'mapping', 'kpiTargets', 'projects'])
+const PERSISTED_UPDATED_AT_KEY = 'ieum:data-updated-at'
 const sheetCache = new Map<SheetType, { expires: number; data?: any[]; promise?: Promise<any[]> }>()
 export const DATA_UPDATED_EVENT = 'ieum:data-updated'
 let updatedAtCache: { expires: number; value: string } | null = null
@@ -57,16 +58,17 @@ function persistedSheetCacheKey(type: SheetType) {
   return `ieum:sheet-cache:${type}`
 }
 
-function readPersistedSheetCache(type: SheetType) {
+function readPersistedSheetCache(type: SheetType, options: { allowExpired?: boolean } = {}) {
   if (!PERSISTED_SHEET_TYPES.has(type) || typeof window === 'undefined') return null
   try {
     const raw = window.localStorage.getItem(persistedSheetCacheKey(type))
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    if (!parsed?.expires || parsed.expires <= Date.now() || !Array.isArray(parsed.data)) {
+    if (!parsed?.expires || !Array.isArray(parsed.data)) {
       window.localStorage.removeItem(persistedSheetCacheKey(type))
       return null
     }
+    if (parsed.expires <= Date.now() && !options.allowExpired) return null
     return parsed.data as any[]
   } catch {
     return null
@@ -95,6 +97,22 @@ function removePersistedSheetCache(type: SheetType) {
 function clearPersistedSheetCache() {
   if (typeof window === 'undefined') return
   PERSISTED_SHEET_TYPES.forEach(removePersistedSheetCache)
+}
+
+function readPersistedUpdatedAt() {
+  if (typeof window === 'undefined') return ''
+  try {
+    return window.localStorage.getItem(PERSISTED_UPDATED_AT_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+function writePersistedUpdatedAt(value: string) {
+  if (!value || typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(PERSISTED_UPDATED_AT_KEY, value)
+  } catch {}
 }
 
 function cacheTypesForPost(type: PostSheetType): SheetType[] {
@@ -476,14 +494,23 @@ async function getSheetRows(type: SheetType) {
   }
 
   const promise = (async () => {
-    const res = await fetch(`${SHEET_API_URL}?type=${type}&token=${encodeURIComponent(getAuthToken())}&menu=${encodeURIComponent(currentMenu())}`)
-    if (!res.ok) throw new Error('Google Sheets 데이터를 불러오지 못했습니다.')
-    const data = await res.json()
-    handleDataError(data)
-    const rows = Array.isArray(data) ? data : []
-    sheetCache.set(type, { data: rows, expires: Date.now() + SHEET_CACHE_TTL_MS })
-    writePersistedSheetCache(type, rows)
-    return rows
+    try {
+      const res = await fetch(`${SHEET_API_URL}?type=${type}&token=${encodeURIComponent(getAuthToken())}&menu=${encodeURIComponent(currentMenu())}`)
+      if (!res.ok) throw new Error('Google Sheets 데이터를 불러오지 못했습니다.')
+      const data = await res.json()
+      handleDataError(data)
+      const rows = Array.isArray(data) ? data : []
+      sheetCache.set(type, { data: rows, expires: Date.now() + SHEET_CACHE_TTL_MS })
+      writePersistedSheetCache(type, rows)
+      return rows
+    } catch (error) {
+      const stale = readPersistedSheetCache(type, { allowExpired: true })
+      if (stale) {
+        sheetCache.set(type, { data: stale, expires: Date.now() + 60_000 })
+        return stale
+      }
+      throw error
+    }
   })()
 
   sheetCache.set(type, { promise, expires: now + SHEET_CACHE_TTL_MS })
@@ -532,11 +559,16 @@ export async function fetchDataUpdatedAt(): Promise<string> {
     const updatedAt = String(data?.updatedAt || '')
     if (!updatedAt) throw new Error('업데이트 시간이 없습니다.')
     updatedAtCache = { value: updatedAt, expires: Date.now() + 2 * 60_000 }
+    writePersistedUpdatedAt(updatedAt)
     return updatedAt
   })()
 
   try {
     return await updatedAtPromise
+  } catch (error) {
+    const fallback = readPersistedUpdatedAt()
+    if (fallback) return fallback
+    throw error
   } finally {
     updatedAtPromise = null
   }

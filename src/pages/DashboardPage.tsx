@@ -239,14 +239,14 @@ export default function DashboardPage() {
   async function load() {
     setLoading(true)
     try {
-      const [l, s, t] = await Promise.all([
+      const [leadResult, spendResult, targetResult] = await Promise.allSettled([
         fetchLeads(),
         fetchAdSpend(),
         fetchKpiTargets().catch(() => [] as KpiTarget[]),
       ])
-      setLeads(l)
-      setSpends(s)
-      setTargets(t)
+      if (leadResult.status === 'fulfilled') setLeads(leadResult.value)
+      if (spendResult.status === 'fulfilled') setSpends(spendResult.value)
+      if (targetResult.status === 'fulfilled') setTargets(targetResult.value)
     } finally {
       setLoading(false)
     }
