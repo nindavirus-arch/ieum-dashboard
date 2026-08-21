@@ -3,6 +3,7 @@ import { SHEET_API_URL } from './apiConfig'
 export const AUTH_TOKEN_KEY = 'ieum-admin-token'
 const AUTH_USER_KEY = 'ieum-admin-user'
 export const AUTH_INVALID_EVENT = 'ieum-auth-invalid'
+export const AUTH_RECHECK_EVENT = 'ieum-auth-recheck'
 
 export const MENU_PERMISSIONS = [
   { key: '/dashboard', label: '메인 대시보드' },
@@ -66,6 +67,10 @@ export function clearAuthSession() {
 export function notifyAuthInvalid() {
   clearAuthSession()
   window.dispatchEvent(new Event(AUTH_INVALID_EVENT))
+}
+
+export function requestAuthRecheck() {
+  window.dispatchEvent(new Event(AUTH_RECHECK_EVENT))
 }
 
 export function canAccess(user: AdminUser | null, path: string) {

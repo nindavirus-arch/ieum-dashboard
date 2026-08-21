@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { AUTH_INVALID_EVENT, fetchAuthStatus, getAuthToken, getStoredAuthUser, login as loginRequest, logout as logoutRequest, setupMaster as setupMasterRequest, type AdminUser } from '../lib/auth'
+import { AUTH_INVALID_EVENT, AUTH_RECHECK_EVENT, fetchAuthStatus, getAuthToken, getStoredAuthUser, login as loginRequest, logout as logoutRequest, setupMaster as setupMasterRequest, type AdminUser } from '../lib/auth'
 
 type AuthContextValue = {
   user: AdminUser | null
@@ -35,13 +35,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refresh()
+    let recheckTimer = 0
     const handleInvalid = () => {
       setUser(null)
       setSetupRequired(false)
       setLoading(false)
     }
+    const handleRecheck = () => {
+      window.clearTimeout(recheckTimer)
+      recheckTimer = window.setTimeout(async () => {
+        try {
+          const status = await fetchAuthStatus()
+          setSetupRequired(status.setupRequired)
+          setUser(status.user || null)
+        } catch {
+          // 일시적인 네트워크 실패라면 현재 화면과 세션을 유지합니다.
+        }
+      }, 500)
+    }
     window.addEventListener(AUTH_INVALID_EVENT, handleInvalid)
-    return () => window.removeEventListener(AUTH_INVALID_EVENT, handleInvalid)
+    window.addEventListener(AUTH_RECHECK_EVENT, handleRecheck)
+    return () => {
+      window.clearTimeout(recheckTimer)
+      window.removeEventListener(AUTH_INVALID_EVENT, handleInvalid)
+      window.removeEventListener(AUTH_RECHECK_EVENT, handleRecheck)
+    }
   }, [])
 
   async function login(id: string, password: string) {
