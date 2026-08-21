@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { fetchAuthStatus, login as loginRequest, logout as logoutRequest, setupMaster as setupMasterRequest, type AdminUser } from '../lib/auth'
+import { fetchAuthStatus, getAuthToken, getStoredAuthUser, login as loginRequest, logout as logoutRequest, setupMaster as setupMasterRequest, type AdminUser } from '../lib/auth'
 
 type AuthContextValue = {
   user: AdminUser | null
@@ -25,7 +25,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSetupRequired(status.setupRequired)
       setUser(status.user || null)
     } catch {
-      setUser(null)
+      const cachedUser = getAuthToken() ? getStoredAuthUser() : null
+      if (cachedUser) setUser(cachedUser)
+      else setUser(null)
     } finally {
       setLoading(false)
     }
@@ -58,4 +60,3 @@ export function useAuth() {
   if (!value) throw new Error('AuthProvider가 필요합니다.')
   return value
 }
-

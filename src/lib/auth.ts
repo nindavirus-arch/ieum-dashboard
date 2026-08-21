@@ -1,6 +1,7 @@
 import { SHEET_API_URL } from './apiConfig'
 
 export const AUTH_TOKEN_KEY = 'ieum-admin-token'
+const AUTH_USER_KEY = 'ieum-admin-user'
 
 export const MENU_PERMISSIONS = [
   { key: '/dashboard', label: '메인 대시보드' },
@@ -40,6 +41,27 @@ export function setAuthToken(token: string) {
   else window.localStorage.removeItem(AUTH_TOKEN_KEY)
 }
 
+export function getStoredAuthUser() {
+  try {
+    const raw = window.localStorage.getItem(AUTH_USER_KEY)
+    return raw ? JSON.parse(raw) as AdminUser : null
+  } catch {
+    return null
+  }
+}
+
+function setStoredAuthUser(user: AdminUser | null) {
+  try {
+    if (user) window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user))
+    else window.localStorage.removeItem(AUTH_USER_KEY)
+  } catch {}
+}
+
+export function clearAuthSession() {
+  setAuthToken('')
+  setStoredAuthUser(null)
+}
+
 export function canAccess(user: AdminUser | null, path: string) {
   if (!user) return false
   return user.role === 'master' || user.permissions.includes('*') || user.permissions.includes(path)
@@ -52,7 +74,7 @@ export function defaultPath(user: AdminUser) {
 
 async function fetchAuth(input: RequestInfo | URL, init?: RequestInit) {
   const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), 15_000)
+  const timer = window.setTimeout(() => controller.abort(), 30_000)
   try {
     return await fetch(input, { ...init, signal: controller.signal })
   } catch (error) {
@@ -69,7 +91,7 @@ async function parseResponse(res: Response) {
   if (!res.ok) throw new Error('인증 서버에 연결하지 못했습니다.')
   const data = await res.json()
   if (data?.error === 'unauthorized') {
-    setAuthToken('')
+    clearAuthSession()
     throw new Error('로그인이 만료되었습니다. 다시 로그인해주세요.')
   }
   const messages: Record<string, string> = {
@@ -98,24 +120,28 @@ async function authPost(type: string, payload: Record<string, unknown> = {}) {
 export async function fetchAuthStatus() {
   const token = getAuthToken()
   const res = await fetchAuth(`${SHEET_API_URL}?type=authStatus&token=${encodeURIComponent(token)}`)
-  return parseResponse(res) as Promise<{ setupRequired: boolean; user?: AdminUser }>
+  const status = await parseResponse(res) as { setupRequired: boolean; user?: AdminUser }
+  if (status.user) setStoredAuthUser(status.user)
+  return status
 }
 
 export async function setupMaster(id: string, name: string, password: string) {
   const data = await authPost('authSetup', { id, name, password })
   setAuthToken(data.token)
+  setStoredAuthUser(data.user as AdminUser)
   return data.user as AdminUser
 }
 
 export async function login(id: string, password: string) {
   const data = await authPost('authLogin', { id, password })
   setAuthToken(data.token)
+  setStoredAuthUser(data.user as AdminUser)
   return data.user as AdminUser
 }
 
 export async function logout() {
   try { await authPost('authLogout') } catch {}
-  setAuthToken('')
+  clearAuthSession()
 }
 
 export async function fetchAdminUsers() {
