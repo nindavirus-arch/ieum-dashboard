@@ -800,7 +800,9 @@ function makeUniqueKey(row, type) {
 }
 
 const USER_HEADERS = ['id', 'name', 'passwordHash', 'salt', 'role', 'permissions', 'active', 'createdAt', 'updatedAt'];
-const SESSION_TTL_SECONDS = 21600;
+const SESSION_CACHE_TTL_SECONDS = 21600;
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const SESSION_PROPERTY_PREFIX = 'admin_session_v2_';
 const SALES_SUPPORT_MENUS = ['/db-manage', '/upload-db', '/region'];
 const VALID_MENUS = [
   '/dashboard', '/channels', '/kpi', '/funnel', '/region', '/db-manage',
@@ -876,17 +878,62 @@ function hashPassword(password, salt) {
 
 function createSession(userId) {
   const token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
-  CacheService.getScriptCache().put('admin_session_' + token, String(userId), SESSION_TTL_SECONDS);
+  const session = {
+    userId: String(userId),
+    expiresAt: Date.now() + SESSION_TTL_MS
+  };
+  PropertiesService.getScriptProperties().setProperty(
+    SESSION_PROPERTY_PREFIX + token,
+    JSON.stringify(session)
+  );
+  CacheService.getScriptCache().put(
+    'admin_session_' + token,
+    JSON.stringify(session),
+    SESSION_CACHE_TTL_SECONDS
+  );
   return token;
 }
 
-function sessionUser(token) {
+function removeSession(token) {
+  if (!token) return;
+  const key = String(token);
+  CacheService.getScriptCache().remove('admin_session_' + key);
+  PropertiesService.getScriptProperties().deleteProperty(SESSION_PROPERTY_PREFIX + key);
+}
+
+function readSession(token) {
   if (!token) return null;
-  const userId = CacheService.getScriptCache().get('admin_session_' + String(token));
-  if (!userId) return null;
-  const user = findUser(userId);
+  const key = String(token);
+  const cacheKey = 'admin_session_' + key;
+  const propertyKey = SESSION_PROPERTY_PREFIX + key;
+  let raw = CacheService.getScriptCache().get(cacheKey);
+  if (!raw) raw = PropertiesService.getScriptProperties().getProperty(propertyKey);
+  if (!raw) return null;
+
+  let session = null;
+  try {
+    session = JSON.parse(raw);
+  } catch (error) {
+    // 이전 캐시 방식의 세션은 배포 직후 한 번만 호환합니다.
+    session = { userId: String(raw), expiresAt: Date.now() + SESSION_TTL_MS };
+  }
+
+  if (!session.userId || Number(session.expiresAt || 0) <= Date.now()) {
+    removeSession(key);
+    return null;
+  }
+
+  PropertiesService.getScriptProperties().setProperty(propertyKey, JSON.stringify(session));
+  CacheService.getScriptCache().put(cacheKey, JSON.stringify(session), SESSION_CACHE_TTL_SECONDS);
+  return session;
+}
+
+function sessionUser(token) {
+  const session = readSession(token);
+  if (!session) return null;
+  const user = findUser(session.userId);
   if (!user || !publicUser(user).active) {
-    CacheService.getScriptCache().remove('admin_session_' + String(token));
+    removeSession(token);
     return null;
   }
   return user;
@@ -939,7 +986,7 @@ function authLogin(body) {
 }
 
 function authLogout(token) {
-  if (token) CacheService.getScriptCache().remove('admin_session_' + String(token));
+  removeSession(token);
   return json({ success: true });
 }
 
