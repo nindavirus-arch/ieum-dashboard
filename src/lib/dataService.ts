@@ -9,7 +9,7 @@ import type { LeadRecord, AdSpend, DBTier, Channel, SourceKind, ProjectRecord, P
 import { normalizeDate, normalizePhone, normalizeChannel, inferChannelStrict, inferSubChannel } from './excelParser'
 import { parseProjectsExcel } from './projectParser'
 import { SHEET_API_URL } from './apiConfig'
-import { getAuthToken } from './auth'
+import { getAuthToken, notifyAuthInvalid } from './auth'
 
 // TODO: Apps Script 배포 후 웹앱 URL을 여기에 붙여넣으세요.
 // 예: const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec'
@@ -127,7 +127,8 @@ function cacheTypesForPost(type: PostSheetType): SheetType[] {
 
 function handleDataError(data: any) {
   if (data?.error === 'unauthorized') {
-    throw new Error('인증 확인에 실패했습니다. 새로고침 후에도 반복되면 다시 로그인해주세요.')
+    notifyAuthInvalid()
+    throw new Error('로그인이 만료되었습니다. 다시 로그인해주세요.')
   }
   if (data?.error) throw new Error(data.error)
 }

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { fetchAuthStatus, getAuthToken, getStoredAuthUser, login as loginRequest, logout as logoutRequest, setupMaster as setupMasterRequest, type AdminUser } from '../lib/auth'
+import { AUTH_INVALID_EVENT, fetchAuthStatus, getAuthToken, getStoredAuthUser, login as loginRequest, logout as logoutRequest, setupMaster as setupMasterRequest, type AdminUser } from '../lib/auth'
 
 type AuthContextValue = {
   user: AdminUser | null
@@ -33,7 +33,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  useEffect(() => { refresh() }, [])
+  useEffect(() => {
+    refresh()
+    const handleInvalid = () => {
+      setUser(null)
+      setSetupRequired(false)
+      setLoading(false)
+    }
+    window.addEventListener(AUTH_INVALID_EVENT, handleInvalid)
+    return () => window.removeEventListener(AUTH_INVALID_EVENT, handleInvalid)
+  }, [])
 
   async function login(id: string, password: string) {
     const next = await loginRequest(id, password)

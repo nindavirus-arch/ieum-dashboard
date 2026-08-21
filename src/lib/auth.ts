@@ -2,6 +2,7 @@ import { SHEET_API_URL } from './apiConfig'
 
 export const AUTH_TOKEN_KEY = 'ieum-admin-token'
 const AUTH_USER_KEY = 'ieum-admin-user'
+export const AUTH_INVALID_EVENT = 'ieum-auth-invalid'
 
 export const MENU_PERMISSIONS = [
   { key: '/dashboard', label: '메인 대시보드' },
@@ -62,6 +63,11 @@ export function clearAuthSession() {
   setStoredAuthUser(null)
 }
 
+export function notifyAuthInvalid() {
+  clearAuthSession()
+  window.dispatchEvent(new Event(AUTH_INVALID_EVENT))
+}
+
 export function canAccess(user: AdminUser | null, path: string) {
   if (!user) return false
   return user.role === 'master' || user.permissions.includes('*') || user.permissions.includes(path)
@@ -91,7 +97,7 @@ async function parseResponse(res: Response) {
   if (!res.ok) throw new Error('인증 서버에 연결하지 못했습니다.')
   const data = await res.json()
   if (data?.error === 'unauthorized') {
-    clearAuthSession()
+    notifyAuthInvalid()
     throw new Error('로그인이 만료되었습니다. 다시 로그인해주세요.')
   }
   const messages: Record<string, string> = {
