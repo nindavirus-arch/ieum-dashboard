@@ -1,0 +1,578 @@
+﻿{
+    "success":  true,
+    "timezone":  "Asia/Seoul",
+    "range":  {
+                  "from":  "2026-08-01",
+                  "to":  "2026-08-18"
+              },
+    "updatedAt":  "2026-08-18 09:41:18",
+    "lastDbUploadedAt":  "2026-08-18 09:39:40",
+    "lastAdSpendUpdatedAt":  "2026-08-13 09:00:00",
+    "totals":  {
+                   "adSpend":  10957053,
+                   "db":  831,
+                   "retarget":  87,
+                   "firstDb":  220,
+                   "secondDb":  524,
+                   "validDb":  744,
+                   "cpl":  14727
+               },
+    "byDate":  [
+                   {
+                       "adSpend":  328750,
+                       "db":  47,
+                       "retarget":  4,
+                       "firstDb":  1,
+                       "secondDb":  42,
+                       "validDb":  43,
+                       "cpl":  7645,
+                       "date":  "2026-08-01"
+                   },
+                   {
+                       "adSpend":  351459,
+                       "db":  7,
+                       "retarget":  2,
+                       "firstDb":  2,
+                       "secondDb":  3,
+                       "validDb":  5,
+                       "cpl":  70292,
+                       "date":  "2026-08-02"
+                   },
+                   {
+                       "adSpend":  1061499,
+                       "db":  131,
+                       "retarget":  15,
+                       "firstDb":  19,
+                       "secondDb":  97,
+                       "validDb":  116,
+                       "cpl":  9151,
+                       "date":  "2026-08-03"
+                   },
+                   {
+                       "adSpend":  1020719,
+                       "db":  58,
+                       "retarget":  12,
+                       "firstDb":  12,
+                       "secondDb":  34,
+                       "validDb":  46,
+                       "cpl":  22190,
+                       "date":  "2026-08-04"
+                   },
+                   {
+                       "adSpend":  938948,
+                       "db":  53,
+                       "retarget":  11,
+                       "firstDb":  13,
+                       "secondDb":  29,
+                       "validDb":  42,
+                       "cpl":  22356,
+                       "date":  "2026-08-05"
+                   },
+                   {
+                       "adSpend":  1127318,
+                       "db":  46,
+                       "retarget":  13,
+                       "firstDb":  8,
+                       "secondDb":  25,
+                       "validDb":  33,
+                       "cpl":  34161,
+                       "date":  "2026-08-06"
+                   },
+                   {
+                       "adSpend":  1023320,
+                       "db":  42,
+                       "retarget":  8,
+                       "firstDb":  8,
+                       "secondDb":  26,
+                       "validDb":  34,
+                       "cpl":  30098,
+                       "date":  "2026-08-07"
+                   },
+                   {
+                       "adSpend":  806039,
+                       "db":  33,
+                       "retarget":  4,
+                       "firstDb":  13,
+                       "secondDb":  16,
+                       "validDb":  29,
+                       "cpl":  27794,
+                       "date":  "2026-08-08"
+                   },
+                   {
+                       "adSpend":  557710,
+                       "db":  41,
+                       "retarget":  15,
+                       "firstDb":  10,
+                       "secondDb":  16,
+                       "validDb":  26,
+                       "cpl":  21450,
+                       "date":  "2026-08-09"
+                   },
+                   {
+                       "adSpend":  1073335,
+                       "db":  82,
+                       "retarget":  3,
+                       "firstDb":  28,
+                       "secondDb":  51,
+                       "validDb":  79,
+                       "cpl":  13587,
+                       "date":  "2026-08-10"
+                   },
+                   {
+                       "adSpend":  972779,
+                       "db":  62,
+                       "retarget":  0,
+                       "firstDb":  25,
+                       "secondDb":  37,
+                       "validDb":  62,
+                       "cpl":  15690,
+                       "date":  "2026-08-11"
+                   },
+                   {
+                       "adSpend":  1018914,
+                       "db":  45,
+                       "retarget":  0,
+                       "firstDb":  18,
+                       "secondDb":  27,
+                       "validDb":  45,
+                       "cpl":  22643,
+                       "date":  "2026-08-12"
+                   },
+                   {
+                       "adSpend":  676263,
+                       "db":  35,
+                       "retarget":  0,
+                       "firstDb":  13,
+                       "secondDb":  22,
+                       "validDb":  35,
+                       "cpl":  19322,
+                       "date":  "2026-08-13"
+                   },
+                   {
+                       "adSpend":  0,
+                       "db":  35,
+                       "retarget":  0,
+                       "firstDb":  7,
+                       "secondDb":  28,
+                       "validDb":  35,
+                       "cpl":  0,
+                       "date":  "2026-08-14"
+                   },
+                   {
+                       "adSpend":  0,
+                       "db":  31,
+                       "retarget":  0,
+                       "firstDb":  15,
+                       "secondDb":  16,
+                       "validDb":  31,
+                       "cpl":  0,
+                       "date":  "2026-08-15"
+                   },
+                   {
+                       "adSpend":  0,
+                       "db":  33,
+                       "retarget":  0,
+                       "firstDb":  11,
+                       "secondDb":  22,
+                       "validDb":  33,
+                       "cpl":  0,
+                       "date":  "2026-08-16"
+                   },
+                   {
+                       "adSpend":  0,
+                       "db":  30,
+                       "retarget":  0,
+                       "firstDb":  13,
+                       "secondDb":  17,
+                       "validDb":  30,
+                       "cpl":  0,
+                       "date":  "2026-08-17"
+                   },
+                   {
+                       "adSpend":  0,
+                       "db":  20,
+                       "retarget":  0,
+                       "firstDb":  4,
+                       "secondDb":  16,
+                       "validDb":  20,
+                       "cpl":  0,
+                       "date":  "2026-08-18"
+                   }
+               ],
+    "byChannel":  [
+                      {
+                          "adSpend":  1507766,
+                          "db":  236,
+                          "retarget":  20,
+                          "firstDb":  63,
+                          "secondDb":  153,
+                          "validDb":  216,
+                          "cpl":  6980,
+                          "channel":  "meta"
+                      },
+                      {
+                          "adSpend":  6275272,
+                          "db":  235,
+                          "retarget":  44,
+                          "firstDb":  85,
+                          "secondDb":  106,
+                          "validDb":  191,
+                          "cpl":  32855,
+                          "channel":  "naver"
+                      },
+                      {
+                          "adSpend":  1802766,
+                          "db":  178,
+                          "retarget":  3,
+                          "firstDb":  47,
+                          "secondDb":  128,
+                          "validDb":  175,
+                          "cpl":  10302,
+                          "channel":  "danggeun"
+                      },
+                      {
+                          "adSpend":  1216618,
+                          "db":  84,
+                          "retarget":  13,
+                          "firstDb":  8,
+                          "secondDb":  63,
+                          "validDb":  71,
+                          "cpl":  17135,
+                          "channel":  "google"
+                      },
+                      {
+                          "adSpend":  0,
+                          "db":  31,
+                          "retarget":  0,
+                          "firstDb":  7,
+                          "secondDb":  24,
+                          "validDb":  31,
+                          "cpl":  0,
+                          "channel":  "direct"
+                      },
+                      {
+                          "adSpend":  0,
+                          "db":  22,
+                          "retarget":  0,
+                          "firstDb":  2,
+                          "secondDb":  20,
+                          "validDb":  22,
+                          "cpl":  0,
+                          "channel":  "tu_albarich"
+                      },
+                      {
+                          "adSpend":  0,
+                          "db":  11,
+                          "retarget":  2,
+                          "firstDb":  4,
+                          "secondDb":  5,
+                          "validDb":  9,
+                          "cpl":  0,
+                          "channel":  "viral"
+                      },
+                      {
+                          "adSpend":  0,
+                          "db":  14,
+                          "retarget":  5,
+                          "firstDb":  4,
+                          "secondDb":  5,
+                          "validDb":  9,
+                          "cpl":  0,
+                          "channel":  "etc"
+                      },
+                      {
+                          "adSpend":  0,
+                          "db":  8,
+                          "retarget":  0,
+                          "firstDb":  0,
+                          "secondDb":  8,
+                          "validDb":  8,
+                          "cpl":  0,
+                          "channel":  "inbound_call"
+                      },
+                      {
+                          "adSpend":  0,
+                          "db":  8,
+                          "retarget":  0,
+                          "firstDb":  0,
+                          "secondDb":  8,
+                          "validDb":  8,
+                          "cpl":  0,
+                          "channel":  "hugreen_mail"
+                      },
+                      {
+                          "adSpend":  0,
+                          "db":  3,
+                          "retarget":  0,
+                          "firstDb":  0,
+                          "secondDb":  3,
+                          "validDb":  3,
+                          "cpl":  0,
+                          "channel":  "hugreen_danggeun"
+                      },
+                      {
+                          "adSpend":  0,
+                          "db":  1,
+                          "retarget":  0,
+                          "firstDb":  0,
+                          "secondDb":  1,
+                          "validDb":  1,
+                          "cpl":  0,
+                          "channel":  "tu_danggeun"
+                      },
+                      {
+                          "adSpend":  154631,
+                          "db":  0,
+                          "retarget":  0,
+                          "firstDb":  0,
+                          "secondDb":  0,
+                          "validDb":  0,
+                          "cpl":  0,
+                          "channel":  "kakao_moment"
+                      }
+                  ],
+    "bySubChannel":  [
+                         {
+                             "adSpend":  1507766,
+                             "db":  236,
+                             "retarget":  20,
+                             "firstDb":  63,
+                             "secondDb":  153,
+                             "validDb":  216,
+                             "cpl":  6980,
+                             "channel":  "meta",
+                             "subChannel":  "메타"
+                         },
+                         {
+                             "adSpend":  1802766,
+                             "db":  178,
+                             "retarget":  3,
+                             "firstDb":  47,
+                             "secondDb":  128,
+                             "validDb":  175,
+                             "cpl":  10302,
+                             "channel":  "danggeun",
+                             "subChannel":  "당근"
+                         },
+                         {
+                             "adSpend":  4839330,
+                             "db":  138,
+                             "retarget":  24,
+                             "firstDb":  49,
+                             "secondDb":  65,
+                             "validDb":  114,
+                             "cpl":  42450,
+                             "channel":  "naver",
+                             "subChannel":  "네이버 SA"
+                         },
+                         {
+                             "adSpend":  1435942,
+                             "db":  88,
+                             "retarget":  19,
+                             "firstDb":  30,
+                             "secondDb":  39,
+                             "validDb":  69,
+                             "cpl":  20811,
+                             "channel":  "naver",
+                             "subChannel":  "네이버 GFA"
+                         },
+                         {
+                             "adSpend":  0,
+                             "db":  55,
+                             "retarget":  3,
+                             "firstDb":  0,
+                             "secondDb":  52,
+                             "validDb":  52,
+                             "cpl":  0,
+                             "channel":  "google",
+                             "subChannel":  "구글 유튜브"
+                         },
+                         {
+                             "adSpend":  0,
+                             "db":  31,
+                             "retarget":  0,
+                             "firstDb":  7,
+                             "secondDb":  24,
+                             "validDb":  31,
+                             "cpl":  0,
+                             "channel":  "direct",
+                             "subChannel":  "홈페이지 직접유입"
+                         },
+                         {
+                             "adSpend":  0,
+                             "db":  22,
+                             "retarget":  0,
+                             "firstDb":  2,
+                             "secondDb":  20,
+                             "validDb":  22,
+                             "cpl":  0,
+                             "channel":  "tu_albarich",
+                             "subChannel":  "TU-알바리치"
+                         },
+                         {
+                             "adSpend":  485169,
+                             "db":  29,
+                             "retarget":  10,
+                             "firstDb":  8,
+                             "secondDb":  11,
+                             "validDb":  19,
+                             "cpl":  25535,
+                             "channel":  "google",
+                             "subChannel":  "구글 검색광고"
+                         },
+                         {
+                             "adSpend":  0,
+                             "db":  9,
+                             "retarget":  1,
+                             "firstDb":  6,
+                             "secondDb":  2,
+                             "validDb":  8,
+                             "cpl":  0,
+                             "channel":  "naver",
+                             "subChannel":  "네이버 브랜드검색"
+                         },
+                         {
+                             "adSpend":  0,
+                             "db":  13,
+                             "retarget":  5,
+                             "firstDb":  4,
+                             "secondDb":  4,
+                             "validDb":  8,
+                             "cpl":  0,
+                             "channel":  "etc",
+                             "subChannel":  "기타"
+                         },
+                         {
+                             "adSpend":  0,
+                             "db":  8,
+                             "retarget":  0,
+                             "firstDb":  0,
+                             "secondDb":  8,
+                             "validDb":  8,
+                             "cpl":  0,
+                             "channel":  "inbound_call",
+                             "subChannel":  "인바운드-인입콜"
+                         },
+                         {
+                             "adSpend":  0,
+                             "db":  8,
+                             "retarget":  0,
+                             "firstDb":  0,
+                             "secondDb":  8,
+                             "validDb":  8,
+                             "cpl":  0,
+                             "channel":  "hugreen_mail",
+                             "subChannel":  "휴그린-메일"
+                         },
+                         {
+                             "adSpend":  0,
+                             "db":  7,
+                             "retarget":  1,
+                             "firstDb":  1,
+                             "secondDb":  5,
+                             "validDb":  6,
+                             "cpl":  0,
+                             "channel":  "viral",
+                             "subChannel":  "블로그"
+                         },
+                         {
+                             "adSpend":  0,
+                             "db":  4,
+                             "retarget":  1,
+                             "firstDb":  3,
+                             "secondDb":  0,
+                             "validDb":  3,
+                             "cpl":  0,
+                             "channel":  "viral",
+                             "subChannel":  "레뷰"
+                         },
+                         {
+                             "adSpend":  0,
+                             "db":  3,
+                             "retarget":  0,
+                             "firstDb":  0,
+                             "secondDb":  3,
+                             "validDb":  3,
+                             "cpl":  0,
+                             "channel":  "hugreen_danggeun",
+                             "subChannel":  "휴그린-당근"
+                         },
+                         {
+                             "adSpend":  0,
+                             "db":  1,
+                             "retarget":  0,
+                             "firstDb":  0,
+                             "secondDb":  1,
+                             "validDb":  1,
+                             "cpl":  0,
+                             "channel":  "tu_danggeun",
+                             "subChannel":  "TU-당근"
+                         },
+                         {
+                             "adSpend":  0,
+                             "db":  1,
+                             "retarget":  0,
+                             "firstDb":  0,
+                             "secondDb":  1,
+                             "validDb":  1,
+                             "cpl":  0,
+                             "channel":  "etc",
+                             "subChannel":  "카카오톡 채널 상담"
+                         },
+                         {
+                             "adSpend":  731449,
+                             "db":  0,
+                             "retarget":  0,
+                             "firstDb":  0,
+                             "secondDb":  0,
+                             "validDb":  0,
+                             "cpl":  0,
+                             "channel":  "google",
+                             "subChannel":  "구글 디맨드젠"
+                         },
+                         {
+                             "adSpend":  154631,
+                             "db":  0,
+                             "retarget":  0,
+                             "firstDb":  0,
+                             "secondDb":  0,
+                             "validDb":  0,
+                             "cpl":  0,
+                             "channel":  "kakao_moment",
+                             "subChannel":  "카카오모먼트"
+                         }
+                     ],
+    "criteria":  {
+                     "adSpendVat":  "AD_SPEND 시트에 저장된 금액 그대로 사용합니다. 현재 대시보드 기준은 입력 광고비 금액 기준이며, VAT 포함/별도 여부는 업로드 금액 기준을 따릅니다.",
+                     "duplicatePolicy":  "DASHBOARD_LEADS 원장 기준으로 이미 정제·중복 제거된 행만 집계합니다. 상태가 invalid/test/duplicate/deleted인 행은 제외합니다.",
+                     "validDbPolicy":  "유효 DB는 1차 DB와 2차 DB 합계입니다. 리타겟 DB는 총 DB에는 포함하지만 CPL 산정용 유효 DB에서는 제외합니다.",
+                     "cplFormula":  "CPL = 총 광고비 / 유효 DB. 유효 DB가 0이면 CPL은 0으로 반환합니다.",
+                     "datePolicy":  "date 컬럼 기준으로 from/to 기간을 포함 조회합니다. 모든 날짜·시각 표기는 Asia/Seoul 기준입니다.",
+                     "privacyPolicy":  "개인정보, 연락처, 이름, 주소, 원본 DB 행은 반환하지 않습니다."
+                 },
+    "tokenPolicy":  {
+                        "type":  "static_random_token",
+                        "rotation":  "APPS_SCRIPT_CODE.txt의 REPORT_ACTIVE_TOKENS에 새 토큰을 추가하고 이전 토큰을 REPORT_REVOKED_TOKENS에 넣으면 교체·폐기할 수 있습니다.",
+                        "revokedTokenBlocked":  true
+                    },
+    "privacy":  {
+                    "personalDataIncluded":  false,
+                    "fields":  [
+                                   "date",
+                                   "channel",
+                                   "subChannel",
+                                   "adSpend",
+                                   "db",
+                                   "retarget",
+                                   "firstDb",
+                                   "secondDb",
+                                   "validDb",
+                                   "cpl"
+                               ]
+                },
+    "proxiedBy":  "vercel",
+    "proxyPrivacy":  {
+                         "appsScriptTokenExposed":  false,
+                         "personalDataIncluded":  false
+                     }
+}
