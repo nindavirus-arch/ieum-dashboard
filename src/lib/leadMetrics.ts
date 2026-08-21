@@ -15,7 +15,7 @@ export interface LeadJourney {
 }
 
 const PAID_CHANNELS = new Set(['naver', 'google', 'meta', 'youtube', 'viral', 'danggeun', 'kakao_search', 'kakao_moment'])
-const EXTERNAL_CHANNELS = new Set(['tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'inbound_call'])
+const EXTERNAL_CHANNELS = new Set(['tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail'])
 const EXCLUDED_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted'])
 
 export function baseStage(tier: DBTier): FinalStage {
@@ -97,6 +97,7 @@ export function isOnlineOther(lead: LeadRecord) {
 }
 
 export function trafficGroup(lead: LeadRecord): TrafficGroup {
+  if (lead.channel === 'inbound_call') return 'paid'
   if (PAID_CHANNELS.has(lead.channel)) return 'paid'
   if (EXTERNAL_CHANNELS.has(lead.channel)) return 'external'
   if (isDirectSales(lead)) return 'external'
