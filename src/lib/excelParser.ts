@@ -104,6 +104,7 @@ const CHANNEL_MAP: Record<string, Channel> = {
   '당근': 'danggeun', '당근마켓': 'danggeun', 'carrot': 'danggeun', 'karrot': 'danggeun',
   '카카오검색광고': 'kakao_search', '카카오검색': 'kakao_search', '카카오키워드': 'kakao_search', 'kakaosearch': 'kakao_search', 'kakao_sa': 'kakao_search', 'kakaosa': 'kakao_search',
   '카카오모먼트': 'kakao_moment', '카카오모멘트': 'kakao_moment', '카카오moment': 'kakao_moment', 'kakaomoment': 'kakao_moment',
+  'chatgpt': 'chatgpt', '챗gpt': 'chatgpt', '챗지피티': 'chatgpt',
   'tu': 'tu_albarich', 'tu알바리치': 'tu_albarich', 'tu-albarich': 'tu_albarich', 'tualbarich': 'tu_albarich', '알바리치': 'tu_albarich',
   'tu유튜브': 'tu_youtube', 'tu-youtube': 'tu_youtube', 'tuyoutube': 'tu_youtube', 'tu유투브': 'tu_youtube',
   'tu당근': 'tu_danggeun', 'tu-carrot': 'tu_danggeun', 'tudanggeun': 'tu_danggeun',
@@ -129,6 +130,7 @@ export function normalizeChannel(raw: unknown): Channel {
     if (original.includes('moment') || original.includes('모먼트') || original.includes('모멘트')) return 'kakao_moment'
     return 'kakao_search'
   }
+  if (key.includes('chatgpt') || key.includes('챗gpt') || key.includes('챗지피티')) return 'chatgpt'
   if (original.includes('tu') || original.includes('알바리치')) {
     if (original.includes('유튜브') || original.includes('유투브') || original.includes('youtube')) return 'tu_youtube'
     if (original.includes('당근') || original.includes('carrot')) return 'tu_danggeun'
@@ -192,6 +194,7 @@ export function inferSubChannel(fields: { channel: Channel; source?: unknown; so
   if (fields.channel === 'danggeun') return '당근'
   if (fields.channel === 'kakao_search') return '카카오 검색광고'
   if (fields.channel === 'kakao_moment') return '카카오모먼트'
+  if (fields.channel === 'chatgpt') return 'Chat-GPT'
   if (fields.channel === 'direct') {
     if (k.includes('직접영업') || k.includes('directsales')) return '직접영업'
     return '홈페이지 직접유입'

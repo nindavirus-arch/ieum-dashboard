@@ -34,11 +34,12 @@ const CHANNEL_LABELS: Record<string, string> = {
   danggeun: '당근',
   kakao_search: '카카오 검색광고',
   kakao_moment: '카카오모먼트',
+  chatgpt: 'Chat-GPT',
   direct: '온라인 직접유입',
   etc: '온라인 기타',
 }
 
-const CHANNEL_ORDER = ['naver', 'google', 'meta', 'youtube', 'viral', 'danggeun', 'kakao_search', 'kakao_moment', 'direct', 'etc']
+const CHANNEL_ORDER = ['naver', 'google', 'meta', 'youtube', 'viral', 'danggeun', 'kakao_search', 'kakao_moment', 'chatgpt', 'direct', 'etc']
 
 type Acquisition = {
   date: string
@@ -69,6 +70,7 @@ function defaultDetail(channel: string) {
   if (channel === 'danggeun') return '당근'
   if (channel === 'kakao_search') return '카카오 검색광고'
   if (channel === 'kakao_moment') return '카카오모먼트'
+  if (channel === 'chatgpt') return 'Chat-GPT'
   if (channel === 'direct') return '홈페이지 직접유입'
   if (channel === 'etc') return '온라인 기타'
   return '기타'

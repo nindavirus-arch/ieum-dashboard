@@ -40,11 +40,12 @@ const CHANNEL_LABELS: Record<string, string> = {
   danggeun: '당근',
   kakao_search: '카카오 검색광고',
   kakao_moment: '카카오모먼트',
+  chatgpt: 'Chat-GPT',
   direct: '온라인 직접유입',
   etc: '온라인 기타',
 }
 
-const CHANNEL_ORDER = ['naver', 'google', 'meta', 'youtube', 'viral', 'danggeun', 'kakao_search', 'kakao_moment', 'direct', 'etc']
+const CHANNEL_ORDER = ['naver', 'google', 'meta', 'youtube', 'viral', 'danggeun', 'kakao_search', 'kakao_moment', 'chatgpt', 'direct', 'etc']
 
 function money(value: number) {
   if (value >= 100_000_000) return `${(value / 100_000_000).toFixed(1)}억원`

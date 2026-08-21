@@ -7,7 +7,7 @@ import { fetchAdSpend, invalidateDataCache, uploadAdSpend } from '../lib/dataSer
 import type { AdSpend, Channel } from '../types'
 
 type Stage = 'idle' | 'parsing' | 'preview' | 'uploading' | 'done' | 'error'
-type SpendColumnKey = 'naver_sa' | 'naver_gfa' | 'kakao_moment' | 'meta' | 'google_search' | 'google_demand_pmax' | 'danggeun' | 'viral'
+type SpendColumnKey = 'naver_sa' | 'naver_gfa' | 'kakao_moment' | 'meta' | 'google_search' | 'google_demand_pmax' | 'danggeun' | 'chatgpt' | 'viral'
 
 const CHANNEL_LABELS: Record<Channel, string> = {
   naver: '네이버',
@@ -19,6 +19,7 @@ const CHANNEL_LABELS: Record<Channel, string> = {
   direct: '직접유입',
   kakao_search: '카카오 검색광고',
   kakao_moment: '카카오모먼트',
+  chatgpt: 'Chat-GPT',
   tu_albarich: 'TU-알바리치',
   tu_youtube: 'TU-유튜브',
   tu_danggeun: 'TU-당근',
@@ -42,6 +43,7 @@ const SPEND_COLUMNS: Array<{
   { key: 'google_search', label: '구글 검색광고', channel: 'google', subChannel: '구글 검색광고', aliases: ['구글 검색광고', '구글검색광고', 'Google Search'] },
   { key: 'google_demand_pmax', label: '구글 디맨드젠+피맥스', channel: 'google', subChannel: '구글 디맨드젠+피맥스', aliases: ['구글 디맨드젠+피맥스', '구글 디맨드젠', '구글 디스커버리/GDN', '구글 디스커버리', '구글 GDN', '피맥스', 'P-MAX', 'PMAX'] },
   { key: 'danggeun', label: '당근마켓', channel: 'danggeun', subChannel: '당근', aliases: ['당근', '당근마켓', '당근 광고'] },
+  { key: 'chatgpt', label: 'Chat-GPT', channel: 'chatgpt', subChannel: 'Chat-GPT', aliases: ['Chat-GPT', 'ChatGPT', 'Chat GPT', '챗GPT'] },
   { key: 'viral', label: '바이럴', channel: 'viral', subChannel: '바이럴', aliases: ['바이럴', '블로그', '최적블', '준최블'] },
 ]
 

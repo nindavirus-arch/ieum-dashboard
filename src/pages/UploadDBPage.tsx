@@ -17,6 +17,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   danggeun: '당근',
   kakao_search: '카카오 검색광고',
   kakao_moment: '카카오모먼트',
+  chatgpt: 'Chat-GPT',
   direct: '온라인 직접·자연',
   tu_albarich: 'TU-알바리치',
   tu_youtube: 'TU-유튜브',

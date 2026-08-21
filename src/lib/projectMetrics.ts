@@ -16,6 +16,7 @@ const PAID_ATTRIBUTION_CHANNELS = new Set<Channel>([
   'danggeun',
   'kakao_search',
   'kakao_moment',
+  'chatgpt',
 ])
 
 const WEAK_ATTRIBUTION_CHANNELS = new Set<Channel>(['direct', 'inbound_call', 'etc'])

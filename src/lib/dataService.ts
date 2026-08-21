@@ -256,7 +256,7 @@ function applyChannelMapping(input: {
 }, mappings: MappingRow[]): { channel: Channel; subChannel: string } {
   const explicitSubChannel = String(input.subChannel || '').trim()
   const explicitChannel = subChannelImpliesChannel(explicitSubChannel)
-  const protectedChannels: Channel[] = ['tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'inbound_call', 'danggeun']
+  const protectedChannels: Channel[] = ['tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'inbound_call', 'danggeun', 'chatgpt']
   if (input.channel && protectedChannels.includes(input.channel)) {
     return {
       channel: input.channel,
@@ -319,6 +319,7 @@ function subChannelImpliesChannel(label?: string): Channel | '' {
   if (t.includes('바이럴') || t.includes('블로그') || t.includes('레뷰') || t.includes('카페')) return 'viral'
   if (t.includes('카카오검색') || t.includes('kakaosearch') || t.includes('kakaosa')) return 'kakao_search'
   if (t.includes('카카오모먼트') || t.includes('카카오모멘트') || t.includes('kakaomoment')) return 'kakao_moment'
+  if (t.includes('chatgpt') || t.includes('챗gpt') || t.includes('챗지피티')) return 'chatgpt'
   if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('직접영업') || t.includes('direct')) return 'direct'
   if (t.includes('당근') || t.includes('carrot') || t.includes('karrot')) return 'danggeun'
   return ''

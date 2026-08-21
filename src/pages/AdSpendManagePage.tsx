@@ -6,7 +6,7 @@ import { deleteAdSpendRecord, fetchAdSpend, updateAdSpendRecord } from '../lib/d
 import type { AdSpend, Channel } from '../types'
 import DataUpdatedAt from '../components/DataUpdatedAt'
 
-const CHANNELS: Channel[] = ['naver', 'google', 'meta', 'youtube', 'viral', 'danggeun', 'kakao_search', 'kakao_moment']
+const CHANNELS: Channel[] = ['naver', 'google', 'meta', 'youtube', 'viral', 'danggeun', 'kakao_search', 'kakao_moment', 'chatgpt']
 const CHANNEL_LABELS: Record<string, string> = {
   naver: '네이버',
   google: '구글',
@@ -16,8 +16,10 @@ const CHANNEL_LABELS: Record<string, string> = {
   danggeun: '당근',
   kakao_search: '카카오 검색광고',
   kakao_moment: '카카오모먼트',
+  chatgpt: 'Chat-GPT',
 }
 const SUB_CHANNELS = [
+  'Chat-GPT',
   '네이버 SA', '네이버 GFA', '네이버 브랜드검색',
   '구글 검색광고', '구글 디스커버리/GDN', '구글 유튜브',
   '메타', '유튜브', '바이럴', '블로그', '카페', '레뷰', '당근',
