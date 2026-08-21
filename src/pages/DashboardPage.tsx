@@ -231,6 +231,7 @@ export default function DashboardPage() {
   const [spends, setSpends] = useState<AdSpend[]>([])
   const [targets, setTargets] = useState<KpiTarget[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null)
   const [openChannelGroups, setOpenChannelGroups] = useState<Record<string, boolean>>({ paid: true, organic: false, external: false, unclassified: true })
 
@@ -238,6 +239,7 @@ export default function DashboardPage() {
 
   async function load() {
     setLoading(true)
+    setLoadError('')
     try {
       const [leadResult, spendResult, targetResult] = await Promise.allSettled([
         fetchLeads(),
@@ -247,6 +249,12 @@ export default function DashboardPage() {
       if (leadResult.status === 'fulfilled') setLeads(leadResult.value)
       if (spendResult.status === 'fulfilled') setSpends(spendResult.value)
       if (targetResult.status === 'fulfilled') setTargets(targetResult.value)
+      const errors = [
+        leadResult.status === 'rejected' ? `DB: ${leadResult.reason instanceof Error ? leadResult.reason.message : String(leadResult.reason)}` : '',
+        spendResult.status === 'rejected' ? `광고비: ${spendResult.reason instanceof Error ? spendResult.reason.message : String(spendResult.reason)}` : '',
+        targetResult.status === 'rejected' ? `KPI: ${targetResult.reason instanceof Error ? targetResult.reason.message : String(targetResult.reason)}` : '',
+      ].filter(Boolean)
+      if (errors.length) setLoadError(errors.join(' / '))
     } finally {
       setLoading(false)
     }
@@ -559,6 +567,12 @@ export default function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {loadError && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          데이터 연결 확인 필요: {loadError}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
         {STAT_CARDS.map(({ label, value, unit, sub, title, icon: Icon, color, bg }) => (
