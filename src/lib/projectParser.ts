@@ -64,6 +64,12 @@ function projectStatus(row: Record<string, unknown>, amount: number): ProjectSta
   return 'pending'
 }
 
+function paymentStatus(row: Record<string, unknown>) {
+  return String(getCell(row, [
+    '결제상태', '결제 상태', '입금상태', '입금 상태', 'paymentStatus', 'payment_status'
+  ]) || '').trim()
+}
+
 function normalizeProjectRow(row: Record<string, unknown>, fallbackDate: Date): (Omit<ProjectRecord, 'id' | 'uploadedAt'> & { _missingDate?: boolean; _missingKey?: boolean }) | null {
   const customerName = String(getCell(row, ['고객명', '고객 이름', '이름', '성명', 'name', 'customerName']) || '').trim()
   const phone = normalizePhone(getCell(row, ['연락처', '전화번호', '휴대폰', '휴대폰번호', '휴대폰 번호', 'phone']))
@@ -79,6 +85,7 @@ function normalizeProjectRow(row: Record<string, unknown>, fallbackDate: Date): 
   const regionCell = String(getCell(row, ['지역', '시도', '시/도', '거주지역', '현장지역']) || '').trim()
   const districtCell = String(getCell(row, ['군구', '시군구', '시/군/구', '구군', '구/군']) || '').trim()
   const amount = projectAmount(row)
+  const normalizedPaymentStatus = paymentStatus(row)
   const salesOwner = String(getCell(row, ['영업담당자', '영업 담당자', '영업 담당', '영업담당자명', '영업 담당자명', '담당자', '배정담당자', '배정 담당자', '배정', '지점장', '담당 지점장', 'salesOwner', 'manager']) || '').trim()
   const rawStatus = String(getCell(row, ['상태', '계약상태', '프로젝트상태', '진행상태', '결과', 'status']) || '').trim()
   const sourceRaw = String(getCell(row, ['유입경로', '유입경로 원본', '매체', '광고매체', 'source', 'sourceRaw']) || '').trim()
@@ -102,6 +109,7 @@ function normalizeProjectRow(row: Record<string, unknown>, fallbackDate: Date): 
     address,
     contractAmount: amount,
     salesOwner,
+    paymentStatus: normalizedPaymentStatus,
     rawStatus,
     status: projectStatus(row, amount),
     channel: channel && channel !== 'etc' ? channel : undefined,
@@ -139,7 +147,7 @@ export function parseProjectsExcel(file: File): Promise<ParsedProjectResult> {
           valid: normalized,
           preview,
           totalCount: rows.length,
-          contractedCount: preview.filter(row => row.status === 'contracted').length,
+          contractedCount: preview.filter(row => row.paymentStatus === '계약금 입금완료').length,
           pendingCount: preview.filter(row => row.status === 'pending').length,
           canceledCount: preview.filter(row => row.status === 'canceled').length,
           testCount: preview.filter(row => row.status === 'test').length,

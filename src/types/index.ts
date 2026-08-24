@@ -74,6 +74,7 @@ export interface ProjectRecord {
   address?: string
   contractAmount: number
   salesOwner?: string
+  paymentStatus?: string
   rawStatus?: string
   status: ProjectStatus
   channel?: Channel

@@ -428,6 +428,7 @@ function normalizeProject(row: any, index = 0, mappings: MappingRow[] = []): Pro
   const rawStatus = String(row.rawStatus ?? row.statusRaw ?? pickCell(row, ['계약상태', '상태', '프로젝트상태', '진행상태']) ?? '')
   const contractAmount = projectAmountFromSheetRow(row)
   const status = normalizeProjectStatus(row.status ?? rawStatus, contractAmount)
+  const paymentStatus = String(row.paymentStatus ?? row.payment_status ?? pickCell(row, ['결제상태', '결제 상태', '입금상태', '입금 상태']) ?? '').trim()
   const rawChannel = row.channel ?? pickCell(row, ['매체', '유입경로', '유입경로 원본', '광고매체']) ?? row.sourceRaw ?? ''
   const rawSubChannel = String(row.subChannel ?? pickCell(row, ['상세매체', '상세 매체', '유입상세', '캠페인']) ?? '')
   const rawContractDate = row.contractDate ?? pickCell(row, ['생성일시', '생성 일시', '생성일', '생성 일자', '생성날짜', '등록일시', '등록 일시', '등록일', '등록 일자', '등록날짜'])
@@ -447,6 +448,7 @@ function normalizeProject(row: any, index = 0, mappings: MappingRow[] = []): Pro
     address: String(row.address ?? pickCell(row, ['주소', '현장주소', '시공주소', '고객주소']) ?? ''),
     contractAmount,
     salesOwner: String(row.salesOwner ?? pickCell(row, ['영업담당자', '영업 담당자', '영업 담당', '영업담당자명', '영업 담당자명', '배정담당자', '배정 담당자', '배정', '담당자', '지점장', '담당 지점장']) ?? ''),
+    paymentStatus,
     rawStatus,
     status,
     channel: mapped?.channel,
@@ -1806,6 +1808,7 @@ function projectRowsFromProjects(projects: Omit<ProjectRecord, 'id' | 'uploadedA
     address: project.address || '',
     contractAmount: project.contractAmount || 0,
     salesOwner: project.salesOwner || '',
+    paymentStatus: project.paymentStatus || '',
     rawStatus: project.rawStatus || '',
     status: project.status,
     channel: project.channel || '',

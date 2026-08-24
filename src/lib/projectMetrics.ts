@@ -70,7 +70,16 @@ function preferredOwner(matchedLead: LeadRecord | undefined, project: ProjectRec
 }
 
 export function contractedProjects(projects: ProjectRecord[]) {
-  return projects.filter(project => project.status === 'contracted' && Number(project.contractAmount || 0) > 0)
+  const unique = new Map<string, ProjectRecord>()
+  projects.forEach(project => {
+    const key = String(project.projectNumber || project.consultingNumber || project.phone || project.id || '').trim().toLowerCase()
+    if (!key) return
+    const current = unique.get(key)
+    const currentUpdated = String(current?.updatedAt || current?.uploadedAt || current?.contractDate || '')
+    const nextUpdated = String(project.updatedAt || project.uploadedAt || project.contractDate || '')
+    if (!current || nextUpdated >= currentUpdated) unique.set(key, project)
+  })
+  return [...unique.values()].filter(project => project.paymentStatus === '계약금 입금완료')
 }
 
 export function buildProjectAttribution(projects: ProjectRecord[], leads: LeadRecord[]): AttributedProject[] {

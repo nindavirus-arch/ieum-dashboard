@@ -80,7 +80,7 @@ export default function UploadProjectsPage() {
               </div>
               <div className="text-center">
                 <p className="text-sm font-medium text-slate-700">프로젝트리스트 엑셀 파일 업로드</p>
-                <p className="mt-1 text-xs text-slate-400">계약금 입금 완료/계약완료/계약확정 건만 실제 계약으로 집계합니다.</p>
+                <p className="mt-1 text-xs text-slate-400">결제상태가 정확히 '계약금 입금완료'인 고유 프로젝트만 실제 계약으로 집계합니다.</p>
               </div>
             </>
           )}
@@ -117,7 +117,7 @@ export default function UploadProjectsPage() {
           <div className="card overflow-hidden">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <p className="text-xs font-semibold text-slate-600">미리보기 상위 12건</p>
-              <span className="text-xs text-slate-400">계약금액 합계 {fmtKRW(result.preview.filter(row => row.status === 'contracted').reduce((sum, row) => sum + row.contractAmount, 0))}</span>
+              <span className="text-xs text-slate-400">계약금액 합계 {fmtKRW(result.preview.filter(row => row.paymentStatus === '계약금 입금완료').reduce((sum, row) => sum + row.contractAmount, 0))}</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[980px] text-xs">
@@ -131,8 +131,8 @@ export default function UploadProjectsPage() {
                     <tr key={`${row.phone}_${row.contractDate}_${index}`} className="hover:bg-slate-50">
                       <td className="px-3 py-2 text-slate-600">{row.contractDate}</td>
                       <td className="px-3 py-2">
-                        <span className={clsx('rounded px-1.5 py-0.5 font-medium', row.status === 'contracted' ? 'bg-emerald-100 text-emerald-700' : row.status === 'canceled' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600')}>
-                          {row.status === 'contracted' ? '계약' : row.status === 'canceled' ? '제외' : row.status === 'test' ? '테스트' : '대기'}
+                        <span className={clsx('rounded px-1.5 py-0.5 font-medium', row.paymentStatus === '계약금 입금완료' ? 'bg-emerald-100 text-emerald-700' : row.status === 'canceled' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600')}>
+                          {row.paymentStatus === '계약금 입금완료' ? '계약' : row.status === 'canceled' ? '제외' : row.status === 'test' ? '테스트' : '대기'}
                         </span>
                       </td>
                       <td className="px-3 py-2 font-medium text-slate-700">{row.customerName || '-'}</td>
