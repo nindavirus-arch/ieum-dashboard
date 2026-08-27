@@ -1,7 +1,7 @@
 // src/pages/DashboardPage.tsx
 import { useEffect, useMemo, useState } from 'react'
 import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, startOfWeek, endOfWeek, parseISO, subDays, subWeeks, subMonths, subYears, eachDayOfInterval } from 'date-fns'
-import { Users, DollarSign, TrendingDown, CalendarDays, RefreshCw, ChevronDown } from 'lucide-react'
+import { Users, DollarSign, TrendingDown, CalendarDays, RefreshCw, ChevronDown, HelpCircle } from 'lucide-react'
 import { fetchLeads, fetchAdSpend, fetchKpiTargets, type KpiTarget } from '../lib/dataService'
 import type { LeadRecord, AdSpend, ViewMode } from '../types'
 import TimeSeriesChart from '../components/dashboard/TimeSeriesChart'
@@ -140,6 +140,26 @@ function signedPercent(current: number, previous: number) {
 function signedNumber(current: number, previous: number, unit = '건') {
   const diff = current - previous
   return `${diff >= 0 ? '+' : ''}${diff.toLocaleString()}${unit}`
+}
+
+function StatFormulaTooltip({ lines }: { lines: string[] }) {
+  return (
+    <span className="group/formula relative inline-flex">
+      <button
+        type="button"
+        aria-label="계산식 보기"
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-200"
+      >
+        <HelpCircle size={13} />
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none invisible absolute right-0 top-full z-50 mt-2 w-72 max-w-[80vw] rounded-lg bg-slate-900 px-3 py-2.5 text-left text-[11px] font-normal leading-5 text-white opacity-0 shadow-xl transition group-hover/formula:visible group-hover/formula:opacity-100 group-focus-within/formula:visible group-focus-within/formula:opacity-100"
+      >
+        {lines.map((line, index) => <span key={`${line}_${index}`} className="block">{line}</span>)}
+      </span>
+    </span>
+  )
 }
 
 function safeDate(date: string) {
@@ -429,7 +449,12 @@ export default function DashboardPage() {
       value: dbCard.primaryValue,
       unit: '건',
       sub: `${dbCard.compareLabel} 대비 ${signedNumber(dbCard.primaryValue, dbCard.compareValue)} · ${signedPercent(dbCard.primaryValue, dbCard.compareValue)}`,
-      title: '연락처 중복 제거 후 선택기간의 최종 DB 수량입니다.',
+      tooltip: [
+        `집계기간: ${range.activeStart} ~ ${range.activeEnd}`,
+        '연락처 기준으로 중복을 제거한 최종 DB를 집계합니다.',
+        '리타겟·1차·2차 DB와 모든 유입구분을 포함합니다.',
+        `결과: ${dbCard.primaryValue.toLocaleString()}건`,
+      ],
       icon: CalendarDays,
       color: 'text-blue-600',
       bg: 'bg-blue-50',
@@ -439,7 +464,11 @@ export default function DashboardPage() {
       value: dbCard.compareValue,
       unit: '건',
       sub: `${dbCard.compareStart} ~ ${dbCard.compareEnd}`,
-      title: '선택기간과 비교하는 직전 동일 기간의 DB 수량입니다.',
+      tooltip: [
+        `비교기간: ${dbCard.compareStart} ~ ${dbCard.compareEnd}`,
+        '선택기간과 비교하는 직전 동일 기간의 중복 제거 DB입니다.',
+        `결과: ${dbCard.compareValue.toLocaleString()}건`,
+      ],
       icon: Users,
       color: 'text-emerald-600',
       bg: 'bg-emerald-50',
@@ -449,7 +478,11 @@ export default function DashboardPage() {
       value: validLeads.length,
       unit: '건',
       sub: '전체 기간 연락처 중복 제거',
-      title: '삭제/중복/테스트 상태를 제외한 전체 누적 최종 DB입니다.',
+      tooltip: [
+        '전체 기간 DB에서 삭제·중복·테스트·이상번호를 제외합니다.',
+        '연락처 기준으로 중복을 제거하고 가장 나중 DB 단계만 유지합니다.',
+        `결과: ${validLeads.length.toLocaleString()}건`,
+      ],
       icon: Users,
       color: 'text-teal-600',
       bg: 'bg-teal-50',
@@ -459,17 +492,28 @@ export default function DashboardPage() {
       value: fmtKRW(periodSpend),
       unit: '원',
       sub: `이전 기간 대비 ${signedNumber(Math.round(periodSpend / 10_000), Math.round(compareSpend / 10_000), '만')}`,
-      title: '선택기간에 등록된 온라인 광고 매체 광고비 합계입니다.',
+      tooltip: [
+        `집계기간: ${range.activeStart} ~ ${range.activeEnd}`,
+        '네이버·구글·메타·유튜브·바이럴·당근·카카오·Chat-GPT 광고비 합계입니다.',
+        '온라인 직접·자연유입과 외부·제휴 매체는 광고비 합계에서 제외합니다.',
+        `결과: ${periodSpend.toLocaleString()}원`,
+      ],
       icon: DollarSign,
       color: 'text-violet-600',
       bg: 'bg-violet-50',
     },
     {
-      label: '유효 DB CPL',
-      value: fmtKRW(avgCPL),
+      label: '매체확인 DB CPL',
+      value: avgCPL.toLocaleString(),
       unit: '원',
-      sub: compareCpl > 0 ? `이전 CPL ${fmtKRW(compareCpl)}원` : '이전 CPL 비교 없음',
-      title: '온라인 광고비 ÷ 온라인 광고 유효 DB(최종 1차+2차)로 계산합니다.',
+      sub: `온라인광고 1차+2차 ${paidValidLeads.length.toLocaleString()}건 기준`,
+      tooltip: paidValidLeads.length > 0 ? [
+        `광고비 ${periodSpend.toLocaleString()}원 ÷ 매체확인 유효 DB ${paidValidLeads.length.toLocaleString()}건`,
+        '유효 DB는 온라인광고 매체의 최종 1차+2차 DB입니다.',
+        '리타겟, 온라인 직접·자연, 외부·제휴, 미분류 DB는 CPL 분모에서 제외합니다.',
+        `결과: ${avgCPL.toLocaleString()}원`,
+        ...(compareCpl > 0 ? [`이전 기간 CPL: ${compareCpl.toLocaleString()}원`] : []),
+      ] : ['선택기간에 매체확인 유효 DB가 없어 CPL을 계산하지 않습니다.'],
       icon: TrendingDown,
       color: 'text-orange-600',
       bg: 'bg-orange-50',
@@ -479,7 +523,12 @@ export default function DashboardPage() {
       value: conversionRate,
       unit: '%',
       sub: `견적 후 상담 ${convertedSecond}/${estimatePool || 0}`,
-      title: '견적만 확인한 고객 중 상담신청까지 이어진 비율입니다. 광고에서 바로 상담한 건은 별도 단계로 봅니다.',
+      tooltip: [
+        `견적 후 상담 ${convertedSecond.toLocaleString()}건 ÷ 견적 확인 모수 ${estimatePool.toLocaleString()}건 × 100`,
+        '견적 확인 모수 = 최종 1차 DB + 1차에서 2차로 전환된 DB입니다.',
+        '광고에서 바로 상담을 신청한 2차 DB는 제외합니다.',
+        `결과: ${conversionRate}%`,
+      ],
       icon: TrendingDown,
       color: 'text-cyan-600',
       bg: 'bg-cyan-50',
@@ -577,10 +626,13 @@ export default function DashboardPage() {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-        {STAT_CARDS.map(({ label, value, unit, sub, title, icon: Icon, color, bg }) => (
-          <div key={label} className="stat-card" title={title}>
+        {STAT_CARDS.map(({ label, value, unit, sub, tooltip, icon: Icon, color, bg }) => (
+          <div key={label} className="stat-card">
             <div className="flex items-center justify-between">
-              <p className="text-xs text-slate-500 font-medium">{label}</p>
+              <div className="flex min-w-0 items-center gap-1">
+                <p className="truncate text-xs font-medium text-slate-500">{label}</p>
+                <StatFormulaTooltip lines={tooltip} />
+              </div>
               <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center', bg)}>
                 <Icon size={15} className={color} />
               </div>
