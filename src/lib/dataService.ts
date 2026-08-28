@@ -319,6 +319,7 @@ function subChannelImpliesChannel(label?: string): Channel | '' {
   if (t.includes('바이럴') || t.includes('블로그') || t.includes('레뷰') || t.includes('카페')) return 'viral'
   if (t.includes('카카오검색') || t.includes('kakaosearch') || t.includes('kakaosa')) return 'kakao_search'
   if (t.includes('카카오모먼트') || t.includes('카카오모멘트') || t.includes('kakaomoment')) return 'kakao_moment'
+  if (t.includes('카카오톡채널') || t.includes('카카오톡상담') || t.includes('kakaotalk')) return 'direct'
   if (t.includes('chatgpt') || t.includes('챗gpt') || t.includes('챗지피티')) return 'chatgpt'
   if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('직접영업') || t.includes('direct')) return 'direct'
   if (t.includes('당근') || t.includes('carrot') || t.includes('karrot')) return 'danggeun'
@@ -337,11 +338,24 @@ function hasUsefulAttribution(lead: LeadRecord) {
   return !isWeakChannel(lead.channel) || Boolean(String((lead as any).source_raw || '').trim())
 }
 
+function hasUsefulLeadEnrichment(lead: LeadRecord) {
+  return ['params', 'address', 'building', 'brand', 'pyeong']
+    .some((key) => Boolean(String((lead as any)[key] || '').trim()))
+}
+
 function shouldRefreshExistingAttribution(existing: LeadRecord, incoming: LeadRecord) {
-  if (!hasUsefulAttribution(incoming)) return false
-  if (isWeakChannel(existing.channel) && !isWeakChannel(incoming.channel)) return true
-  if (!String((existing as any).source_raw || '').trim() && String((incoming as any).source_raw || '').trim()) return true
-  if ((existing.subChannel || '기타') === '기타' && incoming.subChannel && incoming.subChannel !== '기타') return true
+  if (hasUsefulAttribution(incoming)) {
+    if (isWeakChannel(existing.channel) && !isWeakChannel(incoming.channel)) return true
+    if (!String((existing as any).source_raw || '').trim() && String((incoming as any).source_raw || '').trim()) return true
+    if ((existing.subChannel || '기타') === '기타' && incoming.subChannel && incoming.subChannel !== '기타') return true
+  }
+  if (hasUsefulLeadEnrichment(incoming)) {
+    if (!String((existing as any).params || '').trim() && String((incoming as any).params || '').trim()) return true
+    if (!String((existing as any).address || '').trim() && String((incoming as any).address || '').trim()) return true
+    if (!String((existing as any).building || '').trim() && String((incoming as any).building || '').trim()) return true
+    if (!String((existing as any).brand || '').trim() && String((incoming as any).brand || '').trim()) return true
+    if (!String((existing as any).pyeong || '').trim() && String((incoming as any).pyeong || '').trim()) return true
+  }
   return false
 }
 
@@ -711,6 +725,9 @@ export async function updateLeadAttribution(params: {
   region?: string
   district?: string
   building?: string
+  paramsValue?: string
+  brand?: string
+  pyeong?: string
   channel: Channel
   subChannel?: string
   sourceRaw?: string
@@ -746,6 +763,9 @@ export async function updateLeadAttribution(params: {
       region: params.region,
       district: params.district,
       building: params.building,
+      params: params.paramsValue,
+      brand: params.brand,
+      pyeong: params.pyeong,
       subChannel: params.subChannel || '',
       source_raw: params.sourceRaw || '',
       consultationResult: params.consultationResult || '',
@@ -1236,7 +1256,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
     const incomingConsultingNumber = String((normalizedLead as any).consultingNumber || '').trim()
 
     if (attributionCorrectionOnly) {
-      if (!hasUsefulAttribution(normalizedLead)) continue
+      if (!hasUsefulAttribution(normalizedLead) && !hasUsefulLeadEnrichment(normalizedLead)) continue
       const targets = findAttributionCorrectionTargets(normalizedLead)
       for (const target of targets) {
         if (!shouldRefreshExistingAttribution(target, normalizedLead)) continue
@@ -1250,6 +1270,11 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
           utm_campaign: (normalizedLead as any).utm_campaign || (target as any).utm_campaign || '',
           utm_content: (normalizedLead as any).utm_content || (target as any).utm_content || '',
           utm_term: (normalizedLead as any).utm_term || (target as any).utm_term || '',
+          params: (normalizedLead as any).params || (target as any).params || '',
+          address: (normalizedLead as any).address || (target as any).address || '',
+          building: (normalizedLead as any).building || (target as any).building || '',
+          brand: (normalizedLead as any).brand || (target as any).brand || '',
+          pyeong: (normalizedLead as any).pyeong || (target as any).pyeong || '',
           updatedAt: now,
         } as LeadRecord
 
@@ -1268,6 +1293,11 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
             utm_campaign: (refreshed as any).utm_campaign,
             utm_content: (refreshed as any).utm_content,
             utm_term: (refreshed as any).utm_term,
+            params: (refreshed as any).params,
+            address: (refreshed as any).address,
+            building: (refreshed as any).building,
+            brand: (refreshed as any).brand,
+            pyeong: (refreshed as any).pyeong,
             updatedBy: (normalizedLead as any).operator || 'UTM 보정',
             updatedAt: now,
           },
@@ -1368,6 +1398,11 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
           utm_campaign: (normalizedLead as any).utm_campaign || (existingSameDateAnyStage as any).utm_campaign || '',
           utm_content: (normalizedLead as any).utm_content || (existingSameDateAnyStage as any).utm_content || '',
           utm_term: (normalizedLead as any).utm_term || (existingSameDateAnyStage as any).utm_term || '',
+          params: (normalizedLead as any).params || (existingSameDateAnyStage as any).params || '',
+          address: (normalizedLead as any).address || (existingSameDateAnyStage as any).address || '',
+          building: (normalizedLead as any).building || (existingSameDateAnyStage as any).building || '',
+          brand: (normalizedLead as any).brand || (existingSameDateAnyStage as any).brand || '',
+          pyeong: (normalizedLead as any).pyeong || (existingSameDateAnyStage as any).pyeong || '',
           dbTier: nextStage,
           status: nextStage,
           updatedAt: now,
@@ -1390,6 +1425,9 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
           region: refreshed.region,
           district: refreshed.district,
           building: (refreshed as any).building,
+          paramsValue: (refreshed as any).params,
+          brand: (refreshed as any).brand,
+          pyeong: (refreshed as any).pyeong,
           channel: refreshed.channel,
           subChannel: refreshed.subChannel,
           sourceRaw: (refreshed as any).source_raw,
@@ -1422,6 +1460,11 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
           utm_campaign: (normalizedLead as any).utm_campaign || (existingSameDay as any).utm_campaign || '',
           utm_content: (normalizedLead as any).utm_content || (existingSameDay as any).utm_content || '',
           utm_term: (normalizedLead as any).utm_term || (existingSameDay as any).utm_term || '',
+          params: (normalizedLead as any).params || (existingSameDay as any).params || '',
+          address: (normalizedLead as any).address || (existingSameDay as any).address || '',
+          building: (normalizedLead as any).building || (existingSameDay as any).building || '',
+          brand: (normalizedLead as any).brand || (existingSameDay as any).brand || '',
+          pyeong: (normalizedLead as any).pyeong || (existingSameDay as any).pyeong || '',
           updatedAt: now,
         } as LeadRecord
 
@@ -1442,6 +1485,9 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
           region: refreshed.region,
           district: refreshed.district,
           building: (refreshed as any).building,
+          paramsValue: (refreshed as any).params,
+          brand: (refreshed as any).brand,
+          pyeong: (refreshed as any).pyeong,
           channel: refreshed.channel,
           subChannel: refreshed.subChannel,
           sourceRaw: (refreshed as any).source_raw,
