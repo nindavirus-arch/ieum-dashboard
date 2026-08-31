@@ -544,12 +544,25 @@ async function postSheetRows(type: PostSheetType, rows: any[], menuOverride?: st
   if (SHEET_API_URL.includes('여기에_')) throw new Error('dataService.ts의 SHEET_API_URL에 Apps Script 웹앱 URL을 입력하세요.')
   if (!rows.length) return { success: true, count: 0 }
 
-  const res = await fetch(SHEET_API_URL, {
-    method: 'POST',
-    // text/plain으로 보내야 Apps Script에서 CORS preflight 문제를 피하기 쉬움
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ type, rows, token: getAuthToken(), menu: menuOverride || currentMenu() }),
-  })
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), 180_000)
+  let res: Response
+  try {
+    res = await fetch(SHEET_API_URL, {
+      method: 'POST',
+      // text/plain으로 보내야 Apps Script에서 CORS preflight 문제를 피하기 쉬움
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ type, rows, token: getAuthToken(), menu: menuOverride || currentMenu() }),
+      signal: controller.signal,
+    })
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      throw new Error('저장 응답이 3분 이상 지연되었습니다. 잠시 후 새로고침해 반영 여부를 확인한 뒤 다시 시도해주세요.')
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
 
   if (!res.ok) throw new Error('Google Sheets 저장 실패')
   const data = await res.json()
@@ -1408,34 +1421,32 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
           updatedAt: now,
         } as LeadRecord
 
-        await updateLeadAttribution({
+        correctionRows.push({
           phone: existingSameDateAnyStage.phone,
           stage: existingSameDateAnyStage.dbTier,
           matchDate: existingSameDateAnyStage.date,
           registeredAt: (existingSameDateAnyStage as any).registeredAt,
-          date: refreshed.date,
-          originalDate: (refreshed as any).originalDate,
-          dateOverride: (refreshed as any).dateOverride,
-          dateOverrideReason: (refreshed as any).dateOverrideReason,
-          dateOverrideBy: (refreshed as any).dateOverrideBy,
-          dateOverrideAt: (refreshed as any).dateOverrideAt,
           consultingNumber: (refreshed as any).consultingNumber,
-          name: refreshed.name,
-          address: (refreshed as any).address,
-          region: refreshed.region,
-          district: refreshed.district,
-          building: (refreshed as any).building,
-          paramsValue: (refreshed as any).params,
-          brand: (refreshed as any).brand,
-          pyeong: (refreshed as any).pyeong,
-          channel: refreshed.channel,
-          subChannel: refreshed.subChannel,
-          sourceRaw: (refreshed as any).source_raw,
-          consultationResult: (refreshed as any).consultationResult,
-          memo: (refreshed as any).memo,
-          operator: (refreshed as any).operator,
-          status: refreshed.status || 'valid',
-          newStage: shouldCorrectStage ? nextStage : undefined,
+          patch: {
+            stage: shouldCorrectStage ? nextStage : undefined,
+            dbTier: shouldCorrectStage ? nextStage : undefined,
+            channel: refreshed.channel,
+            subChannel: refreshed.subChannel,
+            source_raw: (refreshed as any).source_raw,
+            utm_source: (refreshed as any).utm_source,
+            utm_medium: (refreshed as any).utm_medium,
+            utm_campaign: (refreshed as any).utm_campaign,
+            utm_content: (refreshed as any).utm_content,
+            utm_term: (refreshed as any).utm_term,
+            params: (refreshed as any).params,
+            address: (refreshed as any).address,
+            building: (refreshed as any).building,
+            brand: (refreshed as any).brand,
+            pyeong: (refreshed as any).pyeong,
+            status: shouldCorrectStage ? nextStage : (refreshed.status || 'valid'),
+            updatedBy: (refreshed as any).operator || 'DB 업로드',
+            updatedAt: now,
+          },
         })
         byPhoneStageDate.delete(`${existingSameDateAnyStage.phone}_${existingSameDateAnyStage.dbTier}_${existingSameDateAnyStage.date}`)
         byPhoneStageDate.delete(`${existingSameDateAnyStage.phone}_${baseTier(existingSameDateAnyStage.dbTier)}_${existingSameDateAnyStage.date}`)
@@ -1468,33 +1479,30 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
           updatedAt: now,
         } as LeadRecord
 
-        await updateLeadAttribution({
+        correctionRows.push({
           phone: existingSameDay.phone,
           stage: existingSameDay.dbTier,
           matchDate: existingSameDay.date,
           registeredAt: (existingSameDay as any).registeredAt,
-          date: refreshed.date,
-          originalDate: (refreshed as any).originalDate,
-          dateOverride: (refreshed as any).dateOverride,
-          dateOverrideReason: (refreshed as any).dateOverrideReason,
-          dateOverrideBy: (refreshed as any).dateOverrideBy,
-          dateOverrideAt: (refreshed as any).dateOverrideAt,
           consultingNumber: (refreshed as any).consultingNumber,
-          name: refreshed.name,
-          address: (refreshed as any).address,
-          region: refreshed.region,
-          district: refreshed.district,
-          building: (refreshed as any).building,
-          paramsValue: (refreshed as any).params,
-          brand: (refreshed as any).brand,
-          pyeong: (refreshed as any).pyeong,
-          channel: refreshed.channel,
-          subChannel: refreshed.subChannel,
-          sourceRaw: (refreshed as any).source_raw,
-          consultationResult: (refreshed as any).consultationResult,
-          memo: (refreshed as any).memo,
-          operator: (refreshed as any).operator,
-          status: refreshed.status || 'valid',
+          patch: {
+            channel: refreshed.channel,
+            subChannel: refreshed.subChannel,
+            source_raw: (refreshed as any).source_raw,
+            utm_source: (refreshed as any).utm_source,
+            utm_medium: (refreshed as any).utm_medium,
+            utm_campaign: (refreshed as any).utm_campaign,
+            utm_content: (refreshed as any).utm_content,
+            utm_term: (refreshed as any).utm_term,
+            params: (refreshed as any).params,
+            address: (refreshed as any).address,
+            building: (refreshed as any).building,
+            brand: (refreshed as any).brand,
+            pyeong: (refreshed as any).pyeong,
+            status: refreshed.status || 'valid',
+            updatedBy: (refreshed as any).operator || 'DB 업로드',
+            updatedAt: now,
+          },
         })
         byPhoneStageDate.set(`${refreshed.phone}_${refreshed.dbTier}_${refreshed.date}`, refreshed)
         byPhoneStageDate.set(`${refreshed.phone}_${baseTier(refreshed.dbTier)}_${refreshed.date}`, refreshed)

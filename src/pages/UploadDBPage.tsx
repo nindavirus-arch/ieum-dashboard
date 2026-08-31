@@ -382,7 +382,8 @@ export default function UploadDBPage() {
       {stage === 'uploading' && (
         <div className="card p-12 flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-slate-600">브라우저 로컬 저장소에 저장 중...</p>
+          <p className="text-sm text-slate-600">Google Sheets에 DB를 일괄 저장 중...</p>
+          <p className="text-xs text-slate-400">대용량 파일은 완료까지 잠시 걸릴 수 있습니다. 창을 닫지 마세요.</p>
         </div>
       )}
 
