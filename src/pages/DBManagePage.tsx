@@ -31,6 +31,10 @@ const BRAND_KEYS = [
 ]
 
 type QuoteRow = { brand: string; price: string }
+const QUOTE_ROWS_CACHE = new WeakMap<object, QuoteRow[]>()
+type QuotePathKey = 'estimate_check' | 'estimate_consult' | 'direct_consult' | 'unknown'
+type QuotePathInfo = { key: QuotePathKey; label: string; tone: string; tooltip: string }
+const QUOTE_PATH_RELIABLE_FROM = '2026-08-29'
 const LEADS_SESSION_KEY = 'ieum-db-manage-leads'
 const MAPPINGS_SESSION_KEY = 'ieum-db-manage-mappings'
 
@@ -107,8 +111,13 @@ function parseQueryLike(text: string): Record<string, string> {
   return out
 }
 function quoteRows(row: LeadRecord): QuoteRow[] {
+  const cached = QUOTE_ROWS_CACHE.get(row as object)
+  if (cached) return cached
   const decoded = decodeParams(row)
-  if (!decoded) return []
+  if (!decoded) {
+    QUOTE_ROWS_CACHE.set(row as object, [])
+    return []
+  }
   let obj: Record<string, any> = {}
   try {
     const maybeJson = decoded.trim()
@@ -126,10 +135,55 @@ function quoteRows(row: LeadRecord): QuoteRow[] {
     })
   })
 
-  return BRAND_KEYS.map(({ label, keys }) => {
+  const rows = BRAND_KEYS.map(({ label, keys }) => {
     const foundKey = keys.find(k => obj[k] !== undefined && String(obj[k]).trim() !== '')
     return foundKey ? { brand: label, price: normalizeMoney(obj[foundKey]) } : null
   }).filter((r): r is QuoteRow => !!r && !!r.price)
+  QUOTE_ROWS_CACHE.set(row as object, rows)
+  return rows
+}
+
+function quotePath(row: LeadRecord): QuotePathInfo | null {
+  const stage = baseStage(row.dbTier)
+  if (stage === 'first') return {
+    key: 'estimate_check',
+    label: '견적확인',
+    tone: 'border-blue-100 bg-blue-50 text-blue-700',
+    tooltip: '로켓견적확인 상태로 집계된 1차DB입니다.',
+  }
+  if (stage !== 'second') return null
+  if (quoteRows(row).length > 0) return {
+    key: 'estimate_consult',
+    label: '견적 후 상담',
+    tone: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+    tooltip: '외부창 견적금액이 확인되는 로켓상담요청입니다.',
+  }
+  if (row.date >= QUOTE_PATH_RELIABLE_FROM) return {
+    key: 'direct_consult',
+    label: '견적 없이 상담',
+    tone: 'border-amber-100 bg-amber-50 text-amber-700',
+    tooltip: '외부창 견적금액이 전달되지 않은 로켓상담요청입니다.',
+  }
+  return {
+    key: 'unknown',
+    label: '확인 불가',
+    tone: 'border-slate-200 bg-slate-50 text-slate-500',
+    tooltip: '과거 데이터로 외부창 견적 경로를 신뢰성 있게 판정할 수 없습니다.',
+  }
+}
+
+function QuotePathBadge({ row }: { row: LeadRecord }) {
+  const info = quotePath(row)
+  if (!info) return null
+  return <span title={info.tooltip} className={clsx('inline-flex w-fit rounded-md border px-2 py-0.5 text-[10px] font-medium whitespace-nowrap', info.tone)}>{info.label}</span>
+}
+
+function MissingQuoteHint({ row }: { row: LeadRecord }) {
+  const info = quotePath(row)
+  if (!info || info.key === 'estimate_check' || info.key === 'estimate_consult') return null
+  return <span title={info.tooltip} className={clsx('mt-2 inline-flex rounded-md border px-2 py-1 text-[10px]', info.tone)}>
+    {info.key === 'direct_consult' ? '외부창 견적 없음' : '견적 여부 확인 불가'}
+  </span>
 }
 function shortAddress(row: LeadRecord) {
   const addr = String((row as any).address || '')
@@ -300,6 +354,7 @@ export default function DBManagePage() {
   const [selectedYear, setSelectedYear] = useState(thisYear())
   const [channel, setChannel] = useState<'all' | Channel>('all')
   const [operatorFilter, setOperatorFilter] = useState('all')
+  const [quotePathFilter, setQuotePathFilter] = useState<'all' | QuotePathKey>('all')
   const [dateOverrideFilter, setDateOverrideFilter] = useState<'all' | 'overridden' | 'normal'>('all')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
   const [keyword, setKeyword] = useState('')
@@ -371,6 +426,7 @@ export default function DBManagePage() {
       .filter(l => (stage === 'all' || stage === 'history') ? true : l.dbTier === stage)
       .filter(l => channel === 'all' ? true : l.channel === channel)
       .filter(l => operatorFilter === 'all' ? true : String((l as any).operator || '').trim() === operatorFilter)
+      .filter(l => quotePathFilter === 'all' ? true : quotePath(l)?.key === quotePathFilter)
       .filter(l => {
         if (dateOverrideFilter === 'all') return true
         const overridden = isDateOverridden(l)
@@ -382,15 +438,20 @@ export default function DBManagePage() {
         return hay.includes(q)
       })
       .sort((a, b) => sortOrder === 'desc' ? sortTime(b) - sortTime(a) : sortTime(a) - sortTime(b))
-  }, [displayLeads, stage, channel, operatorFilter, dateOverrideFilter, keyword, sortOrder])
+  }, [displayLeads, stage, channel, operatorFilter, quotePathFilter, dateOverrideFilter, keyword, sortOrder])
   const pageSize = 50
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const pagedLeads = filtered.slice((page - 1) * pageSize, page * pageSize)
-  useEffect(() => { setPage(1) }, [stage, period, selectedDate, selectedMonth, selectedYear, channel, operatorFilter, dateOverrideFilter, keyword, sortOrder])
+  useEffect(() => { setPage(1) }, [stage, period, selectedDate, selectedMonth, selectedYear, channel, operatorFilter, quotePathFilter, dateOverrideFilter, keyword, sortOrder])
   useEffect(() => { if (page > totalPages) setPage(totalPages) }, [page, totalPages])
 
   const counts: Record<string, number> = { all: currentPeriodLeads.length, history: rawPeriodLeads.length }
   STAGES.forEach(s => counts[s] = currentPeriodLeads.filter(l => l.dbTier === s).length)
+  const quotePathCounts = currentPeriodLeads.reduce<Record<QuotePathKey, number>>((acc, lead) => {
+    const info = quotePath(lead)
+    if (info) acc[info.key] += 1
+    return acc
+  }, { estimate_check: 0, estimate_consult: 0, direct_consult: 0, unknown: 0 })
   async function saveEdit(row: LeadRecord, next: any) {
     setSaving(true)
     setNotice(null)
@@ -457,9 +518,20 @@ export default function DBManagePage() {
       ['all','현재 상담대상',counts.all],
       ...STAGES.map(s => [s, STAGE_LABELS[s], counts[s]]),
       ['history','전체 원본 이력',counts.history],
-    ].map(([v,label,count]) => <button key={String(v)} onClick={() => setStage(v as any)} className={clsx('tab-btn', stage === v && 'active', v === 'history' && stage !== 'history' && 'text-slate-500')}>{label} <span className="opacity-70">{Number(count).toLocaleString()}</span></button>)}</div><div className="grid grid-cols-1 md:grid-cols-12 gap-3"><select value={period} onChange={e => setPeriod(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="today">오늘</option><option value="7d">최근 7일</option><option value="day">일자 선택</option><option value="month">월별</option><option value="year">연별</option><option value="all">전체</option></select>{period === 'day' && <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'month' && <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'year' && <input type="number" min="2024" max="2030" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}<select value={channel} onChange={e => setChannel(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 매체</option>{CHANNELS.map(c => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</select><select value={operatorFilter} onChange={e => setOperatorFilter(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 작업자</option>{operatorOptions.map(o => <option key={o} value={o}>{o}</option>)}</select><select value={dateOverrideFilter} onChange={e => setDateOverrideFilter(e.target.value as 'all' | 'overridden' | 'normal')} className="md:col-span-1 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 보정</option><option value="overridden">수동보정만</option><option value="normal">보정 제외</option></select><select value={sortOrder} onChange={e => setSortOrder(e.target.value as 'desc' | 'asc')} className="md:col-span-1 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="desc">최신순</option><option value="asc">오래된순</option></select><div className="md:col-span-2 relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="이름/연락처/지역/상담결과/메모 검색" className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-sm" /></div><div className="md:col-span-1 flex items-center md:justify-end text-xs text-slate-500">{range.label} · {filtered.length.toLocaleString()}건</div></div></div>
+    ].map(([v,label,count]) => <button key={String(v)} onClick={() => setStage(v as any)} className={clsx('tab-btn', stage === v && 'active', v === 'history' && stage !== 'history' && 'text-slate-500')}>{label} <span className="opacity-70">{Number(count).toLocaleString()}</span></button>)}</div><div className="grid grid-cols-1 md:grid-cols-12 gap-3"><select value={period} onChange={e => setPeriod(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="today">오늘</option><option value="7d">최근 7일</option><option value="day">일자 선택</option><option value="month">월별</option><option value="year">연별</option><option value="all">전체</option></select>{period === 'day' && <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'month' && <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'year' && <input type="number" min="2024" max="2030" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}<select value={channel} onChange={e => setChannel(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 매체</option>{CHANNELS.map(c => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</select><select value={operatorFilter} onChange={e => setOperatorFilter(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 작업자</option>{operatorOptions.map(o => <option key={o} value={o}>{o}</option>)}</select><select value={quotePathFilter} onChange={e => setQuotePathFilter(e.target.value as 'all' | QuotePathKey)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 견적경로</option><option value="estimate_check">견적확인</option><option value="estimate_consult">견적 후 상담</option><option value="direct_consult">견적 없이 상담</option><option value="unknown">확인 불가</option></select><select value={dateOverrideFilter} onChange={e => setDateOverrideFilter(e.target.value as 'all' | 'overridden' | 'normal')} className="md:col-span-1 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 보정</option><option value="overridden">수동보정만</option><option value="normal">보정 제외</option></select><select value={sortOrder} onChange={e => setSortOrder(e.target.value as 'desc' | 'asc')} className="md:col-span-1 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="desc">최신순</option><option value="asc">오래된순</option></select><div className="md:col-span-2 relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="이름/연락처/지역/상담결과/메모 검색" className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-sm" /></div><div className="md:col-span-1 flex items-center md:justify-end text-xs text-slate-500">{range.label} · {filtered.length.toLocaleString()}건</div></div></div>
     <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700">
       <b>상담대상 기준</b> 기본 탭은 연락처별 최종 단계 한 건만 표시합니다. 이전 단계는 고객 행에서 확인하고, 모든 단계 행은 전체 원본 이력 탭에서 볼 수 있습니다.
+    </div>
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {[
+        ['견적확인', quotePathCounts.estimate_check, 'border-blue-100 bg-blue-50 text-blue-700'],
+        ['견적 후 상담', quotePathCounts.estimate_consult, 'border-emerald-100 bg-emerald-50 text-emerald-700'],
+        ['견적 없이 상담', quotePathCounts.direct_consult, 'border-amber-100 bg-amber-50 text-amber-700'],
+        ['확인 불가', quotePathCounts.unknown, 'border-slate-200 bg-slate-50 text-slate-500'],
+      ].map(([label, count, tone]) => <div key={String(label)} className={clsx('rounded-lg border px-4 py-3', tone)}>
+        <div className="text-[11px] font-medium">{label}</div>
+        <div className="mt-1 text-lg font-bold">{Number(count).toLocaleString()}건</div>
+      </div>)}
     </div>
 
     <div className="space-y-3 md:hidden">
@@ -470,7 +542,7 @@ export default function DBManagePage() {
         const previousRows = stage === 'history' ? [] : (previousByPhone.get(l.phone) || [])
         const address = addressParts(l)
         return <div key={key} className="card p-4 space-y-3">
-          <div className="flex items-start justify-between gap-3"><div><div className="text-[11px] text-slate-400">DB 유입/신청일시</div><div className="text-xs text-slate-500">{fmtDateTime(l)} {isDateOverridden(l) && <span className="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">수동보정</span>}</div><div className="font-semibold text-slate-800 mt-1">{l.name || '-'}</div><div className="text-sm text-slate-500">{formatPhone(l.phone)}</div></div><span className={clsx('px-2 py-0.5 rounded-md border text-xs font-medium whitespace-nowrap', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span></div>
+          <div className="flex items-start justify-between gap-3"><div><div className="text-[11px] text-slate-400">DB 유입/신청일시</div><div className="text-xs text-slate-500">{fmtDateTime(l)} {isDateOverridden(l) && <span className="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">수동보정</span>}</div><div className="font-semibold text-slate-800 mt-1">{l.name || '-'}</div><div className="text-sm text-slate-500">{formatPhone(l.phone)}</div></div><div className="flex flex-col items-end gap-1"><span className={clsx('px-2 py-0.5 rounded-md border text-xs font-medium whitespace-nowrap', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span><QuotePathBadge row={l} /></div></div>
           {(l as any).memo && <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-800"><b>메모</b> {(l as any).memo}</div>}
           <div className="grid grid-cols-2 gap-3 text-xs text-slate-600">
             <div className="col-span-2">
@@ -493,6 +565,7 @@ export default function DBManagePage() {
             <div><b>상세매체</b><br/><span className="leading-5">{detailLabel(l)}</span></div>
           </div>
           {quotes.length > 0 && <details className="group"><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-blue-600 text-sm font-medium"><ChevronDown size={14} className="transition-transform group-open:rotate-180" /> 외부창 견적</summary><QuotePanel rows={quotes} /></details>}
+          {quotes.length === 0 && <MissingQuoteHint row={l} />}
           {previousRows.length > 0 && <details className="group"><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-slate-600 text-sm font-medium"><History size={13}/> 이전 단계 이력 {previousRows.length}건</summary><StageHistoryPanel rows={previousRows} /></details>}
           {history && <details><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-slate-500 text-sm font-medium"><History size={13}/> 수정이력</summary><pre className="mt-2 p-2 rounded-lg bg-slate-50 text-slate-500 whitespace-pre-wrap text-xs">{history}</pre></details>}
           <div className="grid grid-cols-2 gap-2">
@@ -524,12 +597,13 @@ export default function DBManagePage() {
                   <div>{fmtDateTime(l)}</div>
                   {isDateOverridden(l) && <span className="mt-1 inline-flex rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">수동보정</span>}
                 </td>
-                <td className="px-3 py-3 whitespace-nowrap"><span className={clsx('px-2 py-0.5 rounded-md border font-medium', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span></td>
+                <td className="px-3 py-3 whitespace-nowrap"><div className="flex flex-col gap-1"><span className={clsx('w-fit px-2 py-0.5 rounded-md border font-medium', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span><QuotePathBadge row={l} /></div></td>
                 <td className="px-3 py-3 min-w-[220px]">
                   <div className="font-semibold text-slate-700">{l.name || '-'}</div>
                   <div className="text-slate-500 mt-0.5">{formatPhone(l.phone)}</div>
                   {(l as any).memo && <div className="mt-2 rounded-lg bg-amber-50 border border-amber-100 px-2 py-1.5 text-[11px] text-amber-800 whitespace-normal"><b>메모</b> {(l as any).memo}</div>}
                   {quotes.length > 0 && <details className="group mt-2"><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-blue-600 font-medium"><ChevronDown size={13} className="transition-transform group-open:rotate-180" /> 외부창 견적</summary><QuotePanel rows={quotes} /></details>}
+                  {quotes.length === 0 && <MissingQuoteHint row={l} />}
                   {previousRows.length > 0 && <details className="mt-2"><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-slate-600 font-medium"><History size={12}/> 이전 단계 이력 {previousRows.length}건</summary><StageHistoryPanel rows={previousRows} /></details>}
                   {history && <details className="mt-2"><summary className="inline-flex cursor-pointer list-none items-center gap-1 text-slate-500 font-medium"><History size={12}/> 수정이력</summary><pre className="mt-2 p-2 rounded-lg bg-slate-50 text-slate-500 whitespace-pre-wrap max-w-[520px]">{history}</pre></details>}
                 </td>
