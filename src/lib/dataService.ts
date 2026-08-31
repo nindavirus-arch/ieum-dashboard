@@ -1141,9 +1141,29 @@ type UploadLeadsOptions = {
 }
 
 export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[], options: UploadLeadsOptions = {}) {
-  const mappings = await fetchMappings()
+  const [mappings, existingRows, firstRawRows] = await Promise.all([
+    fetchMappings(),
+    getSheetRows('leads'),
+    getSheetRows('firstRaw').catch(() => []),
+  ])
   // 기존 DASHBOARD_LEADS를 기준으로 중복/승격 판단
-  const existing = (await getSheetRows('leads')).map((r, i) => normalizeLead(r, i, mappings))
+  const existing = existingRows.map((r, i) => normalizeLead(r, i, mappings))
+  const utmEnrichmentByPhoneDate = new Map<string, LeadRecord>()
+  firstRawRows.forEach((row, i) => {
+    const normalized = normalizeLead({
+      ...row,
+      stage: row._parsed_stage || row.stage || row.dbTier || 'first',
+      dbTier: row._parsed_stage || row.stage || row.dbTier || 'first',
+      source_file: 'first_db',
+      sourceKind: 'first_raw',
+    }, i, mappings)
+    if (!normalized.phone || !normalized.date) return
+    const key = `${normalized.phone}_${normalized.date}`
+    const previous = utmEnrichmentByPhoneDate.get(key)
+    if (!previous || (!hasUsefulLeadEnrichment(previous) && hasUsefulLeadEnrichment(normalized))) {
+      utmEnrichmentByPhoneDate.set(key, normalized)
+    }
+  })
   const byPhoneStageDate = new Map<string, LeadRecord>()
   const byPhoneDate = new Map<string, LeadRecord>()
   const stageSeenByPhone = new Map<string, Set<string>>()
@@ -1240,24 +1260,45 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
 
   for (const lead of leads) {
     if (!lead.phone) continue
-    const incomingSourceRaw = sourceRawFromRow(lead)
+    const normalizedIncomingPhone = normalizePhone(lead.phone)
+    const normalizedIncomingDate = normalizeDate(lead.date, new Date(now))
+    const cachedUtm = !attributionCorrectionOnly && lead.sourceKind === 'second_raw'
+      ? utmEnrichmentByPhoneDate.get(`${normalizedIncomingPhone}_${normalizedIncomingDate}`)
+      : undefined
+    const sourceLead = cachedUtm ? ({
+      ...lead,
+      channel: cachedUtm.channel || lead.channel,
+      subChannel: (cachedUtm as any).subChannel || (lead as any).subChannel || '',
+      source_raw: (cachedUtm as any).source_raw || (lead as any).source_raw || '',
+      utm_source: (cachedUtm as any).utm_source || (lead as any).utm_source || '',
+      utm_medium: (cachedUtm as any).utm_medium || (lead as any).utm_medium || '',
+      utm_campaign: (cachedUtm as any).utm_campaign || (lead as any).utm_campaign || '',
+      utm_content: (cachedUtm as any).utm_content || (lead as any).utm_content || '',
+      utm_term: (cachedUtm as any).utm_term || (lead as any).utm_term || '',
+      params: (cachedUtm as any).params || (lead as any).params || '',
+      address: (lead as any).address || (cachedUtm as any).address || '',
+      building: (lead as any).building || (cachedUtm as any).building || '',
+      brand: (lead as any).brand || (cachedUtm as any).brand || '',
+      pyeong: (lead as any).pyeong || (cachedUtm as any).pyeong || '',
+    } as Omit<LeadRecord, 'id' | 'uploadedAt'>) : lead
+    const incomingSourceRaw = sourceRawFromRow(sourceLead)
 
     const mapped = applyChannelMapping({
-      channel: lead.channel,
-      subChannel: (lead as any).subChannel,
-      utm_source: (lead as any).utm_source,
+      channel: sourceLead.channel,
+      subChannel: (sourceLead as any).subChannel,
+      utm_source: (sourceLead as any).utm_source,
       source_raw: incomingSourceRaw,
-      utm_medium: (lead as any).utm_medium,
-      utm_campaign: (lead as any).utm_campaign,
-      utm_content: (lead as any).utm_content,
-      utm_term: (lead as any).utm_term,
+      utm_medium: (sourceLead as any).utm_medium,
+      utm_campaign: (sourceLead as any).utm_campaign,
+      utm_content: (sourceLead as any).utm_content,
+      utm_term: (sourceLead as any).utm_term,
     }, mappings)
 
     const normalizedLead: LeadRecord = {
-      ...lead,
+      ...sourceLead,
       id: makeId('lead'),
-      date: normalizeDate(lead.date, new Date(now)),
-      phone: normalizePhone(lead.phone),
+      date: normalizedIncomingDate,
+      phone: normalizedIncomingPhone,
       channel: mapped.channel,
       subChannel: sanitizeSubChannelForChannel(mapped.channel, mapped.subChannel, { source: (lead as any).utm_source, sourceRaw: incomingSourceRaw, medium: (lead as any).utm_medium, campaign: (lead as any).utm_campaign, content: (lead as any).utm_content, term: (lead as any).utm_term }),
       source_raw: incomingSourceRaw,
@@ -1270,6 +1311,12 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
 
     if (attributionCorrectionOnly) {
       if (!hasUsefulAttribution(normalizedLead) && !hasUsefulLeadEnrichment(normalizedLead)) continue
+      const rawCacheKey = `${normalizedLead.phone}_${normalizedLead.date}`
+      const cachedRaw = utmEnrichmentByPhoneDate.get(rawCacheKey)
+      if (!cachedRaw || (!hasUsefulLeadEnrichment(cachedRaw) && hasUsefulLeadEnrichment(normalizedLead))) {
+        firstRaw.push(normalizedLead)
+        utmEnrichmentByPhoneDate.set(rawCacheKey, normalizedLead)
+      }
       const targets = findAttributionCorrectionTargets(normalizedLead)
       for (const target of targets) {
         if (!shouldRefreshExistingAttribution(target, normalizedLead)) continue
