@@ -61,9 +61,10 @@ function channelFromSubChannel(label?: string) {
   if (t.includes('바이럴') || t.includes('블로그') || t.includes('레뷰') || t.includes('카페')) return 'viral'
   if (t.includes('카카오검색') || t.includes('kakaosearch') || t.includes('kakaosa')) return 'kakao_search'
   if (t.includes('카카오모먼트') || t.includes('카카오모멘트') || t.includes('kakaomoment')) return 'kakao_moment'
+  if (t.includes('카카오톡채널') || t.includes('카카오톡상담') || t.includes('kakaotalk')) return 'direct'
   if (t.includes('chatgpt') || t.includes('챗gpt') || t.includes('챗지피티')) return 'chatgpt'
   if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('직접영업') || t.includes('direct')) return 'direct'
-  if (t.includes('당근') || t.includes('carrot') || t.includes('karrot')) return 'danggeun'
+  if (t.includes('당근') || t.includes('carrot') || t.includes('karrot') || t.includes('daagn') || t.includes('daangn') || t.includes('danggeun')) return 'danggeun'
   if (t.includes('인바운드') || t.includes('인입콜')) return 'inbound_call'
   return ''
 }
@@ -75,6 +76,13 @@ function safeDetailLabel(ch: string, rawLabel?: string) {
   // 저장된 channel과 subChannel이 서로 다르면 상세매체 오염값으로 보고 현재 channel 기준으로 보정한다.
   if (implied && implied !== ch) return defaultSubChannelForChannel(ch)
   return label
+}
+
+function unclassifiedDetailLabel(lead: LeadRecord) {
+  const candidates = [lead.source_raw, lead.utm_source, lead.subChannel]
+    .map(value => String(value || '').trim())
+    .filter(value => value && value !== '기타' && value.toLowerCase() !== 'etc')
+  return candidates[0] || '원본 유입경로 없음/기타'
 }
 
 type ChannelRowDefinition = {
@@ -302,7 +310,9 @@ export default function DashboardPage() {
       : 0
     const detailMap = new Map<string, { count: number; retarget: number; first: number; second: number }>()
     chLeads.forEach(l => {
-      const label = isDirectSales(l) ? '직접영업' : safeDetailLabel(l.channel, l.subChannel)
+      const label = definition.group === 'unclassified'
+        ? unclassifiedDetailLabel(l)
+        : isDirectSales(l) ? '직접영업' : safeDetailLabel(l.channel, l.subChannel)
       const current = detailMap.get(label) || { count: 0, retarget: 0, first: 0, second: 0 }
       current.count += 1
       current[l.dbTier as 'retarget' | 'first' | 'second'] += 1
@@ -388,6 +398,11 @@ export default function DashboardPage() {
   const targetRate = periodMinTarget > 0 ? Math.round((totalDB / periodMinTarget) * 100) : 0
   const targetStatus = totalDB >= periodStretchTarget ? '상향 목표 이상' : totalDB >= periodMinTarget ? '기본 목표 달성' : `기본 목표 ${Math.max(periodMinTarget - totalDB, 0).toLocaleString()}건 부족`
   const unclassifiedCount = channelStats.find(row => row.key === 'unclassified')?.db || 0
+  const unclassifiedDetails = channelStats.find(row => row.key === 'unclassified')?.details || []
+  const unclassifiedSummary = unclassifiedDetails
+    .slice(0, 2)
+    .map(detail => `${detail.label} ${detail.count.toLocaleString()}건`)
+    .join(', ')
   const cplDiff = avgCPL - compareCpl
   const insightItems = [
     {
@@ -400,7 +415,7 @@ export default function DashboardPage() {
         ? `CPL: 이전 기간 대비 ${cplDiff <= 0 ? Math.abs(cplDiff).toLocaleString() + '원 개선' : cplDiff.toLocaleString() + '원 상승'}`
         : `CPL: 이전 기간 비교 데이터 없음`,
     },
-    ...(unclassifiedCount > 0 ? [{ tone: 'warn' as const, text: `미분류 ${unclassifiedCount.toLocaleString()}건: 매체 매핑 확인 필요` }] : []),
+    ...(unclassifiedCount > 0 ? [{ tone: 'warn' as const, text: `미분류 ${unclassifiedCount.toLocaleString()}건${unclassifiedSummary ? ` (${unclassifiedSummary})` : ''}: 매체 매핑 확인 필요` }] : []),
   ].slice(0, 3)
 
   const dailyTotalSummary = useMemo(() => {

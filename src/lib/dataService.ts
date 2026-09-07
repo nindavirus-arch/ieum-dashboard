@@ -257,6 +257,12 @@ function applyChannelMapping(input: {
   const explicitSubChannel = String(input.subChannel || '').trim()
   const explicitChannel = subChannelImpliesChannel(explicitSubChannel)
   const protectedChannels: Channel[] = ['tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'inbound_call', 'danggeun', 'chatgpt']
+  const inferredChannel = inferChannelStrict({ source: input.utm_source, sourceRaw: input.source_raw, medium: input.utm_medium, campaign: input.utm_campaign, content: input.utm_content, term: input.utm_term })
+  // 관리시스템의 당근 UTM 코드는 daagn으로 들어온다. 이전의 '기타' 매핑보다
+  // 원본 UTM 식별값을 우선해 기존 저장 행도 조회 즉시 당근으로 복구한다.
+  if (inferredChannel === 'danggeun') {
+    return { channel: 'danggeun', subChannel: '당근' }
+  }
   if (input.channel && protectedChannels.includes(input.channel)) {
     return {
       channel: input.channel,
@@ -322,7 +328,7 @@ function subChannelImpliesChannel(label?: string): Channel | '' {
   if (t.includes('카카오톡채널') || t.includes('카카오톡상담') || t.includes('kakaotalk')) return 'direct'
   if (t.includes('chatgpt') || t.includes('챗gpt') || t.includes('챗지피티')) return 'chatgpt'
   if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('직접영업') || t.includes('direct')) return 'direct'
-  if (t.includes('당근') || t.includes('carrot') || t.includes('karrot')) return 'danggeun'
+  if (t.includes('당근') || t.includes('carrot') || t.includes('karrot') || t.includes('daagn') || t.includes('daangn') || t.includes('danggeun')) return 'danggeun'
   return ''
 }
 

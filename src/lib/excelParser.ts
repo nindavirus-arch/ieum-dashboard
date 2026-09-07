@@ -101,7 +101,7 @@ const CHANNEL_MAP: Record<string, Channel> = {
   '메타': 'meta', '인스타': 'meta', '인스타그램': 'meta', '페이스북': 'meta', 'facebook': 'meta', 'fb': 'meta', 'ig': 'meta', 'instagram': 'meta', 'meta': 'meta',
   '유튜브': 'youtube', 'youtube': 'youtube', 'yt': 'youtube', '구글유튜브': 'youtube',
   '바이럴': 'viral', '블로그': 'viral', '레뷰': 'viral', 'revu': 'viral', 'viral': 'viral', '카페': 'viral',
-  '당근': 'danggeun', '당근마켓': 'danggeun', 'carrot': 'danggeun', 'karrot': 'danggeun',
+  '당근': 'danggeun', '당근마켓': 'danggeun', 'carrot': 'danggeun', 'karrot': 'danggeun', 'daagn': 'danggeun', 'daangn': 'danggeun', 'danggeun': 'danggeun',
   '카카오검색광고': 'kakao_search', '카카오검색': 'kakao_search', '카카오키워드': 'kakao_search', 'kakaosearch': 'kakao_search', 'kakao_sa': 'kakao_search', 'kakaosa': 'kakao_search',
   '카카오모먼트': 'kakao_moment', '카카오모멘트': 'kakao_moment', '카카오moment': 'kakao_moment', 'kakaomoment': 'kakao_moment',
   'chatgpt': 'chatgpt', '챗gpt': 'chatgpt', '챗지피티': 'chatgpt',
@@ -126,6 +126,8 @@ export function normalizeChannel(raw: unknown): Channel {
   if (!key) return 'etc'
   if (CHANNEL_MAP[key]) return CHANNEL_MAP[key]
 
+  // 카카오톡 채널 문의는 유료 검색/모먼트 광고가 아니라 자사 채널 직접 유입이다.
+  if ((original.includes('카카오톡') || original.includes('kakaotalk')) && (original.includes('채널') || original.includes('상담') || original.includes('문의'))) return 'direct'
   if (original.includes('kakao') || original.includes('카카오')) {
     if (original.includes('moment') || original.includes('모먼트') || original.includes('모멘트')) return 'kakao_moment'
     return 'kakao_search'
@@ -144,7 +146,7 @@ export function normalizeChannel(raw: unknown): Channel {
     if (original.includes('당근') || original.includes('carrot')) return 'hugreen_danggeun'
     return 'hugreen_mail'
   }
-  if (original.includes('당근') || original.includes('carrot') || original.includes('karrot')) return 'danggeun'
+  if (original.includes('당근') || original.includes('carrot') || original.includes('karrot') || original.includes('daagn') || original.includes('daangn') || original.includes('danggeun')) return 'danggeun'
   if (original.includes('인바운드') || original.includes('인입콜') || original.includes('inbound') || original.includes('call')) return 'inbound_call'
   if (original.includes('blog') || original.includes('블로그') || original.includes('revu') || original.includes('레뷰') || original.includes('viral') || original.includes('카페')) return 'viral'
   if (original.includes('홈페이지') || original.includes('공식홈') || original.includes('직접영업') || original.includes('direct') || original.includes('homepage') || original.includes('website')) return 'direct'
@@ -197,6 +199,7 @@ export function inferSubChannel(fields: { channel: Channel; source?: unknown; so
   if (fields.channel === 'chatgpt') return 'Chat-GPT'
   if (fields.channel === 'direct') {
     if (k.includes('직접영업') || k.includes('directsales')) return '직접영업'
+    if (k.includes('카카오톡') || k.includes('kakaotalk')) return '카카오톡 채널 상담'
     return '홈페이지 직접유입'
   }
   if (fields.channel === 'tu_albarich') return 'TU-알바리치'
