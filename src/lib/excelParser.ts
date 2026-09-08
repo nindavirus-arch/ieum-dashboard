@@ -104,14 +104,15 @@ const CHANNEL_MAP: Record<string, Channel> = {
   '당근': 'danggeun', '당근마켓': 'danggeun', 'carrot': 'danggeun', 'karrot': 'danggeun', 'daagn': 'danggeun', 'daangn': 'danggeun', 'danggeun': 'danggeun',
   '카카오검색광고': 'kakao_search', '카카오검색': 'kakao_search', '카카오키워드': 'kakao_search', 'kakaosearch': 'kakao_search', 'kakao_sa': 'kakao_search', 'kakaosa': 'kakao_search',
   '카카오모먼트': 'kakao_moment', '카카오모멘트': 'kakao_moment', '카카오moment': 'kakao_moment', 'kakaomoment': 'kakao_moment',
-  'chatgpt': 'chatgpt', '챗gpt': 'chatgpt', '챗지피티': 'chatgpt',
+  'chatgpt': 'chatgpt', '챗gpt': 'chatgpt', '챗지피티': 'chatgpt', 'gptad': 'chatgpt',
   'tu': 'tu_albarich', 'tu알바리치': 'tu_albarich', 'tu-albarich': 'tu_albarich', 'tualbarich': 'tu_albarich', '알바리치': 'tu_albarich',
   'tu유튜브': 'tu_youtube', 'tu-youtube': 'tu_youtube', 'tuyoutube': 'tu_youtube', 'tu유투브': 'tu_youtube',
   'tu당근': 'tu_danggeun', 'tu-carrot': 'tu_danggeun', 'tudanggeun': 'tu_danggeun',
   '휴그린당근': 'hugreen_danggeun', '휴그린-당근': 'hugreen_danggeun', 'hugreendanggeun': 'hugreen_danggeun',
   '휴그린메일': 'hugreen_mail', '휴그린-메일': 'hugreen_mail', '휴그린본사': 'hugreen_mail', 'hugreenmail': 'hugreen_mail',
+  'ezpz': 'ezpz',
   '인바운드': 'inbound_call', '인입콜': 'inbound_call', '인바운드콜': 'inbound_call', 'inbound': 'inbound_call', 'call': 'inbound_call',
-  '홈페이지': 'direct', '공식홈페이지': 'direct', '직접유입': 'direct', '직접영업': 'direct', 'direct': 'direct', 'website': 'direct', 'homepage': 'direct',
+  '홈페이지': 'direct', '공식홈페이지': 'direct', '직접유입': 'direct', '직접영업': 'direct', '다이렉트': 'direct', 'direct': 'direct', 'website': 'direct', 'homepage': 'direct',
 }
 
 function isDirectSalesText(raw: unknown): boolean {
@@ -132,7 +133,8 @@ export function normalizeChannel(raw: unknown): Channel {
     if (original.includes('moment') || original.includes('모먼트') || original.includes('모멘트')) return 'kakao_moment'
     return 'kakao_search'
   }
-  if (key.includes('chatgpt') || key.includes('챗gpt') || key.includes('챗지피티')) return 'chatgpt'
+  if (key.includes('chatgpt') || key.includes('챗gpt') || key.includes('챗지피티') || key === 'gptad') return 'chatgpt'
+  if (key === 'ezpz') return 'ezpz'
   if (original.includes('tu') || original.includes('알바리치')) {
     if (original.includes('유튜브') || original.includes('유투브') || original.includes('youtube')) return 'tu_youtube'
     if (original.includes('당근') || original.includes('carrot')) return 'tu_danggeun'
@@ -207,6 +209,7 @@ export function inferSubChannel(fields: { channel: Channel; source?: unknown; so
   if (fields.channel === 'tu_danggeun') return 'TU-당근'
   if (fields.channel === 'hugreen_danggeun') return '휴그린-당근'
   if (fields.channel === 'hugreen_mail') return '휴그린-메일'
+  if (fields.channel === 'ezpz') return 'EZPZ'
   if (fields.channel === 'inbound_call') return '인바운드-인입콜'
   return '기타'
 }

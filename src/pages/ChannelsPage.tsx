@@ -10,19 +10,19 @@ import { buildLeadJourneys, isDirectSales, isPaidChannel, trafficGroup, type Tra
 import { buildProjectAttribution, contractedProjects } from '../lib/projectMetrics'
 import DataUpdatedAt from '../components/DataUpdatedAt'
 
-const CHANNELS = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment','chatgpt','direct','tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','inbound_call','etc'] as const
+const CHANNELS = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment','chatgpt','direct','tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','ezpz','inbound_call','etc'] as const
 type ChannelRowKey = typeof CHANNELS[number] | 'direct_sales'
-const CHANNEL_ROWS: ChannelRowKey[] = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment','chatgpt','inbound_call','direct','direct_sales','tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','etc']
+const CHANNEL_ROWS: ChannelRowKey[] = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment','chatgpt','inbound_call','direct','direct_sales','tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','ezpz','etc']
 const CHANNEL_LABELS: Record<string, string> = {
-  naver:'네이버', google:'구글', meta:'메타', youtube:'유튜브', viral:'바이럴', danggeun:'당근', direct:'직접유입',
+  naver:'네이버', google:'구글', meta:'메타', youtube:'유튜브', viral:'바이럴', danggeun:'당근', direct:'홈페이지 직접유입',
   kakao_search:'카카오 검색광고', kakao_moment:'카카오모먼트', chatgpt:'Chat-GPT',
   direct_sales:'직접영업', tu_albarich:'TU-알바리치', tu_youtube:'TU-유튜브', tu_danggeun:'TU-당근',
-  hugreen_danggeun:'휴그린-당근', hugreen_mail:'휴그린-메일', inbound_call:'인바운드-인입콜', etc:'기타'
+  hugreen_danggeun:'휴그린-당근', hugreen_mail:'휴그린-메일', ezpz:'EZPZ', inbound_call:'인바운드-인입콜', etc:'기타'
 }
 const CHANNEL_COLORS: Record<string, string> = {
   naver:'#03C75A', google:'#4285F4', meta:'#1877F2', youtube:'#FF0000', viral:'#7C3AED', danggeun:'#FF6F0F', kakao_search:'#FEE500', kakao_moment:'#111827', chatgpt:'#10A37F', direct:'#64748B',
   direct_sales:'#475569', tu_albarich:'#0EA5E9', tu_youtube:'#EF4444', tu_danggeun:'#F97316',
-  hugreen_danggeun:'#22C55E', hugreen_mail:'#14B8A6', inbound_call:'#334155', etc:'#94A3B8'
+  hugreen_danggeun:'#22C55E', hugreen_mail:'#14B8A6', ezpz:'#8B5CF6', inbound_call:'#334155', etc:'#94A3B8'
 }
 const today = format(new Date(), 'yyyy-MM-dd')
 const DETAIL_ORDER = [
@@ -115,7 +115,7 @@ function projectTrafficGroup(project: ReturnType<typeof buildProjectAttribution>
   const key = rowKeyForProject(project)
   if (key === 'direct_sales') return 'external'
   if (key === 'inbound_call') return 'paid'
-  if (key === 'tu_albarich' || key === 'tu_youtube' || key === 'tu_danggeun' || key === 'hugreen_danggeun' || key === 'hugreen_mail') return 'external'
+  if (key === 'tu_albarich' || key === 'tu_youtube' || key === 'tu_danggeun' || key === 'hugreen_danggeun' || key === 'hugreen_mail' || key === 'ezpz') return 'external'
   if (key === 'direct') return 'organic'
   if (key === 'etc') return 'unclassified'
   return isPaidChannel(key) ? 'paid' : 'unclassified'

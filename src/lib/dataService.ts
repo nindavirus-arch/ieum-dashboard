@@ -256,12 +256,19 @@ function applyChannelMapping(input: {
 }, mappings: MappingRow[]): { channel: Channel; subChannel: string } {
   const explicitSubChannel = String(input.subChannel || '').trim()
   const explicitChannel = subChannelImpliesChannel(explicitSubChannel)
-  const protectedChannels: Channel[] = ['tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'inbound_call', 'danggeun', 'chatgpt']
+  const protectedChannels: Channel[] = ['tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'ezpz', 'inbound_call', 'danggeun', 'chatgpt', 'direct']
   const inferredChannel = inferChannelStrict({ source: input.utm_source, sourceRaw: input.source_raw, medium: input.utm_medium, campaign: input.utm_campaign, content: input.utm_content, term: input.utm_term })
   // 관리시스템의 당근 UTM 코드는 daagn으로 들어온다. 이전의 '기타' 매핑보다
   // 원본 UTM 식별값을 우선해 기존 저장 행도 조회 즉시 당근으로 복구한다.
   if (inferredChannel === 'danggeun') {
     return { channel: 'danggeun', subChannel: '당근' }
+  }
+  // 과거에 기타로 저장된 신규 원본 코드도 조회 즉시 올바른 채널로 복구한다.
+  if (inferredChannel === 'chatgpt' || inferredChannel === 'direct' || inferredChannel === 'ezpz') {
+    return {
+      channel: inferredChannel,
+      subChannel: inferSubChannel({ channel: inferredChannel, source: input.utm_source, sourceRaw: input.source_raw, medium: input.utm_medium, campaign: input.utm_campaign, content: input.utm_content, term: input.utm_term }),
+    }
   }
   if (input.channel && protectedChannels.includes(input.channel)) {
     return {
@@ -317,6 +324,7 @@ function subChannelImpliesChannel(label?: string): Channel | '' {
   if (t.includes('tu알바리치') || t.includes('tualbarich') || t === 'tu') return 'tu_albarich'
   if (t.includes('휴그린당근') || t.includes('hugreendanggeun')) return 'hugreen_danggeun'
   if (t.includes('휴그린메일') || t.includes('휴그린본사') || t.includes('hugreenmail')) return 'hugreen_mail'
+  if (t === 'ezpz') return 'ezpz'
   if (t.includes('인바운드') || t.includes('인입콜')) return 'inbound_call'
   if (t.includes('네이버') || t.includes('naver') || t.includes('gfa') || t.includes('브랜드검색')) return 'naver'
   if (t.includes('구글') || t.includes('google') || t.includes('디맨드') || t.includes('demand') || t.includes('gdn')) return 'google'
@@ -326,8 +334,8 @@ function subChannelImpliesChannel(label?: string): Channel | '' {
   if (t.includes('카카오검색') || t.includes('kakaosearch') || t.includes('kakaosa')) return 'kakao_search'
   if (t.includes('카카오모먼트') || t.includes('카카오모멘트') || t.includes('kakaomoment')) return 'kakao_moment'
   if (t.includes('카카오톡채널') || t.includes('카카오톡상담') || t.includes('kakaotalk')) return 'direct'
-  if (t.includes('chatgpt') || t.includes('챗gpt') || t.includes('챗지피티')) return 'chatgpt'
-  if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('직접영업') || t.includes('direct')) return 'direct'
+  if (t.includes('chatgpt') || t.includes('챗gpt') || t.includes('챗지피티') || t === 'gptad') return 'chatgpt'
+  if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('직접영업') || t.includes('다이렉트') || t.includes('direct')) return 'direct'
   if (t.includes('당근') || t.includes('carrot') || t.includes('karrot') || t.includes('daagn') || t.includes('daangn') || t.includes('danggeun')) return 'danggeun'
   return ''
 }

@@ -13,17 +13,17 @@ import { DEFAULT_KPI_MIN_DAILY, DEFAULT_KPI_STRETCH_DAILY } from '../lib/kpiDefa
 
 const today = format(new Date(), 'yyyy-MM-dd')
 const PAID_CHANNEL_LIST = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment','chatgpt'] as const
-const EXTERNAL_CHANNEL_LIST = ['tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','inbound_call'] as const
+const EXTERNAL_CHANNEL_LIST = ['tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','ezpz','inbound_call'] as const
 const CHANNEL_LABELS: Record<string, string> = {
-  naver:'네이버', google:'구글', meta:'메타', youtube:'유튜브', viral:'바이럴', danggeun:'당근', direct:'직접유입',
+  naver:'네이버', google:'구글', meta:'메타', youtube:'유튜브', viral:'바이럴', danggeun:'당근', direct:'홈페이지 직접유입',
   kakao_search:'카카오 검색광고', kakao_moment:'카카오모먼트', chatgpt:'Chat-GPT',
   tu_albarich:'TU-알바리치', tu_youtube:'TU-유튜브', tu_danggeun:'TU-당근',
-  hugreen_danggeun:'휴그린-당근', hugreen_mail:'휴그린-메일', inbound_call:'인바운드-인입콜', etc:'기타'
+  hugreen_danggeun:'휴그린-당근', hugreen_mail:'휴그린-메일', ezpz:'EZPZ', inbound_call:'인바운드-인입콜', etc:'기타'
 }
 const CHANNEL_COLORS: Record<string, string> = {
   naver:'#03C75A', google:'#4285F4', meta:'#1877F2', youtube:'#FF0000', viral:'#7C3AED', danggeun:'#FF6F0F', kakao_search:'#FEE500', kakao_moment:'#111827', chatgpt:'#10A37F', direct:'#64748B',
   tu_albarich:'#0EA5E9', tu_youtube:'#EF4444', tu_danggeun:'#F97316',
-  hugreen_danggeun:'#22C55E', hugreen_mail:'#14B8A6', inbound_call:'#334155', etc:'#94A3B8'
+  hugreen_danggeun:'#22C55E', hugreen_mail:'#14B8A6', ezpz:'#8B5CF6', inbound_call:'#334155', etc:'#94A3B8'
 }
 
 function defaultSubChannelForChannel(ch: string) {
@@ -42,6 +42,7 @@ function defaultSubChannelForChannel(ch: string) {
   if (ch === 'tu_danggeun') return 'TU-당근'
   if (ch === 'hugreen_danggeun') return '휴그린-당근'
   if (ch === 'hugreen_mail') return '휴그린-메일'
+  if (ch === 'ezpz') return 'EZPZ'
   if (ch === 'inbound_call') return '인바운드-인입콜'
   return '기타'
 }
@@ -54,6 +55,7 @@ function channelFromSubChannel(label?: string) {
   if (t.includes('tu알바리치') || t.includes('tualbarich') || t === 'tu') return 'tu_albarich'
   if (t.includes('휴그린당근') || t.includes('hugreendanggeun')) return 'hugreen_danggeun'
   if (t.includes('휴그린메일') || t.includes('hugreenmail')) return 'hugreen_mail'
+  if (t === 'ezpz') return 'ezpz'
   if (t.includes('네이버') || t.includes('naver') || t.includes('gfa') || t.includes('브랜드검색')) return 'naver'
   if (t.includes('구글') || t.includes('google') || t.includes('디맨드') || t.includes('demand') || t.includes('gdn')) return 'google'
   if (t.includes('메타') || t.includes('인스타') || t.includes('facebook') || t.includes('meta')) return 'meta'
@@ -62,8 +64,8 @@ function channelFromSubChannel(label?: string) {
   if (t.includes('카카오검색') || t.includes('kakaosearch') || t.includes('kakaosa')) return 'kakao_search'
   if (t.includes('카카오모먼트') || t.includes('카카오모멘트') || t.includes('kakaomoment')) return 'kakao_moment'
   if (t.includes('카카오톡채널') || t.includes('카카오톡상담') || t.includes('kakaotalk')) return 'direct'
-  if (t.includes('chatgpt') || t.includes('챗gpt') || t.includes('챗지피티')) return 'chatgpt'
-  if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('직접영업') || t.includes('direct')) return 'direct'
+  if (t.includes('chatgpt') || t.includes('챗gpt') || t.includes('챗지피티') || t === 'gptad') return 'chatgpt'
+  if (t.includes('홈페이지') || t.includes('직접유입') || t.includes('직접영업') || t.includes('다이렉트') || t.includes('direct')) return 'direct'
   if (t.includes('당근') || t.includes('carrot') || t.includes('karrot') || t.includes('daagn') || t.includes('daangn') || t.includes('danggeun')) return 'danggeun'
   if (t.includes('인바운드') || t.includes('인입콜')) return 'inbound_call'
   return ''
@@ -111,7 +113,7 @@ const CHANNEL_ROW_DEFINITIONS: ChannelRowDefinition[] = [
   })),
   {
     key: 'online_direct',
-    label: '홈페이지·온라인 기타',
+    label: '홈페이지 직접유입',
     color: '#64748B',
     group: 'organic',
     matches: (lead: LeadRecord) => trafficGroup(lead) === 'organic',

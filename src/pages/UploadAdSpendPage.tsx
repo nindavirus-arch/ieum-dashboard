@@ -16,7 +16,7 @@ const CHANNEL_LABELS: Record<Channel, string> = {
   youtube: '유튜브',
   viral: '바이럴',
   danggeun: '당근',
-  direct: '직접유입',
+  direct: '홈페이지 직접유입',
   kakao_search: '카카오 검색광고',
   kakao_moment: '카카오모먼트',
   chatgpt: 'Chat-GPT',
@@ -25,6 +25,7 @@ const CHANNEL_LABELS: Record<Channel, string> = {
   tu_danggeun: 'TU-당근',
   hugreen_danggeun: '휴그린-당근',
   hugreen_mail: '휴그린-메일',
+  ezpz: 'EZPZ',
   inbound_call: '인바운드-인입콜',
   etc: '기타',
 }

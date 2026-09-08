@@ -15,7 +15,7 @@ export interface LeadJourney {
 }
 
 const PAID_CHANNELS = new Set(['naver', 'google', 'meta', 'youtube', 'viral', 'danggeun', 'kakao_search', 'kakao_moment', 'chatgpt'])
-const EXTERNAL_CHANNELS = new Set(['tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail'])
+const EXTERNAL_CHANNELS = new Set(['tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'ezpz'])
 const EXCLUDED_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted'])
 
 export function baseStage(tier: DBTier): FinalStage {
