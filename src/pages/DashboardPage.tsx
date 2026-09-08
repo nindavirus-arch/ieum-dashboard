@@ -75,6 +75,12 @@ function safeDetailLabel(ch: string, rawLabel?: string) {
   const implied = channelFromSubChannel(label)
   // 저장된 channel과 subChannel이 서로 다르면 상세매체 오염값으로 보고 현재 channel 기준으로 보정한다.
   if (implied && implied !== ch) return defaultSubChannelForChannel(ch)
+  if (ch === 'naver') {
+    const normalized = label.toLowerCase().replace(/[\s_\-\/()\[\].]/g, '')
+    if (normalized.includes('gfa')) return '네이버 GFA'
+    if (normalized.includes('브랜드검색') || normalized.includes('brand')) return '네이버 브랜드검색'
+    if (normalized.includes('sa') || normalized.includes('파워링크')) return '네이버 SA'
+  }
   return label
 }
 

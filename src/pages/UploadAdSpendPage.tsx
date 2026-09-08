@@ -7,7 +7,7 @@ import { fetchAdSpend, invalidateDataCache, uploadAdSpend } from '../lib/dataSer
 import type { AdSpend, Channel } from '../types'
 
 type Stage = 'idle' | 'parsing' | 'preview' | 'uploading' | 'done' | 'error'
-type SpendColumnKey = 'naver_sa' | 'naver_gfa' | 'kakao_moment' | 'meta' | 'google_search' | 'google_demand_pmax' | 'danggeun' | 'chatgpt' | 'viral'
+type SpendColumnKey = 'naver_sa_main' | 'naver_gfa_main' | 'naver_sa_sub' | 'naver_gfa_sub' | 'naver_brand_search' | 'kakao_moment' | 'meta' | 'google_search' | 'google_demand_pmax' | 'danggeun' | 'chatgpt' | 'viral'
 
 const CHANNEL_LABELS: Record<Channel, string> = {
   naver: '네이버',
@@ -36,8 +36,11 @@ const SPEND_COLUMNS: Array<{
   subChannel: string
   aliases: string[]
 }> = [
-  { key: 'naver_sa', label: '네이버 SA', channel: 'naver', subChannel: '네이버 SA', aliases: ['네이버 SA', '네이버SA', 'NAVER SA'] },
-  { key: 'naver_gfa', label: '네이버 GFA', channel: 'naver', subChannel: '네이버 GFA', aliases: ['네이버 GFA', '네이버GFA', 'NAVER GFA'] },
+  { key: 'naver_sa_main', label: '네이버 SA(메인)', channel: 'naver', subChannel: '네이버 SA(메인)', aliases: ['네이버 SA', '네이버SA', 'NAVER SA', '네이버 SA(메인)', '네이버SA(메인)', 'NAVER SA(MAIN)'] },
+  { key: 'naver_gfa_main', label: '네이버 GFA(메인)', channel: 'naver', subChannel: '네이버 GFA(메인)', aliases: ['네이버 GFA', '네이버GFA', 'NAVER GFA', '네이버 GFA(메인)', '네이버GFA(메인)', 'NAVER GFA(MAIN)'] },
+  { key: 'naver_sa_sub', label: '네이버 SA(서브)', channel: 'naver', subChannel: '네이버 SA(서브)', aliases: ['네이버 SA(서브)', '네이버SA(서브)', 'NAVER SA(SUB)'] },
+  { key: 'naver_gfa_sub', label: '네이버 GFA(서브)', channel: 'naver', subChannel: '네이버 GFA(서브)', aliases: ['네이버 GFA(서브)', '네이버GFA(서브)', 'NAVER GFA(SUB)'] },
+  { key: 'naver_brand_search', label: '네이버 브랜드검색', channel: 'naver', subChannel: '네이버 브랜드검색', aliases: ['네이버 브랜드검색', '네이버브랜드검색', 'NAVER BRAND SEARCH'] },
   { key: 'kakao_moment', label: '카카오모먼트', channel: 'kakao_moment', subChannel: '카카오모먼트', aliases: ['카카오모먼트', '카카오 모먼트', 'kakao_moment'] },
   { key: 'meta', label: '메타', channel: 'meta', subChannel: '메타', aliases: ['메타', 'META', '페이스북', '인스타그램'] },
   { key: 'google_search', label: '구글 검색광고', channel: 'google', subChannel: '구글 검색광고', aliases: ['구글 검색광고', '구글검색광고', 'Google Search'] },
@@ -304,7 +307,7 @@ export default function UploadAdSpendPage() {
         </div>
 
         <div className="overflow-auto">
-          <table className="min-w-[1220px] w-full text-xs">
+          <table className="min-w-[1640px] w-full text-xs">
             <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500">
               <tr>
                 <th className="w-[90px] px-3 py-3 text-left font-semibold">날짜</th>

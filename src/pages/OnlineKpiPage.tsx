@@ -83,6 +83,11 @@ function detailLabel(lead: Pick<LeadRecord, 'channel' | 'subChannel'>) {
 function kpiDetailGroup(channel: string, subChannel: string) {
   const detail = String(subChannel || '').trim() || defaultDetail(channel)
   const normalized = detail.toLowerCase().replace(/[\s_\-\/()\[\].]/g, '')
+  if (channel === 'naver') {
+    if (normalized.includes('gfa')) return { channel: 'naver', subChannel: '네이버 GFA' }
+    if (normalized.includes('브랜드검색') || normalized.includes('brand')) return { channel: 'naver', subChannel: '네이버 브랜드검색' }
+    if (normalized.includes('sa') || normalized.includes('파워링크')) return { channel: 'naver', subChannel: '네이버 SA' }
+  }
   const isGoogleDisplayOrYoutube = channel === 'google' && (
     normalized.includes('디스커버리')
     || normalized.includes('디맨드')
