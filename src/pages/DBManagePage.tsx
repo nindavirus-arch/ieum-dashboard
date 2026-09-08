@@ -32,9 +32,12 @@ const BRAND_KEYS = [
 
 type QuoteRow = { brand: string; price: string }
 const QUOTE_ROWS_CACHE = new WeakMap<object, QuoteRow[]>()
-type QuotePathKey = 'estimate_check' | 'estimate_consult' | 'direct_consult' | 'unknown'
+const PARAMS_OBJECT_CACHE = new WeakMap<object, Record<string, any>>()
+type QuotePathKey = 'estimate_check' | 'estimate_consult' | 'apartment_no_quote_consult' | 'direct_consult' | 'estimate_unavailable'
 type QuotePathInfo = { key: QuotePathKey; label: string; tone: string; tooltip: string }
-const QUOTE_PATH_RELIABLE_FROM = '2026-08-29'
+type BuildingTypeGroup = 'apartment' | 'non_apartment' | 'unclassified'
+type BuildingTypeFilter = 'all' | BuildingTypeGroup
+type BuildingTypeInfo = { group: BuildingTypeGroup; label: string; tone: string; tooltip: string; confidence: 'confirmed' | 'inferred' | 'unknown' }
 const LEADS_SESSION_KEY = 'ieum-db-manage-leads'
 const MAPPINGS_SESSION_KEY = 'ieum-db-manage-mappings'
 
@@ -95,9 +98,16 @@ function normalizeMoney(v: unknown) {
   return `${n.toLocaleString()}만원`
 }
 function decodeParams(row: LeadRecord) {
-  const params = String((row as any).params || '')
+  let params = String((row as any).params || '')
   if (!params) return ''
-  try { return decodeURIComponent(params.replace(/\+/g, ' ')) } catch { return params }
+  for (let index = 0; index < 3; index += 1) {
+    try {
+      const decoded = decodeURIComponent(params.replace(/\+/g, ' '))
+      if (decoded === params) break
+      params = decoded
+    } catch { break }
+  }
+  return params
 }
 function parseQueryLike(text: string): Record<string, string> {
   const out: Record<string, string> = {}
@@ -110,6 +120,19 @@ function parseQueryLike(text: string): Record<string, string> {
   })
   return out
 }
+function paramsObject(row: LeadRecord): Record<string, any> {
+  const cached = PARAMS_OBJECT_CACHE.get(row as object)
+  if (cached) return cached
+  const decoded = decodeParams(row)
+  let obj: Record<string, any> = {}
+  try {
+    const maybeJson = decoded.trim()
+    if (maybeJson.startsWith('{')) obj = JSON.parse(maybeJson)
+  } catch {}
+  obj = { ...parseQueryLike(decoded), ...obj }
+  PARAMS_OBJECT_CACHE.set(row as object, obj)
+  return obj
+}
 function quoteRows(row: LeadRecord): QuoteRow[] {
   const cached = QUOTE_ROWS_CACHE.get(row as object)
   if (cached) return cached
@@ -118,12 +141,7 @@ function quoteRows(row: LeadRecord): QuoteRow[] {
     QUOTE_ROWS_CACHE.set(row as object, [])
     return []
   }
-  let obj: Record<string, any> = {}
-  try {
-    const maybeJson = decoded.trim()
-    if (maybeJson.startsWith('{')) obj = JSON.parse(maybeJson)
-  } catch {}
-  obj = { ...parseQueryLike(decoded), ...obj }
+  const obj = { ...paramsObject(row) }
 
   // 쿼리/JSON으로 못 읽은 경우 정규식으로 브랜드=가격만 추출
   BRAND_KEYS.forEach(({ keys }) => {
@@ -143,32 +161,83 @@ function quoteRows(row: LeadRecord): QuoteRow[] {
   return rows
 }
 
+function normalizedPropertyType(value: unknown) {
+  return String(value || '').trim().toLowerCase().replace(/[\s_\-\/()\[\].]/g, '')
+}
+
+function buildingType(row: LeadRecord): BuildingTypeInfo {
+  const params = paramsObject(row)
+  const explicit = normalizedPropertyType(params.buildingType || params.propertyType || params.building_type || params.property_type)
+  const building = String((row as any).building || params.buildingName || params.apartmentName || '').trim()
+  const road = String((row as any).address || params.roadName || '').trim()
+  const text = normalizedPropertyType(building)
+
+  if (explicit.includes('officetel') || explicit.includes('오피스텔') || text.includes('오피스텔')) return {
+    group: 'non_apartment', label: '오피스텔', confidence: 'confirmed', tone: 'border-cyan-100 bg-cyan-50 text-cyan-700', tooltip: '원본 건물유형 또는 건물명에서 오피스텔이 확인됩니다.',
+  }
+  if (explicit.includes('commercial') || explicit.includes('상가') || explicit.includes('office') || explicit.includes('사무실') || /상가|사무실/.test(building)) return {
+    group: 'non_apartment', label: '상가·사무실', confidence: 'confirmed', tone: 'border-orange-100 bg-orange-50 text-orange-700', tooltip: '원본 건물유형 또는 건물명에서 상가·사무실이 확인됩니다.',
+  }
+  if (explicit.includes('detached') || explicit.includes('house') || explicit.includes('단독') || explicit.includes('다가구') || /단독|다가구/.test(building)) return {
+    group: 'non_apartment', label: '단독·다가구', confidence: 'confirmed', tone: 'border-lime-100 bg-lime-50 text-lime-700', tooltip: '원본 건물유형 또는 건물명에서 단독·다가구가 확인됩니다.',
+  }
+  if (explicit.includes('villa') || explicit.includes('multifamily') || explicit.includes('빌라') || explicit.includes('다세대') || /빌라|다세대/.test(building)) return {
+    group: 'non_apartment', label: '빌라·다세대', confidence: 'confirmed', tone: 'border-fuchsia-100 bg-fuchsia-50 text-fuchsia-700', tooltip: '원본 건물유형 또는 건물명에서 빌라·다세대가 확인됩니다.',
+  }
+
+  const apartmentId = String(params.apartmentId || params.apartment_id || '').trim()
+  if (apartmentId) return {
+    group: 'apartment', label: '아파트 확정', confidence: 'confirmed', tone: 'border-indigo-100 bg-indigo-50 text-indigo-700', tooltip: 'UTM 원본의 apartmentId가 있어 아파트 조회가 확인됩니다.',
+  }
+  if (explicit.includes('apartment') || explicit.includes('아파트') || text.includes('아파트')) return {
+    group: 'apartment', label: '아파트 확정', confidence: 'confirmed', tone: 'border-indigo-100 bg-indigo-50 text-indigo-700', tooltip: '원본 건물유형 또는 건물명에서 아파트가 확인됩니다.',
+  }
+  if (String(params.buildingName || '').trim() && (String(params.roadName || '').trim() || road)) return {
+    group: 'apartment', label: '아파트 추정', confidence: 'inferred', tone: 'border-violet-100 bg-violet-50 text-violet-700', tooltip: '아파트 ID는 없지만 UTM 원본의 건물명과 도로명주소가 있어 아파트 조회로 추정합니다.',
+  }
+  return {
+    group: 'unclassified', label: '유형 판별불가', confidence: 'unknown', tone: 'border-slate-200 bg-slate-50 text-slate-500', tooltip: '건물유형을 판단할 원본 정보가 없습니다.',
+  }
+}
+
+function BuildingTypeBadge({ row }: { row: LeadRecord }) {
+  const info = buildingType(row)
+  return <span title={info.tooltip} className={clsx('inline-flex w-fit rounded-md border px-2 py-0.5 text-[10px] font-medium whitespace-nowrap', info.tone)}>{info.label}</span>
+}
+
 function quotePath(row: LeadRecord): QuotePathInfo | null {
   const stage = baseStage(row.dbTier)
-  if (stage === 'first') return {
-    key: 'estimate_check',
-    label: '견적확인',
-    tone: 'border-blue-100 bg-blue-50 text-blue-700',
-    tooltip: '로켓견적확인 상태로 집계된 1차DB입니다.',
-  }
+  const hasQuote = quoteRows(row).length > 0
+  const apartment = buildingType(row).group === 'apartment'
+  if (stage === 'first') return hasQuote ? {
+      key: 'estimate_check',
+      label: '견적확인',
+      tone: 'border-blue-100 bg-blue-50 text-blue-700',
+      tooltip: '외부창 견적금액이 실제로 확인되는 1차DB입니다.',
+    } : {
+      key: 'estimate_unavailable',
+      label: apartment ? '아파트 견적 미산출' : '견적 미산출',
+      tone: 'border-rose-100 bg-rose-50 text-rose-700',
+      tooltip: '1차DB로 저장됐지만 외부창 견적금액이 확인되지 않습니다.',
+    }
   if (stage !== 'second') return null
-  if (quoteRows(row).length > 0) return {
+  if (hasQuote) return {
     key: 'estimate_consult',
     label: '견적 후 상담',
     tone: 'border-emerald-100 bg-emerald-50 text-emerald-700',
     tooltip: '외부창 견적금액이 확인되는 로켓상담요청입니다.',
   }
-  if (row.date >= QUOTE_PATH_RELIABLE_FROM) return {
+  if (apartment) return {
+    key: 'apartment_no_quote_consult',
+    label: '아파트 견적 미산출 상담',
+    tone: 'border-orange-100 bg-orange-50 text-orange-700',
+    tooltip: '아파트 조회 정보는 있으나 외부창 견적금액 없이 상담이 접수됐습니다.',
+  }
+  return {
     key: 'direct_consult',
     label: '견적 없이 상담',
     tone: 'border-amber-100 bg-amber-50 text-amber-700',
-    tooltip: '외부창 견적금액이 전달되지 않은 로켓상담요청입니다.',
-  }
-  return {
-    key: 'unknown',
-    label: '확인 불가',
-    tone: 'border-slate-200 bg-slate-50 text-slate-500',
-    tooltip: '과거 데이터로 외부창 견적 경로를 신뢰성 있게 판정할 수 없습니다.',
+    tooltip: '외부창 견적금액 없이 접수된 로켓상담요청입니다.',
   }
 }
 
@@ -182,7 +251,7 @@ function MissingQuoteHint({ row }: { row: LeadRecord }) {
   const info = quotePath(row)
   if (!info || info.key === 'estimate_check' || info.key === 'estimate_consult') return null
   return <span title={info.tooltip} className={clsx('mt-2 inline-flex rounded-md border px-2 py-1 text-[10px]', info.tone)}>
-    {info.key === 'direct_consult' ? '외부창 견적 없음' : '견적 여부 확인 불가'}
+    외부창 견적 없음
   </span>
 }
 function shortAddress(row: LeadRecord) {
@@ -355,6 +424,7 @@ export default function DBManagePage() {
   const [channel, setChannel] = useState<'all' | Channel>('all')
   const [operatorFilter, setOperatorFilter] = useState('all')
   const [quotePathFilter, setQuotePathFilter] = useState<'all' | QuotePathKey>('all')
+  const [buildingTypeFilter, setBuildingTypeFilter] = useState<BuildingTypeFilter>('all')
   const [dateOverrideFilter, setDateOverrideFilter] = useState<'all' | 'overridden' | 'normal'>('all')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
   const [keyword, setKeyword] = useState('')
@@ -427,6 +497,7 @@ export default function DBManagePage() {
       .filter(l => channel === 'all' ? true : l.channel === channel)
       .filter(l => operatorFilter === 'all' ? true : String((l as any).operator || '').trim() === operatorFilter)
       .filter(l => quotePathFilter === 'all' ? true : quotePath(l)?.key === quotePathFilter)
+      .filter(l => buildingTypeFilter === 'all' ? true : buildingType(l).group === buildingTypeFilter)
       .filter(l => {
         if (dateOverrideFilter === 'all') return true
         const overridden = isDateOverridden(l)
@@ -438,11 +509,11 @@ export default function DBManagePage() {
         return hay.includes(q)
       })
       .sort((a, b) => sortOrder === 'desc' ? sortTime(b) - sortTime(a) : sortTime(a) - sortTime(b))
-  }, [displayLeads, stage, channel, operatorFilter, quotePathFilter, dateOverrideFilter, keyword, sortOrder])
+  }, [displayLeads, stage, channel, operatorFilter, quotePathFilter, buildingTypeFilter, dateOverrideFilter, keyword, sortOrder])
   const pageSize = 50
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const pagedLeads = filtered.slice((page - 1) * pageSize, page * pageSize)
-  useEffect(() => { setPage(1) }, [stage, period, selectedDate, selectedMonth, selectedYear, channel, operatorFilter, quotePathFilter, dateOverrideFilter, keyword, sortOrder])
+  useEffect(() => { setPage(1) }, [stage, period, selectedDate, selectedMonth, selectedYear, channel, operatorFilter, quotePathFilter, buildingTypeFilter, dateOverrideFilter, keyword, sortOrder])
   useEffect(() => { if (page > totalPages) setPage(totalPages) }, [page, totalPages])
 
   const counts: Record<string, number> = { all: currentPeriodLeads.length, history: rawPeriodLeads.length }
@@ -451,7 +522,16 @@ export default function DBManagePage() {
     const info = quotePath(lead)
     if (info) acc[info.key] += 1
     return acc
-  }, { estimate_check: 0, estimate_consult: 0, direct_consult: 0, unknown: 0 })
+  }, { estimate_check: 0, estimate_consult: 0, apartment_no_quote_consult: 0, direct_consult: 0, estimate_unavailable: 0 })
+  const buildingTypeCounts = currentPeriodLeads.reduce<Record<BuildingTypeGroup, number>>((acc, lead) => {
+    acc[buildingType(lead).group] += 1
+    return acc
+  }, { apartment: 0, non_apartment: 0, unclassified: 0 })
+  const apartmentConfirmedCount = currentPeriodLeads.filter(lead => {
+    const info = buildingType(lead)
+    return info.group === 'apartment' && info.confidence === 'confirmed'
+  }).length
+  const apartmentInferredCount = buildingTypeCounts.apartment - apartmentConfirmedCount
   async function saveEdit(row: LeadRecord, next: any) {
     setSaving(true)
     setNotice(null)
@@ -518,20 +598,32 @@ export default function DBManagePage() {
       ['all','현재 상담대상',counts.all],
       ...STAGES.map(s => [s, STAGE_LABELS[s], counts[s]]),
       ['history','전체 원본 이력',counts.history],
-    ].map(([v,label,count]) => <button key={String(v)} onClick={() => setStage(v as any)} className={clsx('tab-btn', stage === v && 'active', v === 'history' && stage !== 'history' && 'text-slate-500')}>{label} <span className="opacity-70">{Number(count).toLocaleString()}</span></button>)}</div><div className="grid grid-cols-1 md:grid-cols-12 gap-3"><select value={period} onChange={e => setPeriod(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="today">오늘</option><option value="7d">최근 7일</option><option value="day">일자 선택</option><option value="month">월별</option><option value="year">연별</option><option value="all">전체</option></select>{period === 'day' && <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'month' && <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'year' && <input type="number" min="2024" max="2030" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}<select value={channel} onChange={e => setChannel(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 매체</option>{CHANNELS.map(c => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</select><select value={operatorFilter} onChange={e => setOperatorFilter(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 작업자</option>{operatorOptions.map(o => <option key={o} value={o}>{o}</option>)}</select><select value={quotePathFilter} onChange={e => setQuotePathFilter(e.target.value as 'all' | QuotePathKey)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 견적경로</option><option value="estimate_check">견적확인</option><option value="estimate_consult">견적 후 상담</option><option value="direct_consult">견적 없이 상담</option><option value="unknown">확인 불가</option></select><select value={dateOverrideFilter} onChange={e => setDateOverrideFilter(e.target.value as 'all' | 'overridden' | 'normal')} className="md:col-span-1 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 보정</option><option value="overridden">수동보정만</option><option value="normal">보정 제외</option></select><select value={sortOrder} onChange={e => setSortOrder(e.target.value as 'desc' | 'asc')} className="md:col-span-1 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="desc">최신순</option><option value="asc">오래된순</option></select><div className="md:col-span-2 relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="이름/연락처/지역/상담결과/메모 검색" className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-sm" /></div><div className="md:col-span-1 flex items-center md:justify-end text-xs text-slate-500">{range.label} · {filtered.length.toLocaleString()}건</div></div></div>
+    ].map(([v,label,count]) => <button key={String(v)} onClick={() => setStage(v as any)} className={clsx('tab-btn', stage === v && 'active', v === 'history' && stage !== 'history' && 'text-slate-500')}>{label} <span className="opacity-70">{Number(count).toLocaleString()}</span></button>)}</div><div className="grid grid-cols-1 md:grid-cols-12 gap-3"><select value={period} onChange={e => setPeriod(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="today">오늘</option><option value="7d">최근 7일</option><option value="day">일자 선택</option><option value="month">월별</option><option value="year">연별</option><option value="all">전체</option></select>{period === 'day' && <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'month' && <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'year' && <input type="number" min="2024" max="2030" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}<select value={channel} onChange={e => setChannel(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 매체</option>{CHANNELS.map(c => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</select><select value={operatorFilter} onChange={e => setOperatorFilter(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 작업자</option>{operatorOptions.map(o => <option key={o} value={o}>{o}</option>)}</select><select value={quotePathFilter} onChange={e => setQuotePathFilter(e.target.value as 'all' | QuotePathKey)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 견적상태</option><option value="estimate_check">견적확인</option><option value="estimate_consult">견적 후 상담</option><option value="apartment_no_quote_consult">아파트 견적 미산출 상담</option><option value="direct_consult">견적 없이 상담</option><option value="estimate_unavailable">견적 미산출·미상담</option></select><select value={buildingTypeFilter} onChange={e => setBuildingTypeFilter(e.target.value as BuildingTypeFilter)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 건물유형</option><option value="apartment">아파트 확정·추정</option><option value="non_apartment">비아파트 원본확인</option><option value="unclassified">유형 판별불가</option></select><select value={dateOverrideFilter} onChange={e => setDateOverrideFilter(e.target.value as 'all' | 'overridden' | 'normal')} className="md:col-span-1 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 보정</option><option value="overridden">수동보정만</option><option value="normal">보정 제외</option></select><select value={sortOrder} onChange={e => setSortOrder(e.target.value as 'desc' | 'asc')} className="md:col-span-1 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="desc">최신순</option><option value="asc">오래된순</option></select><div className="md:col-span-2 relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="이름/연락처/지역/건물/메모 검색" className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-sm" /></div><div className="md:col-span-1 flex items-center md:justify-end text-xs text-slate-500">{range.label} · {filtered.length.toLocaleString()}건</div></div></div>
     <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700">
       <b>상담대상 기준</b> 기본 탭은 연락처별 최종 단계 한 건만 표시합니다. 이전 단계는 고객 행에서 확인하고, 모든 단계 행은 전체 원본 이력 탭에서 볼 수 있습니다.
     </div>
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
       {[
         ['견적확인', quotePathCounts.estimate_check, 'border-blue-100 bg-blue-50 text-blue-700'],
         ['견적 후 상담', quotePathCounts.estimate_consult, 'border-emerald-100 bg-emerald-50 text-emerald-700'],
+        ['아파트 견적 미산출 상담', quotePathCounts.apartment_no_quote_consult, 'border-orange-100 bg-orange-50 text-orange-700'],
         ['견적 없이 상담', quotePathCounts.direct_consult, 'border-amber-100 bg-amber-50 text-amber-700'],
-        ['확인 불가', quotePathCounts.unknown, 'border-slate-200 bg-slate-50 text-slate-500'],
+        ['견적 미산출·미상담', quotePathCounts.estimate_unavailable, 'border-rose-100 bg-rose-50 text-rose-700'],
       ].map(([label, count, tone]) => <div key={String(label)} className={clsx('rounded-lg border px-4 py-3', tone)}>
         <div className="text-[11px] font-medium">{label}</div>
         <div className="mt-1 text-lg font-bold">{Number(count).toLocaleString()}건</div>
       </div>)}
+    </div>
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div><div className="text-sm font-semibold text-slate-700">건물유형 분류</div><div className="mt-0.5 text-[11px] text-slate-400">UTM 원본의 apartmentId·건물명·도로명주소 기준</div></div>
+        {buildingTypeFilter !== 'all' && <button onClick={() => setBuildingTypeFilter('all')} className="text-xs font-medium text-blue-600">필터 해제</button>}
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <button onClick={() => setBuildingTypeFilter(buildingTypeFilter === 'apartment' ? 'all' : 'apartment')} className={clsx('rounded-lg border px-3 py-3 text-left transition', buildingTypeFilter === 'apartment' ? 'border-indigo-300 bg-indigo-50 ring-2 ring-indigo-100' : 'border-slate-100 bg-slate-50 hover:border-indigo-200')}><div className="text-[11px] font-medium text-indigo-700">아파트 조회</div><div className="mt-1 text-lg font-bold text-slate-800">{buildingTypeCounts.apartment.toLocaleString()}건</div><div className="mt-1 text-[10px] text-slate-400">확정 {apartmentConfirmedCount.toLocaleString()} · 추정 {apartmentInferredCount.toLocaleString()}</div></button>
+        <button onClick={() => setBuildingTypeFilter(buildingTypeFilter === 'non_apartment' ? 'all' : 'non_apartment')} className={clsx('rounded-lg border px-3 py-3 text-left transition', buildingTypeFilter === 'non_apartment' ? 'border-cyan-300 bg-cyan-50 ring-2 ring-cyan-100' : 'border-slate-100 bg-slate-50 hover:border-cyan-200')}><div className="text-[11px] font-medium text-cyan-700">비아파트 원본확인</div><div className="mt-1 text-lg font-bold text-slate-800">{buildingTypeCounts.non_apartment.toLocaleString()}건</div><div className="mt-1 text-[10px] text-slate-400">오피스텔·상가·주택·빌라</div></button>
+        <button onClick={() => setBuildingTypeFilter(buildingTypeFilter === 'unclassified' ? 'all' : 'unclassified')} className={clsx('rounded-lg border px-3 py-3 text-left transition', buildingTypeFilter === 'unclassified' ? 'border-slate-400 bg-slate-100 ring-2 ring-slate-100' : 'border-slate-100 bg-slate-50 hover:border-slate-300')}><div className="text-[11px] font-medium text-slate-600">유형 판별불가</div><div className="mt-1 text-lg font-bold text-slate-800">{buildingTypeCounts.unclassified.toLocaleString()}건</div><div className="mt-1 text-[10px] text-slate-400">원본 건물정보 없음</div></button>
+      </div>
     </div>
 
     <div className="space-y-3 md:hidden">
@@ -555,7 +647,7 @@ export default function DBManagePage() {
               </div>
             </div>
             <div className="col-span-2 rounded-lg bg-slate-50 px-3 py-2">
-              <b className="text-slate-700">주소</b>
+              <div className="flex items-center justify-between gap-2"><b className="text-slate-700">주소</b><BuildingTypeBadge row={l} /></div>
               {address.building && <div className="mt-1 font-semibold text-slate-700">{address.building}</div>}
               <div className={clsx('leading-5 text-slate-500', address.building && 'mt-0.5')}>{address.detail}</div>
             </div>
@@ -582,7 +674,7 @@ export default function DBManagePage() {
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-slate-50 z-10 border-b border-slate-100">
             <tr className="text-slate-500">
-              {['DB 유입/신청일시','DB유형','고객정보','지역','주소 · 아파트/건물','상담결과','작업자','매체','상세매체','유입경로 원본','관리'].map(h => <th key={h} className="text-left px-3 py-2 font-semibold whitespace-nowrap">{h}</th>)}
+              {['DB 유입/신청일시','DB유형','고객정보','지역','주소 · 아파트/건물','건물유형','상담결과','작업자','매체','상세매체','유입경로 원본','관리'].map(h => <th key={h} className="text-left px-3 py-2 font-semibold whitespace-nowrap">{h}</th>)}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
@@ -619,6 +711,7 @@ export default function DBManagePage() {
                   {address.building && <div className="font-semibold text-slate-700">{address.building}</div>}
                   <div className={clsx('leading-5 text-slate-500', address.building && 'mt-0.5')}>{address.detail}</div>
                 </td>
+                <td className="px-3 py-3 whitespace-nowrap"><BuildingTypeBadge row={l} /></td>
                 <td className="px-3 py-3 text-slate-700 whitespace-nowrap">{(l as any).consultationResult || '-'}</td>
                 <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{(l as any).operator || '-'}</td>
                 <td className="px-3 py-3 whitespace-nowrap"><MediaBrand row={l} /></td>
@@ -627,7 +720,7 @@ export default function DBManagePage() {
                 <td className="px-3 py-3 whitespace-nowrap"><div className="flex gap-1"><button onClick={() => setEditing(l)} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-600"><Pencil size={12}/> 수정</button><button onClick={() => deleteLead(l)} disabled={saving} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-red-100 hover:bg-red-50 text-red-600"><Trash2 size={12}/> 삭제</button></div></td>
               </tr>
             })}
-            {!filtered.length && <tr><td colSpan={11} className="px-4 py-10 text-center text-slate-400">조회된 DB가 없습니다.</td></tr>}
+            {!filtered.length && <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-400">조회된 DB가 없습니다.</td></tr>}
           </tbody>
         </table>
       </div>
