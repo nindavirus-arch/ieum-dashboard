@@ -1,20 +1,26 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
-import DashboardPage from './pages/DashboardPage'
-import ChannelsPage from './pages/ChannelsPage'
-import UploadDBPage from './pages/UploadDBPage'
-import UploadProjectsPage from './pages/UploadProjectsPage'
-import DBManagePage from './pages/DBManagePage'
-import UploadAdSpendPage from './pages/UploadAdSpendPage'
-import RegionPage from './pages/RegionPage'
-import FunnelPage from './pages/FunnelPage'
-import AdSpendManagePage from './pages/AdSpendManagePage'
-import AdminUsersPage from './pages/AdminUsersPage'
-import OnlineKpiPage from './pages/OnlineKpiPage'
-import SalesPerformancePage from './pages/SalesPerformancePage'
 import AuthPage from './pages/AuthPage'
 import { useAuth } from './contexts/AuthContext'
 import { canAccess, defaultPath } from './lib/auth'
+
+const DashboardPage = lazy(() => import('./pages/DashboardPage'))
+const ChannelsPage = lazy(() => import('./pages/ChannelsPage'))
+const UploadDBPage = lazy(() => import('./pages/UploadDBPage'))
+const UploadProjectsPage = lazy(() => import('./pages/UploadProjectsPage'))
+const DBManagePage = lazy(() => import('./pages/DBManagePage'))
+const UploadAdSpendPage = lazy(() => import('./pages/UploadAdSpendPage'))
+const RegionPage = lazy(() => import('./pages/RegionPage'))
+const FunnelPage = lazy(() => import('./pages/FunnelPage'))
+const AdSpendManagePage = lazy(() => import('./pages/AdSpendManagePage'))
+const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'))
+const OnlineKpiPage = lazy(() => import('./pages/OnlineKpiPage'))
+const SalesPerformancePage = lazy(() => import('./pages/SalesPerformancePage'))
+
+function PageLoading() {
+  return <div className="min-h-[50vh] flex items-center justify-center text-sm text-slate-500">화면을 불러오고 있습니다.</div>
+}
 
 export default function App() {
   const { user, loading, setupRequired } = useAuth()
@@ -27,21 +33,23 @@ export default function App() {
   const allowed = (path: string, element: React.ReactNode) => canAccess(user, path) ? <Route path={path} element={element} /> : null
 
   return <Layout>
-    <Routes>
-      <Route path="/" element={<Navigate to={home} replace />} />
-      {allowed('/dashboard', <DashboardPage />)}
-      {allowed('/channels', <ChannelsPage />)}
-      {allowed('/kpi', <OnlineKpiPage />)}
-      {allowed('/funnel', <FunnelPage />)}
-      {allowed('/region', <RegionPage />)}
-      {allowed('/db-manage', <DBManagePage />)}
-      {allowed('/upload-db', <UploadDBPage />)}
-      {allowed('/upload-projects', <UploadProjectsPage />)}
-      {allowed('/upload-spend', <UploadAdSpendPage />)}
-      {allowed('/manage-spend', <AdSpendManagePage />)}
-      {allowed('/sales-performance', <SalesPerformancePage />)}
-      {allowed('/admin-users', <AdminUsersPage />)}
-      <Route path="*" element={<Navigate to={home} replace />} />
-    </Routes>
+    <Suspense fallback={<PageLoading />}>
+      <Routes>
+        <Route path="/" element={<Navigate to={home} replace />} />
+        {allowed('/dashboard', <DashboardPage />)}
+        {allowed('/channels', <ChannelsPage />)}
+        {allowed('/kpi', <OnlineKpiPage />)}
+        {allowed('/funnel', <FunnelPage />)}
+        {allowed('/region', <RegionPage />)}
+        {allowed('/db-manage', <DBManagePage />)}
+        {allowed('/upload-db', <UploadDBPage />)}
+        {allowed('/upload-projects', <UploadProjectsPage />)}
+        {allowed('/upload-spend', <UploadAdSpendPage />)}
+        {allowed('/manage-spend', <AdSpendManagePage />)}
+        {allowed('/sales-performance', <SalesPerformancePage />)}
+        {allowed('/admin-users', <AdminUsersPage />)}
+        <Route path="*" element={<Navigate to={home} replace />} />
+      </Routes>
+    </Suspense>
   </Layout>
 }

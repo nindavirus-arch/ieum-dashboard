@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx'
 import type { Channel, ProjectRecord, ProjectStatus } from '../types'
 import { inferSubChannel, normalizeChannel, normalizeDate, normalizePhone } from './excelParser'
 
@@ -125,8 +124,9 @@ function normalizeProjectRow(row: Record<string, unknown>, fallbackDate: Date): 
 export function parseProjectsExcel(file: File): Promise<ParsedProjectResult> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = event => {
+    reader.onload = async event => {
       try {
+        const XLSX = await import('xlsx')
         const data = event.target?.result
         const wb = XLSX.read(data, { type: 'array', cellDates: true })
         const rows = wb.SheetNames.flatMap(sheetName => {

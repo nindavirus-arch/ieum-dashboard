@@ -7,7 +7,6 @@
 
 import type { LeadRecord, AdSpend, DBTier, Channel, SourceKind, ProjectRecord, ProjectStatus } from '../types'
 import { normalizeDate, normalizePhone, normalizeChannel, inferChannelStrict, inferSubChannel } from './excelParser'
-import { parseProjectsExcel } from './projectParser'
 import { SHEET_API_URL } from './apiConfig'
 import { getAuthToken, requestAuthRecheck } from './auth'
 
@@ -1941,6 +1940,7 @@ export async function saveProjects(projects: Omit<ProjectRecord, 'id' | 'uploade
 }
 
 export async function uploadProjectFile(file: File) {
+  const { parseProjectsExcel } = await import('./projectParser')
   const parsed = await parseProjectsExcel(file)
   await saveProjects(parsed.valid)
   return parsed

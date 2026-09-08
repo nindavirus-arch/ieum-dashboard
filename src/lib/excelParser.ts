@@ -1,5 +1,4 @@
 // src/lib/excelParser.ts
-import * as XLSX from 'xlsx'
 import type { LeadRecord, AdSpend, Channel, DBTier, DBStatus, SourceKind } from '../types'
 
 // ── 공통 유틸 ──────────────────────────────────────────────
@@ -348,8 +347,9 @@ export interface ParsedLeadResult {
 export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
+        const XLSX = await import('xlsx')
         const data = new Uint8Array(e.target!.result as ArrayBuffer)
         const wb = XLSX.read(data, { type: 'array', cellDates: true })
         const ws = wb.Sheets[wb.SheetNames[0]]
@@ -485,8 +485,9 @@ export interface ParsedAdSpendResult {
 export function parseAdSpendExcel(file: File): Promise<ParsedAdSpendResult> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
+        const XLSX = await import('xlsx')
         const data = new Uint8Array(e.target!.result as ArrayBuffer)
         const wb = XLSX.read(data, { type: 'array', cellDates: true })
         const ws = wb.Sheets[wb.SheetNames[0]]
