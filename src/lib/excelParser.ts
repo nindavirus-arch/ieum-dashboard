@@ -80,6 +80,24 @@ export function normalizeDate(raw: unknown, fallback = new Date()): string {
   return toYMD(fallback)
 }
 
+export function normalizeOptionalDate(raw: unknown): string {
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) return toYMD(raw)
+  if (typeof raw === 'number') {
+    const date = excelSerialToDate(raw)
+    if (date) return toYMD(date)
+  }
+
+  const value = String(raw ?? '').trim()
+  if (!value) return ''
+  const matched = value.match(/(20\d{2})[.\-/년\sT]+(\d{1,2})[.\-/월\s]+(\d{1,2})/)
+  if (matched) {
+    const [, year, month, day] = matched
+    return `${year}-${String(Number(month)).padStart(2, '0')}-${String(Number(day)).padStart(2, '0')}`
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : toYMD(parsed)
+}
+
 export function decodeMaybe(raw: unknown): string {
   const s = String(raw ?? '')
   if (!s) return ''
@@ -410,6 +428,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
           const salesOwner = String(getCell(row, ['영업담당자', '영업 담당자', '영업 담당', '배정담당자', '배정 담당자', '배정', '담당자', 'manager', 'owner']) ?? '').trim()
           const consultingStatus = String(getCell(row, ['컨설팅상태', '컨설팅 상태', '상태값', '상태', '진행상태', '진행 상태', 'consultingStatus', 'consulting_status']) ?? '').trim()
           const consultationResult = String(getCell(row, ['상담결과', '상담 결과', '상담상태', '상담 상태', '결과']) ?? '').trim()
+          const preferredVisitDate = normalizeOptionalDate(getCell(row, ['방문희망날짜', '방문 희망 날짜', '방문희망일', '방문 희망일', '희망방문일', '방문예약일', 'preferredVisitDate', 'preferred_visit_date', 'visitDate', 'desiredVisitDate']))
           const memo = String(getCell(row, ['메모', '특이사항', '메모(특이사항)', '비고', '상담메모']) ?? '').trim()
 
           const channel = inferChannelStrict({ source, sourceRaw: mediaRoute, medium, campaign, content, term })
@@ -461,6 +480,7 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
             salesOwner,
             consultingStatus,
             consultationResult,
+            preferredVisitDate,
             memo,
           } as any)
         })

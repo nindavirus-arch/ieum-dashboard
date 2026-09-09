@@ -83,6 +83,14 @@ function fmtDateTime(row: LeadRecord) {
   if (cleaned.length >= 16) return cleaned.slice(0, 16)
   return `${row.date}${cleaned && cleaned !== row.date ? ' ' + cleaned : ''}`.trim()
 }
+function preferredVisitDate(row: LeadRecord) {
+  return String(row.preferredVisitDate || '').trim()
+}
+function PreferredVisitDate({ row }: { row: LeadRecord }) {
+  const value = preferredVisitDate(row)
+  if (!value) return <span className="text-slate-300">-</span>
+  return <span className="inline-flex whitespace-nowrap rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 font-medium text-blue-700">{value}</span>
+}
 function sortTime(row: LeadRecord) {
   const display = fmtDateTime(row)
   const normalized = display.replace(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{1,2}).*$/, (_, d, h, m) => `${d} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`)
@@ -406,6 +414,7 @@ function StageHistoryPanel({ rows }: { rows: LeadRecord[] }) {
         <div>
           <div className="text-[11px] text-slate-500">{fmtDateTime(row)}</div>
           <div className="mt-0.5 text-[11px] text-slate-400">{mediaLabel(row)} · {detailLabel(row)}</div>
+          {preferredVisitDate(row) && <div className="mt-1 text-[11px] text-blue-600">방문희망 {preferredVisitDate(row)}</div>}
         </div>
         <span className={clsx('shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-medium', stageBadge(row.dbTier))}>{STAGE_LABELS[row.dbTier]}</span>
       </div>
@@ -506,7 +515,7 @@ export default function DBManagePage() {
       })
       .filter(l => {
         if (!q) return true
-        const hay = `${l.name}${l.phone}${l.rawPhone}${l.region}${l.district}${(l as any).source_raw}${l.subChannel}${l.channel}${(l as any).memo}${(l as any).operator}${(l as any).consultationResult}${shortAddress(l)}`.replace(/[^0-9a-zA-Z가-힣]/g, '').toLowerCase()
+        const hay = `${l.name}${l.phone}${l.rawPhone}${l.region}${l.district}${(l as any).source_raw}${l.subChannel}${l.channel}${(l as any).memo}${(l as any).operator}${(l as any).consultationResult}${preferredVisitDate(l)}${shortAddress(l)}`.replace(/[^0-9a-zA-Z가-힣]/g, '').toLowerCase()
         return hay.includes(q)
       })
       .sort((a, b) => sortOrder === 'desc' ? sortTime(b) - sortTime(a) : sortTime(a) - sortTime(b))
@@ -653,6 +662,7 @@ export default function DBManagePage() {
               <div className={clsx('leading-5 text-slate-500', address.building && 'mt-0.5')}>{address.detail}</div>
             </div>
             <div><b>상담결과</b><br/>{(l as any).consultationResult || '-'}</div>
+            <div><b>방문희망일</b><br/><span className="mt-1 inline-flex"><PreferredVisitDate row={l} /></span></div>
             <div><b>작업자</b><br/>{(l as any).operator || '-'}</div>
             <div><b>매체</b><div className="mt-1"><MediaBrand row={l} /></div></div>
             <div><b>상세매체</b><br/><span className="leading-5">{detailLabel(l)}</span></div>
@@ -675,7 +685,7 @@ export default function DBManagePage() {
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-slate-50 z-10 border-b border-slate-100">
             <tr className="text-slate-500">
-              {['DB 유입/신청일시','DB유형','고객정보','지역','주소 · 아파트/건물','건물유형','상담결과','작업자','매체','상세매체','유입경로 원본','관리'].map(h => <th key={h} className="text-left px-3 py-2 font-semibold whitespace-nowrap">{h}</th>)}
+              {['DB 유입/신청일시','DB유형','고객정보','지역','주소 · 아파트/건물','건물유형','상담결과','방문희망일','작업자','매체','상세매체','유입경로 원본','관리'].map(h => <th key={h} className="text-left px-3 py-2 font-semibold whitespace-nowrap">{h}</th>)}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
@@ -714,6 +724,7 @@ export default function DBManagePage() {
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap"><BuildingTypeBadge row={l} /></td>
                 <td className="px-3 py-3 text-slate-700 whitespace-nowrap">{(l as any).consultationResult || '-'}</td>
+                <td className="px-3 py-3 whitespace-nowrap"><PreferredVisitDate row={l} /></td>
                 <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{(l as any).operator || '-'}</td>
                 <td className="px-3 py-3 whitespace-nowrap"><MediaBrand row={l} /></td>
                 <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{detailLabel(l)}</td>
@@ -721,7 +732,7 @@ export default function DBManagePage() {
                 <td className="px-3 py-3 whitespace-nowrap"><div className="flex gap-1"><button onClick={() => setEditing(l)} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-600"><Pencil size={12}/> 수정</button><button onClick={() => deleteLead(l)} disabled={saving} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-red-100 hover:bg-red-50 text-red-600"><Trash2 size={12}/> 삭제</button></div></td>
               </tr>
             })}
-            {!filtered.length && <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-400">조회된 DB가 없습니다.</td></tr>}
+            {!filtered.length && <tr><td colSpan={13} className="px-4 py-10 text-center text-slate-400">조회된 DB가 없습니다.</td></tr>}
           </tbody>
         </table>
       </div>

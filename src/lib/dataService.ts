@@ -6,7 +6,7 @@
 // - 채널 판별은 utm_source/source/유입경로 우선, params는 매체 판별에 사용하지 않음
 
 import type { LeadRecord, AdSpend, DBTier, Channel, SourceKind, ProjectRecord, ProjectStatus } from '../types'
-import { normalizeDate, normalizePhone, normalizeChannel, inferChannelStrict, inferSubChannel } from './excelParser'
+import { normalizeDate, normalizeOptionalDate, normalizePhone, normalizeChannel, inferChannelStrict, inferSubChannel } from './excelParser'
 import { SHEET_API_URL } from './apiConfig'
 import { getAuthToken, requestAuthRecheck } from './auth'
 
@@ -352,7 +352,7 @@ function hasUsefulAttribution(lead: LeadRecord) {
 }
 
 function hasUsefulLeadEnrichment(lead: LeadRecord) {
-  return ['params', 'address', 'building', 'brand', 'pyeong']
+  return ['params', 'address', 'building', 'brand', 'pyeong', 'preferredVisitDate']
     .some((key) => Boolean(String((lead as any)[key] || '').trim()))
 }
 
@@ -368,6 +368,7 @@ function shouldRefreshExistingAttribution(existing: LeadRecord, incoming: LeadRe
     if (!String((existing as any).building || '').trim() && String((incoming as any).building || '').trim()) return true
     if (!String((existing as any).brand || '').trim() && String((incoming as any).brand || '').trim()) return true
     if (!String((existing as any).pyeong || '').trim() && String((incoming as any).pyeong || '').trim()) return true
+    if (!String((existing as any).preferredVisitDate || '').trim() && String((incoming as any).preferredVisitDate || '').trim()) return true
   }
   return false
 }
@@ -424,6 +425,7 @@ function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRe
     pyeong: String(row.pyeong ?? row.평형 ?? row.평수 ?? ''),
     source_file: sourceFile,
     registeredAt: String(row.registeredAt ?? row['등록일시'] ?? row['등록 일시'] ?? row.접수일시 ?? row.uploadedAt ?? uploadedAt),
+    preferredVisitDate: normalizeOptionalDate(row.preferredVisitDate ?? row.preferred_visit_date ?? row['방문희망날짜'] ?? row['방문 희망 날짜'] ?? row['방문희망일'] ?? row['방문 희망일'] ?? row._parsed_preferredVisitDate),
     consultationResult: String(row.consultationResult ?? row['상담결과'] ?? row['상담 결과'] ?? ''),
     memo: String(row.memo ?? row['메모'] ?? row['특이사항'] ?? row['메모(특이사항)'] ?? ''),
     operator: String(row.operator ?? row['접수자'] ?? row['작업자'] ?? row['처리자'] ?? row['상담원'] ?? row['상담담당자'] ?? row['상담 담당자'] ?? row['등록자'] ?? row.registrant ?? ''),
@@ -644,6 +646,7 @@ function rawRowsFromLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]) {
       _parsed_operator: (lead as any).operator || '',
       _parsed_salesOwner: (lead as any).salesOwner || '',
       _parsed_consultationResult: (lead as any).consultationResult || '',
+      _parsed_preferredVisitDate: (lead as any).preferredVisitDate || '',
       _parsed_memo: (lead as any).memo || '',
       _parsed_utm_source: (lead as any).utm_source || '',
       _parsed_utm_medium: (lead as any).utm_medium || '',
@@ -686,6 +689,7 @@ function dashboardRowsFromLeads(leads: LeadRecord[]) {
     pyeong: r.pyeong || '',
     source_file: r.sourceKind === 'second_raw' ? 'second_db' : 'first_db',
     registeredAt: (r as any).registeredAt || r.uploadedAt || r.date,
+      preferredVisitDate: (r as any).preferredVisitDate || '',
       consultationResult: (r as any).consultationResult || '',
       memo: (r as any).memo || '',
       operator: (r as any).operator || '',
@@ -729,6 +733,7 @@ function upgradeLead(prev: LeadRecord, normalizedLead: LeadRecord, now: string):
     utm_term: (normalizedLead as any).utm_term || (prev as any).utm_term || '',
     source_raw: (normalizedLead as any).source_raw || (prev as any).source_raw || '',
     registeredAt: (normalizedLead as any).registeredAt || (prev as any).registeredAt || normalizedLead.date,
+    preferredVisitDate: (normalizedLead as any).preferredVisitDate || (prev as any).preferredVisitDate || '',
     uploadedAt: now,
   }
 }
@@ -1022,8 +1027,17 @@ function pickSalesOwnerFromRaw(row: any): string {
   ]) ?? row.manager ?? row.owner ?? '').trim()
 }
 
+type RawLeadMeta = {
+  registeredAt?: string
+  preferredVisitDate?: string
+  operator?: string
+  salesOwner?: string
+  consultationResult?: string
+  memo?: string
+}
+
 function buildRawMetaLookup(firstRawRows: any[], secondRawRows: any[]) {
-  const lookup = new Map<string, { registeredAt?: string; operator?: string; salesOwner?: string; consultationResult?: string; memo?: string }>()
+  const lookup = new Map<string, RawLeadMeta>()
 
   const add = (row: any) => {
     const phone = normalizePhone(row._parsed_phone ?? row.phone ?? pickCell(row, ['연락처', '전화번호', '휴대폰', '휴대폰번호', '휴대폰 번호', '고객 연락처']) ?? '')
@@ -1033,6 +1047,7 @@ function buildRawMetaLookup(firstRawRows: any[], secondRawRows: any[]) {
     if (!phone && !consultingNumber) return
     const meta = {
       registeredAt: pickRegisteredAtFromRaw(row),
+      preferredVisitDate: normalizeOptionalDate(row.preferredVisitDate ?? row.preferred_visit_date ?? row['방문희망날짜'] ?? row['방문 희망 날짜'] ?? row['방문희망일'] ?? row['방문 희망일'] ?? row._parsed_preferredVisitDate),
       operator: pickOperatorFromRaw(row),
       salesOwner: pickSalesOwnerFromRaw(row),
       consultationResult: String(row.consultationResult ?? row['상담결과'] ?? row['상담 결과'] ?? row['상담상태'] ?? row['상담 상태'] ?? row['결과'] ?? '').trim(),
@@ -1052,13 +1067,14 @@ function buildRawMetaLookup(firstRawRows: any[], secondRawRows: any[]) {
   return lookup
 }
 
-function enrichMetaFromRaw(lead: LeadRecord, lookup: Map<string, { registeredAt?: string; operator?: string; salesOwner?: string; consultationResult?: string; memo?: string }>): LeadRecord {
+function enrichMetaFromRaw(lead: LeadRecord, lookup: Map<string, RawLeadMeta>): LeadRecord {
   const consultingNumber = String((lead as any).consultingNumber || '').trim()
   const meta = (consultingNumber ? lookup.get(`consulting:${consultingNumber}`) : undefined) || lookup.get(`${lead.phone}_${lead.date}`) || lookup.get(lead.phone) || {}
   const isManual = String((lead as any).source_file || '').toLowerCase() === 'manual'
   return {
     ...lead,
     registeredAt: cleanRegisteredAtValue((lead as any).registeredAt, isManual) || meta.registeredAt || lead.date,
+    preferredVisitDate: (lead as any).preferredVisitDate || meta.preferredVisitDate || '',
     operator: (lead as any).operator || meta.operator || '',
     salesOwner: meta.salesOwner || (lead as any).salesOwner || '',
     consultationResult: (lead as any).consultationResult || meta.consultationResult || '',
@@ -1348,6 +1364,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
           building: (normalizedLead as any).building || (target as any).building || '',
           brand: (normalizedLead as any).brand || (target as any).brand || '',
           pyeong: (normalizedLead as any).pyeong || (target as any).pyeong || '',
+          preferredVisitDate: (normalizedLead as any).preferredVisitDate || (target as any).preferredVisitDate || '',
           updatedAt: now,
         } as LeadRecord
 
@@ -1371,6 +1388,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
             building: (refreshed as any).building,
             brand: (refreshed as any).brand,
             pyeong: (refreshed as any).pyeong,
+            preferredVisitDate: (refreshed as any).preferredVisitDate,
             updatedBy: (normalizedLead as any).operator || 'UTM 보정',
             updatedAt: now,
           },
@@ -1476,6 +1494,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
           building: (normalizedLead as any).building || (existingSameDateAnyStage as any).building || '',
           brand: (normalizedLead as any).brand || (existingSameDateAnyStage as any).brand || '',
           pyeong: (normalizedLead as any).pyeong || (existingSameDateAnyStage as any).pyeong || '',
+          preferredVisitDate: (normalizedLead as any).preferredVisitDate || (existingSameDateAnyStage as any).preferredVisitDate || '',
           dbTier: nextStage,
           status: nextStage,
           updatedAt: now,
@@ -1503,6 +1522,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
             building: (refreshed as any).building,
             brand: (refreshed as any).brand,
             pyeong: (refreshed as any).pyeong,
+            preferredVisitDate: (refreshed as any).preferredVisitDate,
             status: shouldCorrectStage ? nextStage : (refreshed.status || 'valid'),
             updatedBy: (refreshed as any).operator || 'DB 업로드',
             updatedAt: now,
@@ -1536,6 +1556,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
           building: (normalizedLead as any).building || (existingSameDay as any).building || '',
           brand: (normalizedLead as any).brand || (existingSameDay as any).brand || '',
           pyeong: (normalizedLead as any).pyeong || (existingSameDay as any).pyeong || '',
+          preferredVisitDate: (normalizedLead as any).preferredVisitDate || (existingSameDay as any).preferredVisitDate || '',
           updatedAt: now,
         } as LeadRecord
 
@@ -1559,6 +1580,7 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
             building: (refreshed as any).building,
             brand: (refreshed as any).brand,
             pyeong: (refreshed as any).pyeong,
+            preferredVisitDate: (refreshed as any).preferredVisitDate,
             status: refreshed.status || 'valid',
             updatedBy: (refreshed as any).operator || 'DB 업로드',
             updatedAt: now,

@@ -42,6 +42,7 @@ export interface LeadRecord {
   pyeong?: string
   source_file?: string
   registeredAt?: string
+  preferredVisitDate?: string
   consultationResult?: string
   memo?: string
   operator?: string
