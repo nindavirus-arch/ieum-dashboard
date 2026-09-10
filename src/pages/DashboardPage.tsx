@@ -719,8 +719,8 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
-        <div className="card space-y-5 p-5 lg:col-span-2">
-          <div>
+        <div className="space-y-4 lg:col-span-2">
+          <div className="card p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-bold text-slate-800">
@@ -767,13 +767,16 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="border-t border-slate-100 pt-5 grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-semibold text-slate-700">최종 DB 단계 현황</p>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <div className="card p-5">
+              <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                  <p className="text-sm font-bold text-slate-800">최종 DB 단계 현황</p>
+                  <p className="mt-1 text-[11px] text-slate-400">선택기간 DB의 최종 상담 단계</p>
+                </div>
                 <span className="text-[11px] text-slate-400">연락처 중복 제거</span>
               </div>
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {[
                   { label: '리타겟만', count: retargetOnly, color: 'bg-violet-500', text: 'text-violet-700', bg: 'bg-violet-50' },
                   { label: '견적만 확인', count: firstOnly, color: 'bg-blue-500', text: 'text-blue-700', bg: 'bg-blue-50' },
@@ -794,37 +797,40 @@ export default function DashboardPage() {
                   )
                 })}
               </div>
-              <div className="mt-4 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs">
+              <div className="mt-5 flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5 text-xs">
                 <span className="text-slate-500">견적 → 상담 전환율</span>
                 <span className="font-bold text-slate-800">{conversionRate}% <span className="font-normal text-slate-400">({convertedSecond}/{estimatePool})</span></span>
               </div>
             </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-semibold text-slate-700">상세매체 성과 TOP 5</p>
+            <div className="card p-5">
+              <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                  <p className="text-sm font-bold text-slate-800">상세매체 성과 TOP 5</p>
+                  <p className="mt-1 text-[11px] text-slate-400">DB 기여도와 매체 효율 순위</p>
+                </div>
                 <span className="text-[11px] text-slate-400">최종 1차+2차 기준</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-slate-100 text-slate-400">
-                      <th className="pb-2 text-left font-medium">상세매체</th>
-                      <th className="pb-2 text-right font-medium">광고비</th>
-                      <th className="pb-2 text-right font-medium">유효 DB</th>
-                      <th className="pb-2 text-right font-medium">CPL</th>
+                      <th className="pb-2.5 text-left font-medium">상세매체</th>
+                      <th className="pb-2.5 text-right font-medium">광고비</th>
+                      <th className="pb-2.5 text-right font-medium">유효 DB</th>
+                      <th className="pb-2.5 text-right font-medium">CPL</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {detailPerformance.map(row => (
                       <tr key={row.key}>
-                        <td className="py-2.5 pr-2">
+                        <td className="py-3 pr-2">
                           <div className="font-medium text-slate-700">{row.label}</div>
                           <div className="text-[10px] text-slate-400">전환 {row.conversion}%</div>
                         </td>
-                        <td className="py-2.5 text-right text-slate-500">{fmtKRW(row.spend)}원</td>
-                        <td className="py-2.5 text-right font-semibold text-emerald-700">{row.validDB.toLocaleString()}</td>
-                        <td className="py-2.5 text-right font-semibold text-slate-700">{row.validDB > 0 ? `${fmtKRW(row.cpl)}원` : '-'}</td>
+                        <td className="py-3 text-right text-slate-500">{fmtKRW(row.spend)}원</td>
+                        <td className="py-3 text-right font-semibold text-emerald-700">{row.validDB.toLocaleString()}</td>
+                        <td className="py-3 text-right font-semibold text-slate-700">{row.validDB > 0 ? `${fmtKRW(row.cpl)}원` : '-'}</td>
                       </tr>
                     ))}
                     {!detailPerformance.length && (
