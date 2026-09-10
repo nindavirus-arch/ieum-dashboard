@@ -580,14 +580,27 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-lg md:text-xl font-bold text-slate-800 whitespace-nowrap">메인 대시보드</h1>
-          <p className="text-xs text-slate-500 mt-0.5 whitespace-nowrap">{range.label}</p>
+    <div className="space-y-5 p-4 md:p-6 lg:p-7">
+      <section className="rounded-lg border border-slate-200/80 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.035)] md:px-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0">
+            <div className="mb-1.5 flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-blue-600" />
+              <span className="text-[11px] font-semibold text-blue-600">통합 성과 현황</span>
+            </div>
+            <h1 className="whitespace-nowrap text-xl font-bold text-slate-900 md:text-2xl">메인 대시보드</h1>
+            <p className="mt-1 whitespace-nowrap text-xs font-medium text-slate-500">{range.label}</p>
+          </div>
+          <div className="flex items-center gap-2 self-start xl:self-auto">
+            <DataUpdatedAt />
+            <button onClick={load} className="btn-secondary h-9 shrink-0 shadow-sm">
+              <RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침
+            </button>
+          </div>
         </div>
-        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
-          <div className="flex max-w-full overflow-x-auto bg-white border border-slate-200 rounded-lg p-1 gap-0.5">
+
+        <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex max-w-full overflow-x-auto rounded-lg bg-slate-100 p-1 gap-0.5">
             {(['daily','weekly','monthly','yearly','custom'] as ViewMode[]).map(m => (
               <button key={m} onClick={() => { setViewMode(m); setPeriodPreset(m === 'daily' ? 'selected' : 'rolling') }} className={clsx('tab-btn shrink-0', viewMode===m && 'active')}>
                 {m === 'daily' ? '일별' : m === 'weekly' ? '주별' : m === 'monthly' ? '월별' : m === 'yearly' ? '연별' : '기간별'}
@@ -595,55 +608,53 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          {(viewMode === 'daily' || viewMode === 'weekly') && (
-            <input type="date" value={inputValue} onChange={(e) => handleDateChange(e.target.value)} className="h-9 min-w-0 flex-1 px-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-700 sm:flex-none" />
-          )}
-          {viewMode === 'monthly' && (
-            <input type="month" value={inputValue} onChange={(e) => handleDateChange(e.target.value)} className="h-9 shrink-0 px-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-700" />
-          )}
-          {viewMode === 'yearly' && (
-            <input type="number" min="2020" max="2035" value={inputValue} onChange={(e) => handleDateChange(e.target.value)} className="h-9 w-24 shrink-0 px-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-700" />
-          )}
-          {viewMode === 'custom' && (
-            <>
-              <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="h-9 min-w-0 flex-1 px-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-700 sm:flex-none" />
-              <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="h-9 min-w-0 flex-1 px-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-700 sm:flex-none" />
-            </>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {(viewMode === 'daily' || viewMode === 'weekly') && (
+              <input type="date" value={inputValue} onChange={(e) => handleDateChange(e.target.value)} className="h-9 min-w-0 flex-1 px-3 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 shadow-sm sm:flex-none" />
+            )}
+            {viewMode === 'monthly' && (
+              <input type="month" value={inputValue} onChange={(e) => handleDateChange(e.target.value)} className="h-9 shrink-0 px-3 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 shadow-sm" />
+            )}
+            {viewMode === 'yearly' && (
+              <input type="number" min="2020" max="2035" value={inputValue} onChange={(e) => handleDateChange(e.target.value)} className="h-9 w-24 shrink-0 px-3 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 shadow-sm" />
+            )}
+            {viewMode === 'custom' && (
+              <>
+                <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="h-9 min-w-0 flex-1 px-3 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 shadow-sm sm:flex-none" />
+                <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="h-9 min-w-0 flex-1 px-3 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 shadow-sm sm:flex-none" />
+              </>
+            )}
 
           {viewMode === 'daily' && (
-            <div className="flex rounded-lg border border-slate-200 bg-white p-1">
+            <div className="flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
               <button onClick={() => { setSelectedDate(today); setPeriodPreset('selected') }} className="tab-btn">오늘</button>
               <button onClick={() => { setSelectedDate(format(subDays(new Date(), 1), 'yyyy-MM-dd')); setPeriodPreset('previous') }} className="tab-btn">어제</button>
             </div>
           )}
           {viewMode === 'weekly' && (
-            <div className="flex rounded-lg border border-slate-200 bg-white p-1">
+            <div className="flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
               <button onClick={() => { setSelectedDate(today); setPeriodPreset('rolling') }} className={clsx('tab-btn', periodPreset === 'rolling' && 'active')}>최근 7일</button>
               <button onClick={() => { setSelectedDate(today); setPeriodPreset('current') }} className={clsx('tab-btn', periodPreset === 'current' && 'active')}>이번주</button>
               <button onClick={() => { setSelectedDate(format(subWeeks(new Date(), 1), 'yyyy-MM-dd')); setPeriodPreset('previous') }} className={clsx('tab-btn', periodPreset === 'previous' && 'active')}>전주</button>
             </div>
           )}
           {viewMode === 'monthly' && (
-            <div className="flex rounded-lg border border-slate-200 bg-white p-1">
+            <div className="flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
               <button onClick={() => { setSelectedDate(today); setPeriodPreset('current') }} className={clsx('tab-btn', periodPreset === 'current' && 'active')}>이번달</button>
               <button onClick={() => { setSelectedDate(format(subMonths(new Date(), 1), 'yyyy-MM-dd')); setPeriodPreset('previous') }} className={clsx('tab-btn', periodPreset === 'previous' && 'active')}>전월</button>
             </div>
           )}
           {viewMode === 'yearly' && (
-            <div className="flex rounded-lg border border-slate-200 bg-white p-1">
+            <div className="flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
               <button onClick={() => { setSelectedDate(today); setPeriodPreset('current') }} className={clsx('tab-btn', periodPreset === 'current' && 'active')}>올해</button>
               <button onClick={() => { setSelectedDate(format(subYears(new Date(), 1), 'yyyy-MM-dd')); setPeriodPreset('previous') }} className={clsx('tab-btn', periodPreset === 'previous' && 'active')}>전년도</button>
             </div>
           )}
 
-          <button onClick={() => { setSelectedDate(today); setViewMode('daily'); setPeriodPreset('selected') }} className="btn-secondary shrink-0">오늘</button>
-          <DataUpdatedAt />
-          <button onClick={load} className="btn-secondary shrink-0">
-            <RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침
-          </button>
+            <button onClick={() => { setSelectedDate(today); setViewMode('daily'); setPeriodPreset('selected') }} className="btn-secondary h-9 shrink-0 shadow-sm">오늘로 이동</button>
+          </div>
         </div>
-      </div>
+      </section>
 
       {loadError && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -651,32 +662,32 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         {STAT_CARDS.map(({ label, value, unit, sub, tooltip, icon: Icon, color, bg }, index) => (
-          <div key={label} className="stat-card">
+          <div key={label} className="stat-card min-h-[142px] justify-between overflow-visible p-4 transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md">
             <div className="flex items-center justify-between">
               <div className="flex min-w-0 items-center gap-1">
-                <p className="truncate text-xs font-medium text-slate-500">{label}</p>
+                <p className="truncate text-xs font-semibold text-slate-500">{label}</p>
                 <StatFormulaTooltip lines={tooltip} align={index === 0 ? 'left' : 'right'} />
               </div>
-              <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center', bg)}>
-                <Icon size={15} className={color} />
+              <div className={clsx('flex h-9 w-9 items-center justify-center rounded-lg border border-white shadow-sm', bg)}>
+                <Icon size={16} strokeWidth={1.8} className={color} />
               </div>
             </div>
             <div className="flex items-end gap-1">
-              <span className="text-2xl font-bold text-slate-800">{loading ? '—' : value}</span>
-              <span className="text-xs text-slate-400 pb-0.5">{unit}</span>
+              <span className="text-[28px] font-bold leading-none text-slate-900">{loading ? '—' : value}</span>
+              <span className="pb-0.5 text-xs font-medium text-slate-400">{unit}</span>
             </div>
-            <p className="mt-2 min-h-4 truncate text-[11px] text-slate-400">{sub}</p>
+            <p className="w-fit max-w-full truncate rounded-md bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-500">{sub}</p>
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
-        <div className="card p-4">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.55fr)]">
+        <div className="card p-5">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-sm font-semibold text-slate-700">선택기간 목표 진행률</p>
+              <p className="text-sm font-bold text-slate-800">선택기간 목표 진행률</p>
               <p className="mt-1 text-xs text-slate-400">
                 기본 {periodMinTarget.toLocaleString()}건 · 상향 {periodStretchTarget.toLocaleString()}건 · 일 목표 {minDailyTarget}~{stretchDailyTarget}건
               </p>
@@ -686,33 +697,42 @@ export default function DashboardPage() {
               totalDB >= periodStretchTarget ? 'bg-blue-50 text-blue-700' : totalDB >= periodMinTarget ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'
             )}>{targetStatus}</span>
           </div>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-            <div className={clsx('h-full rounded-full', totalDB >= periodStretchTarget ? 'bg-blue-500' : totalDB >= periodMinTarget ? 'bg-emerald-500' : 'bg-red-400')} style={{ width: `${Math.min(targetRate, 100)}%` }} />
+          <div className="mt-5 h-2.5 overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200/60">
+            <div className={clsx('h-full rounded-full transition-all duration-500', totalDB >= periodStretchTarget ? 'bg-blue-500' : totalDB >= periodMinTarget ? 'bg-emerald-500' : 'bg-red-400')} style={{ width: `${Math.min(targetRate, 100)}%` }} />
           </div>
-          <div className="mt-2 flex justify-between text-[10px] text-slate-400"><span>0</span><span>기본 목표 100%</span></div>
+          <div className="mt-2 flex justify-between text-[10px] font-medium text-slate-400"><span>현재 {totalDB.toLocaleString()}건</span><span>기본 목표 {periodMinTarget.toLocaleString()}건</span></div>
         </div>
-        <div className="card p-4">
-          <p className="text-sm font-semibold text-slate-700">오늘 확인할 것</p>
+        <div className="card self-start p-5">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-bold text-slate-800">오늘 확인할 것</p>
+            <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{insightItems.length}개 항목</span>
+          </div>
           <div className="mt-3 space-y-2">
             {insightItems.map((item, index) => (
               <div key={`${item.text}_${index}`} className={clsx(
-                'rounded-lg border px-3 py-2 text-xs leading-5',
+                'flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs font-medium leading-5',
                 item.tone === 'good' ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-red-100 bg-red-50 text-red-700'
-              )}>{item.text}</div>
+              )}><span className={clsx('mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full', item.tone === 'good' ? 'bg-emerald-500' : 'bg-red-500')} /><span>{item.text}</span></div>
             ))}
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 card p-5 space-y-5">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+        <div className="card space-y-5 p-5 lg:col-span-2">
           <div>
-            <p className="text-sm font-semibold text-slate-700 mb-4">
-              {viewMode === 'daily' ? '일자별 DB 추이' : viewMode === 'weekly' ? '주별 DB 추이' : viewMode === 'monthly' ? '월별 DB 추이' : viewMode === 'yearly' ? '연도별 DB 추이' : '기간별 DB 추이'}
-            </p>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-slate-800">
+                  {viewMode === 'daily' ? '일자별 DB 추이' : viewMode === 'weekly' ? '주별 DB 추이' : viewMode === 'monthly' ? '월별 DB 추이' : viewMode === 'yearly' ? '연도별 DB 추이' : '기간별 DB 추이'}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-400">유입 유형별 DB와 광고비 흐름을 함께 비교합니다.</p>
+              </div>
+              <span className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-500">{range.activeStart} ~ {range.activeEnd}</span>
+            </div>
             <TimeSeriesChart leads={validLeads} spends={spends} viewMode={viewMode} selectedDate={selectedDate} startDate={range.activeStart} endDate={range.activeEnd} />
             {viewMode === 'daily' && (
-              <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+              <div className="mt-4 rounded-lg border border-slate-200/80 bg-slate-50/70 p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <p className="text-xs font-semibold text-slate-700">일별 최종 DB 합계</p>
                   <span className="text-[11px] text-slate-400">연락처 중복 제거 기준</span>
@@ -817,8 +837,15 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="card p-5 space-y-3 overflow-auto max-h-[760px]">
-          <p className="text-sm font-semibold text-slate-700">유입채널 현황</p>
+        <div className="card max-h-[760px] self-start overflow-auto p-5">
+          <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
+            <div>
+              <p className="text-sm font-bold text-slate-800">유입채널 현황</p>
+              <p className="mt-1 text-[11px] text-slate-400">매체별 DB와 광고비 구성</p>
+            </div>
+            <span className="rounded-md bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">총 {totalDB.toLocaleString()}건</span>
+          </div>
+          <div className="space-y-3">
           {[
             { key: 'paid', title: '온라인 광고', rows: channelStats.filter(c => c.group === 'paid') },
             { key: 'organic', title: '온라인 직접·자연유입', rows: channelStats.filter(c => c.group === 'organic') },
@@ -828,11 +855,11 @@ export default function DashboardPage() {
             const groupTotal = group.rows.reduce((sum, row) => sum + row.db, 0)
             const groupOpen = openChannelGroups[group.key] ?? false
             return (
-            <div key={group.key} className="space-y-2">
+            <div key={group.key} className="rounded-lg border border-slate-100 bg-slate-50/40 p-2 space-y-2">
               <button
                 type="button"
                 onClick={() => setOpenChannelGroups(current => ({ ...current, [group.key]: !groupOpen }))}
-                className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-[11px] font-semibold text-slate-400 hover:bg-slate-50"
+                className="flex w-full items-center justify-between rounded-md px-1.5 py-1 text-[11px] font-semibold text-slate-500 hover:bg-white"
               >
                 <span>{group.title}</span>
                 <span className={clsx('flex items-center gap-1 rounded-md px-2 py-0.5', group.key === 'unclassified' && groupTotal > 0 ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-600')}>
@@ -875,6 +902,7 @@ export default function DashboardPage() {
               ))}
             </div>
           )})}
+          </div>
         </div>
       </div>
     </div>
