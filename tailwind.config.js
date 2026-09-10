@@ -14,7 +14,7 @@ export default {
         sidebar: '#0f172a',
       },
       fontFamily: {
-        sans: ['Inter', 'Pretendard', 'system-ui', 'sans-serif'],
+        sans: ['Pretendard Variable', 'Pretendard', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
       },
     },
   },

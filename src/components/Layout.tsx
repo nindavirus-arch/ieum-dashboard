@@ -1,140 +1,221 @@
-// src/components/Layout.tsx
 import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import {
-  LayoutDashboard, Radio, Upload, BadgeDollarSign,
-  MapPin, GitMerge, ChevronRight, Megaphone, Users, Menu, X, ClipboardList, ShieldCheck, LogOut, Target, Briefcase, FileSpreadsheet
+  LayoutDashboard, Radio, Upload, BadgeDollarSign, MapPin, GitMerge,
+  ChevronDown, ChevronRight, PanelsTopLeft, Users, Menu, X, ClipboardList,
+  ShieldCheck, LogOut, Target, Briefcase, FileSpreadsheet,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../contexts/AuthContext'
 import { canAccess } from '../lib/auth'
 
-const NAV = [
-  { to: '/dashboard',     icon: LayoutDashboard,    label: '메인 대시보드' },
-  { to: '/channels',      icon: Radio,              label: '매체별 성과' },
-  { to: '/kpi',           icon: Target,             label: '온라인광고 KPI' },
-  { to: '/funnel',        icon: GitMerge,           label: '퍼널 분석' },
-  { to: '/region',        icon: MapPin,             label: '지역별 통계' },
-  { to: '/db-manage',     icon: Users,              label: 'DB관리' },
-  { to: '/upload-db',     icon: Upload,             label: 'DB 업로드' },
-  { to: '/upload-projects', icon: FileSpreadsheet,   label: '프로젝트 업로드' },
-  { to: '/upload-spend',  icon: BadgeDollarSign,    label: '광고비 업로드' },
-  { to: '/manage-spend',  icon: ClipboardList,      label: '광고비 관리' },
-  { to: '/sales-performance', icon: Briefcase, label: '영업관리' },
-  { to: '/admin-users',   icon: ShieldCheck,       label: '관리자 계정 관리' },
+const NAV_GROUPS = [
+  {
+    key: 'dashboard',
+    label: '대시보드',
+    items: [
+      { to: '/dashboard', icon: LayoutDashboard, label: '메인 대시보드' },
+    ],
+  },
+  {
+    key: 'analytics',
+    label: '성과 분석',
+    items: [
+      { to: '/channels', icon: Radio, label: '매체별 성과' },
+      { to: '/kpi', icon: Target, label: '온라인광고 KPI' },
+      { to: '/funnel', icon: GitMerge, label: '퍼널 분석' },
+      { to: '/region', icon: MapPin, label: '지역별 통계' },
+      { to: '/sales-performance', icon: Briefcase, label: '영업관리' },
+    ],
+  },
+  {
+    key: 'operations',
+    label: '운영 관리',
+    items: [
+      { to: '/db-manage', icon: Users, label: 'DB관리' },
+      { to: '/manage-spend', icon: ClipboardList, label: '광고비 관리' },
+    ],
+  },
+  {
+    key: 'updates',
+    label: '데이터 업데이트',
+    items: [
+      { to: '/upload-db', icon: Upload, label: 'DB 업로드' },
+      { to: '/upload-projects', icon: FileSpreadsheet, label: '프로젝트 업로드' },
+      { to: '/upload-spend', icon: BadgeDollarSign, label: '광고비 업로드' },
+    ],
+  },
+  {
+    key: 'system',
+    label: '시스템',
+    items: [
+      { to: '/admin-users', icon: ShieldCheck, label: '관리자 계정 관리' },
+    ],
+  },
 ]
 
-function Logo() {
+function BrandLogo({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="flex items-center gap-2.5">
-      <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center text-white">
-        <Megaphone size={16} />
+    <div className="flex min-w-0 items-center gap-3">
+      <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-white shadow-inner">
+        <PanelsTopLeft size={20} strokeWidth={1.8} />
+        <span className="absolute bottom-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-sky-400 ring-2 ring-[#0b1220]" />
       </div>
-      <div>
-        <p className="text-xs font-bold leading-none text-white">창호마스터</p>
-        <p className="text-[10px] text-slate-400 mt-0.5">이음 AD Dashboard</p>
+      {!compact && (
+        <div className="min-w-0">
+          <p className="truncate text-[14px] font-bold leading-tight text-white">창호마스터 이음</p>
+          <p className="mt-0.5 truncate text-[10px] font-medium text-slate-400">광고 성과 대시보드</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Navigation({ mobile = false, onSelect }: { mobile?: boolean; onSelect?: () => void }) {
+  const { user } = useAuth()
+  const location = useLocation()
+  const visibleGroups = NAV_GROUPS
+    .map(group => ({ ...group, items: group.items.filter(item => canAccess(user, item.to)) }))
+    .filter(group => group.items.length > 0)
+  const currentGroup = visibleGroups.find(group => group.items.some(item => item.to === location.pathname))?.key
+  const [openGroup, setOpenGroup] = useState<string | null>(currentGroup || visibleGroups[0]?.key || null)
+
+  return (
+    <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 pt-3">
+      {visibleGroups.map((group, groupIndex) => {
+        const expanded = !mobile || openGroup === group.key
+        return (
+          <section key={group.key} className={clsx(groupIndex > 0 && 'mt-3 border-t border-white/[0.06] pt-3')}>
+            <button
+              type="button"
+              onClick={() => mobile && setOpenGroup(expanded ? null : group.key)}
+              className={clsx(
+                'flex w-full items-center justify-between px-3 pb-1.5 text-left text-[10px] font-semibold text-slate-500',
+                mobile ? 'cursor-pointer rounded-md py-1.5 active:bg-white/[0.04]' : 'cursor-default',
+              )}
+              aria-expanded={expanded}
+            >
+              <span>{group.label}</span>
+              {mobile && <ChevronDown size={13} className={clsx('transition-transform', expanded && 'rotate-180')} />}
+            </button>
+
+            {expanded && (
+              <div className="space-y-0.5">
+                {group.items.map(({ to, icon: Icon, label }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    onClick={onSelect}
+                    className={({ isActive }) => clsx(
+                      'group flex min-h-10 items-center gap-3 rounded-lg px-2.5 text-[13px] font-medium transition-colors duration-150',
+                      isActive
+                        ? 'bg-blue-600 text-white shadow-[0_6px_18px_rgba(37,99,235,0.24)]'
+                        : 'text-slate-400 hover:bg-white/[0.06] hover:text-slate-100',
+                    )}
+                  >
+                    {({ isActive }) => (
+                      <>
+                        <span className={clsx(
+                          'flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors',
+                          isActive ? 'bg-white/15 text-white' : 'bg-white/[0.035] text-slate-500 group-hover:text-slate-300',
+                        )}>
+                          <Icon size={15} strokeWidth={1.8} />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">{label}</span>
+                        {isActive && <ChevronRight size={13} className="shrink-0 text-blue-100" />}
+                      </>
+                    )}
+                  </NavLink>
+                ))}
+              </div>
+            )}
+          </section>
+        )
+      })}
+    </nav>
+  )
+}
+
+function AccountPanel({ onLogout }: { onLogout: () => void }) {
+  const { user } = useAuth()
+  const displayName = user?.name || user?.id || '관리자'
+  return (
+    <div className="border-t border-white/[0.07] p-3">
+      <div className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.035] p-2.5">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-700 text-xs font-bold text-slate-100">
+          {displayName.slice(0, 1).toUpperCase()}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-semibold text-slate-200">{displayName}</p>
+          <p className="mt-0.5 text-[10px] text-slate-500">{user?.role === 'master' ? '마스터 관리자' : '관리자'}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onLogout}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-white/[0.06] hover:text-white"
+          aria-label="로그아웃"
+          title="로그아웃"
+        >
+          <LogOut size={15} />
+        </button>
       </div>
     </div>
   )
 }
 
-function Navigation({ onSelect }: { onSelect?: () => void }) {
-  const { user } = useAuth()
-  return (
-    <nav className="flex-1 py-3 overflow-y-auto">
-      <p className="px-5 pt-2 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-        메뉴
-      </p>
-      {NAV.filter(item => canAccess(user, item.to)).map(({ to, icon: Icon, label }) => (
-        <NavLink
-          key={to}
-          to={to}
-          onClick={onSelect}
-          className={({ isActive }) =>
-            clsx(
-              'flex items-center gap-3 mx-2 px-3 py-2.5 rounded-lg text-sm transition-colors duration-100 group',
-              isActive
-                ? 'bg-blue-600 text-white font-medium'
-                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-            )
-          }
-        >
-          {({ isActive }) => (
-            <>
-              <Icon size={16} className={isActive ? 'text-white' : 'text-slate-500 group-hover:text-slate-300'} />
-              <span className="flex-1">{label}</span>
-              {isActive && <ChevronRight size={12} className="opacity-60" />}
-            </>
-          )}
-        </NavLink>
-      ))}
-    </nav>
-  )
-}
-
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false)
-  const { user, logout } = useAuth()
+  const { logout } = useAuth()
 
   return (
-    <div className="min-h-screen bg-slate-50 md:flex md:h-screen md:overflow-hidden">
-      {/* Mobile Top Header */}
-      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center justify-between bg-slate-900 px-4 text-white shadow md:hidden">
-        <Logo />
+    <div className="min-h-screen bg-[#f5f7fa] md:flex md:h-screen md:overflow-hidden">
+      <header className="fixed inset-x-0 top-0 z-40 flex h-16 items-center justify-between border-b border-white/[0.07] bg-[#0b1220] px-4 text-white shadow-lg md:hidden">
+        <BrandLogo />
         <button
           type="button"
           onClick={() => setMobileOpen(true)}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800 text-white active:bg-slate-700"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-white active:bg-white/10"
           aria-label="메뉴 열기"
         >
-          <Menu size={22} />
+          <Menu size={21} />
         </button>
       </header>
 
-      {/* Mobile Drawer */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <button
             type="button"
-            className="absolute inset-0 bg-black/50"
+            className="absolute inset-0 bg-slate-950/60 backdrop-blur-[2px]"
             onClick={() => setMobileOpen(false)}
             aria-label="메뉴 닫기 배경"
           />
-          <aside className="relative flex h-full w-[82vw] max-w-[320px] flex-col bg-slate-900 text-white shadow-2xl">
-            <div className="h-14 flex items-center justify-between gap-2.5 px-5 border-b border-slate-700/60">
-              <Logo />
+          <aside className="relative flex h-full w-[86vw] max-w-[304px] flex-col border-r border-white/[0.07] bg-[#0b1220] text-white shadow-2xl">
+            <div className="flex h-20 items-center justify-between gap-2 px-5">
+              <BrandLogo />
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-slate-800 active:bg-slate-700"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.05] text-slate-300 active:bg-white/10"
                 aria-label="메뉴 닫기"
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
-            <Navigation onSelect={() => setMobileOpen(false)} />
-            <div className="px-4 py-3 border-t border-slate-700/60">
-              <div className="mb-2 text-xs text-slate-300">{user?.name || user?.id}<span className="ml-1 text-[10px] text-slate-500">{user?.role === 'master' ? '마스터' : '관리자'}</span></div>
-              <button onClick={() => logout()} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-slate-400 hover:bg-slate-800 hover:text-white"><LogOut size={14}/> 로그아웃</button>
-            </div>
+            <Navigation mobile onSelect={() => setMobileOpen(false)} />
+            <AccountPanel onLogout={() => logout()} />
           </aside>
         </div>
       )}
 
-      {/* Desktop Sidebar */}
-      <aside className="hidden w-56 flex-shrink-0 flex-col bg-slate-900 text-white md:flex">
-        <div className="h-14 flex items-center gap-2.5 px-5 border-b border-slate-700/60">
-          <Logo />
+      <aside className="hidden w-[248px] flex-shrink-0 flex-col border-r border-white/[0.07] bg-[#0b1220] text-white shadow-[8px_0_28px_rgba(15,23,42,0.08)] md:flex">
+        <div className="flex h-20 items-center px-5">
+          <BrandLogo />
         </div>
         <Navigation />
-        <div className="px-4 py-3 border-t border-slate-700/60">
-          <div className="mb-2 truncate text-xs text-slate-300">{user?.name || user?.id}<span className="ml-1 text-[10px] text-slate-500">{user?.role === 'master' ? '마스터' : '관리자'}</span></div>
-          <button onClick={() => logout()} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-slate-400 hover:bg-slate-800 hover:text-white"><LogOut size={14}/> 로그아웃</button>
-        </div>
+        <AccountPanel onLogout={() => logout()} />
       </aside>
 
-      {/* Main */}
-      <main className="min-h-screen flex-1 overflow-y-auto pt-14 md:h-screen md:min-h-0 md:pt-0">
+      <main className="min-h-screen flex-1 overflow-y-auto pt-16 md:h-screen md:min-h-0 md:pt-0">
         {children}
       </main>
     </div>
