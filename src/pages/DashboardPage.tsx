@@ -158,7 +158,7 @@ function signedNumber(current: number, previous: number, unit = '건') {
   return `${diff >= 0 ? '+' : ''}${diff.toLocaleString()}${unit}`
 }
 
-function StatFormulaTooltip({ lines }: { lines: string[] }) {
+function StatFormulaTooltip({ lines, align = 'right' }: { lines: string[]; align?: 'left' | 'right' }) {
   return (
     <span className="group/formula relative inline-flex">
       <button
@@ -170,7 +170,10 @@ function StatFormulaTooltip({ lines }: { lines: string[] }) {
       </button>
       <span
         role="tooltip"
-        className="pointer-events-none invisible absolute right-0 top-full z-50 mt-2 w-72 max-w-[80vw] rounded-lg bg-slate-900 px-3 py-2.5 text-left text-[11px] font-normal leading-5 text-white opacity-0 shadow-xl transition group-hover/formula:visible group-hover/formula:opacity-100 group-focus-within/formula:visible group-focus-within/formula:opacity-100"
+        className={clsx(
+          'pointer-events-none invisible absolute top-full z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-lg bg-slate-900 px-3 py-2.5 text-left text-[11px] font-normal leading-5 text-white opacity-0 shadow-xl transition group-hover/formula:visible group-hover/formula:opacity-100 group-focus-within/formula:visible group-focus-within/formula:opacity-100',
+          align === 'left' ? 'left-0' : 'right-0',
+        )}
       >
         {lines.map((line, index) => <span key={`${line}_${index}`} className="block">{line}</span>)}
       </span>
@@ -649,12 +652,12 @@ export default function DashboardPage() {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-        {STAT_CARDS.map(({ label, value, unit, sub, tooltip, icon: Icon, color, bg }) => (
+        {STAT_CARDS.map(({ label, value, unit, sub, tooltip, icon: Icon, color, bg }, index) => (
           <div key={label} className="stat-card">
             <div className="flex items-center justify-between">
               <div className="flex min-w-0 items-center gap-1">
                 <p className="truncate text-xs font-medium text-slate-500">{label}</p>
-                <StatFormulaTooltip lines={tooltip} />
+                <StatFormulaTooltip lines={tooltip} align={index === 0 ? 'left' : 'right'} />
               </div>
               <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center', bg)}>
                 <Icon size={15} className={color} />
