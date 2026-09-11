@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Radio, Upload, BadgeDollarSign, MapPin, GitMerge,
-  ChevronDown, ChevronRight, PanelsTopLeft, Users, Menu, X, ClipboardList,
+  ChevronDown, ChevronRight, Users, Menu, X, ClipboardList,
   ShieldCheck, LogOut, Target, Briefcase, FileSpreadsheet,
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -57,9 +57,8 @@ const NAV_GROUPS = [
 function BrandLogo({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
-      <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-white shadow-inner">
-        <PanelsTopLeft size={20} strokeWidth={1.8} />
-        <span className="absolute bottom-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-sky-400 ring-2 ring-[#0b1220]" />
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/15 bg-blue-700 shadow-[0_5px_14px_rgba(30,64,175,0.28)]">
+        <img src="/favicon.png" alt="창호마스터 이음" className="h-full w-full object-cover" />
       </div>
       {!compact && (
         <div className="min-w-0">

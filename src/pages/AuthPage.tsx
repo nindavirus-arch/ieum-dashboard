@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { LockKeyhole, Megaphone } from 'lucide-react'
+import { LockKeyhole } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function AuthPage({ setup }: { setup: boolean }) {
@@ -33,11 +33,12 @@ export default function AuthPage({ setup }: { setup: boolean }) {
     }
   }
 
-  return <div className="min-h-screen bg-slate-100 px-4 py-10 flex items-center justify-center">
-    <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 shadow-lg">
-      <div className="mb-6 flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white"><Megaphone size={20}/></div>
-        <div><h1 className="font-bold text-slate-800">창호마스터 이음</h1><p className="text-xs text-slate-400">관리자 대시보드</p></div>
+  return <div className="flex min-h-screen items-center justify-center bg-[#f5f7fa] px-4 py-10">
+    <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.12)]">
+      <div className="mb-6 flex flex-col items-center border-b border-slate-100 pb-5 text-center">
+        <img src="/changho-master-logo.png" alt="창호마스터 이음 공식 로고" className="h-28 w-28 rounded-full border border-slate-100 object-cover shadow-sm" />
+        <h1 className="mt-3 text-base font-bold text-slate-900">창호마스터 이음</h1>
+        <p className="mt-1 text-xs font-medium text-slate-400">광고 성과 관리자 대시보드</p>
       </div>
       <div className="mb-5">
         <div className="flex items-center gap-2 text-slate-700"><LockKeyhole size={17}/><h2 className="font-semibold">{setup ? '최초 마스터 계정 설정' : '관리자 로그인'}</h2></div>
