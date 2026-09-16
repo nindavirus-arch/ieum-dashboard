@@ -593,6 +593,51 @@ async function postSheetRows(type: PostSheetType, rows: any[], menuOverride?: st
   return data
 }
 
+async function fetchLeadUploadContext(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]): Promise<{ leads: any[]; firstRaw: any[] }> {
+  const keys = leads.map((lead) => ({
+    phone: normalizePhone(lead.phone),
+    date: String(lead.date || '').slice(0, 10),
+    consultingNumber: String((lead as any).consultingNumber || '').trim(),
+  }))
+
+  try {
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), 60_000)
+    let res: Response
+    try {
+      res = await fetch(SHEET_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          type: 'leadUploadContext',
+          rows: keys,
+          token: getAuthToken(),
+          menu: '/upload-db',
+        }),
+        signal: controller.signal,
+      })
+    } finally {
+      window.clearTimeout(timeoutId)
+    }
+    if (!res.ok) throw new Error('업로드 비교 데이터를 불러오지 못했습니다.')
+    const data = await res.json()
+    if (data?.error === 'Invalid type' || data?.error === 'forbidden') throw new Error('legacy-apps-script')
+    handleDataError(data)
+    return {
+      leads: Array.isArray(data?.leads) ? data.leads : [],
+      firstRaw: Array.isArray(data?.firstRaw) ? data.firstRaw : [],
+    }
+  } catch (error: any) {
+    // Apps Script를 아직 교체하지 않은 배포에서도 업로드 기능은 그대로 동작한다.
+    if (error?.message !== 'legacy-apps-script') throw error
+    const [existingRows, firstRawRows] = await Promise.all([
+      getSheetRows('leads'),
+      getSheetRows('firstRaw').catch(() => []),
+    ])
+    return { leads: existingRows, firstRaw: firstRawRows }
+  }
+}
+
 export async function fetchDataUpdatedAt(): Promise<string> {
   if (updatedAtCache && updatedAtCache.expires > Date.now()) return updatedAtCache.value
   if (updatedAtPromise) return updatedAtPromise
@@ -1170,11 +1215,12 @@ type UploadLeadsOptions = {
 }
 
 export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[], options: UploadLeadsOptions = {}) {
-  const [mappings, existingRows, firstRawRows] = await Promise.all([
+  const [mappings, uploadContext] = await Promise.all([
     fetchMappings(),
-    getSheetRows('leads'),
-    getSheetRows('firstRaw').catch(() => []),
+    fetchLeadUploadContext(leads),
   ])
+  const existingRows = uploadContext.leads
+  const firstRawRows = uploadContext.firstRaw
   // 기존 DASHBOARD_LEADS를 기준으로 중복/승격 판단
   const existing = existingRows.map((r, i) => normalizeLead(r, i, mappings))
   const utmEnrichmentByPhoneDate = new Map<string, LeadRecord>()
@@ -1616,13 +1662,18 @@ export async function uploadLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]
     changed++
   }
 
-  // 1차/2차 원본 RAW 누적 저장. RAW도 Apps Script에서 중복 차단함.
-  if (firstRaw.length) await postSheetRows('firstRaw', rawRowsFromLeads(firstRaw), '/upload-db')
-  if (secondRaw.length) await postSheetRows('secondRaw', rawRowsFromLeads(secondRaw), '/upload-db')
-  if (correctionRows.length) await postSheetRows('leadCorrections', correctionRows, '/upload-db')
+  // RAW 시트와 대시보드 원장은 서로 다른 시트이므로 병렬 저장한다.
+  // 같은 DASHBOARD_LEADS를 수정하는 보정/신규 저장만 순서를 유지한다.
+  const rawWrites: Promise<any>[] = []
+  if (firstRaw.length) rawWrites.push(postSheetRows('firstRaw', rawRowsFromLeads(firstRaw), '/upload-db'))
+  if (secondRaw.length) rawWrites.push(postSheetRows('secondRaw', rawRowsFromLeads(secondRaw), '/upload-db'))
 
-  // 대시보드용 정제 데이터 저장. phone + stage 기준 신규만 저장.
-  if (dashboardToAppend.length) await postSheetRows('leads', dashboardRowsFromLeads(dashboardToAppend), '/upload-db')
+  const dashboardWrite = (async () => {
+    if (correctionRows.length) await postSheetRows('leadCorrections', correctionRows, '/upload-db')
+    if (dashboardToAppend.length) await postSheetRows('leads', dashboardRowsFromLeads(dashboardToAppend), '/upload-db')
+  })()
+
+  await Promise.all([...rawWrites, dashboardWrite])
 
   notifyDataUpdated()
   return {

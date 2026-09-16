@@ -80,6 +80,24 @@ export function normalizeDate(raw: unknown, fallback = new Date()): string {
   return toYMD(fallback)
 }
 
+function normalizeRequiredDate(raw: unknown): string {
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) return toYMD(raw)
+  if (typeof raw === 'number') {
+    const date = excelSerialToDate(raw)
+    return date ? toYMD(date) : ''
+  }
+
+  const value = String(raw ?? '').trim()
+  if (!value) return ''
+  const matched = value.match(/(20\d{2})[.\-/년\sT]+(\d{1,2})[.\-/월\s]+(\d{1,2})/)
+  if (matched) {
+    const [, year, month, day] = matched
+    return `${year}-${String(Number(month)).padStart(2, '0')}-${String(Number(day)).padStart(2, '0')}`
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? '' : toYMD(parsed)
+}
+
 export function normalizeOptionalDate(raw: unknown): string {
   if (raw instanceof Date && !Number.isNaN(raw.getTime())) return toYMD(raw)
   if (typeof raw === 'number') {
@@ -364,6 +382,16 @@ export interface ParsedLeadResult {
 
 export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
   return new Promise((resolve, reject) => {
+    const extension = file.name.toLowerCase().split('.').pop() || ''
+    if (extension === 'numbers') {
+      reject(new Error('Apple Numbers 파일은 직접 업로드할 수 없습니다. Numbers에서 파일 > 다음으로 내보내기 > Excel(.xlsx)로 저장한 뒤 업로드해 주세요.'))
+      return
+    }
+    if (!['xlsx', 'xls', 'csv'].includes(extension)) {
+      reject(new Error('DB 업로드는 Excel(.xlsx, .xls) 또는 CSV 파일만 지원합니다.'))
+      return
+    }
+
     const reader = new FileReader()
     reader.onload = async (e) => {
       try {
@@ -377,22 +405,25 @@ export function parseLeadExcel(file: File): Promise<ParsedLeadResult> {
         const correctionMode = isUtmAttributionCorrectionFile(file.name) ? 'utm_attribution' : undefined
         const dateCorrectionByFileName = isDateCorrectionFileSafe(file.name)
         const dateCorrectionClearByFileName = isDateCorrectionClearFile(file.name)
+        const dateAliases = ['날짜', 'date', 'Date', '등록일', '등록일시', '등록 일시', '신청일', '신청일시', '접수일', '접수일시', '생성일', 'createdAt', 'created_at', 'uploadedAt']
+
+        if (rows.length && !hasAnyColumn(headers, dateAliases)) {
+          throw new Error('DB 유입 날짜 열을 찾지 못했습니다. 등록일시/접수일시/신청일시/날짜 열이 포함된 Excel 파일인지 확인해 주세요.')
+        }
 
         const seen = new Set<string>()
         let duplicateCount = 0, testCount = 0, invalidCount = 0
         const valid: Omit<LeadRecord, 'id' | 'uploadedAt'>[] = []
-        const fallbackDate = new Date()
-
         rows.forEach((row) => {
           const rawPhone = getCell(row, ['연락처', '전화번호', '휴대폰', '휴대폰번호', '휴대폰 번호', 'phone', 'tel', 'mobile'])
           const phone = normalizePhone(rawPhone)
           const name = String(getCell(row, ['이름', '성명', '고객명', 'name', 'customer_name']) ?? '').trim()
-          const rawDate = getCell(row, ['날짜', 'date', 'Date', '등록일', '등록일시', '등록 일시', '신청일', '신청일시', '접수일', '접수일시', '생성일', 'createdAt', 'created_at', 'uploadedAt'])
-          const date = normalizeDate(rawDate, fallbackDate)
+          const rawDate = getCell(row, dateAliases)
+          const date = normalizeRequiredDate(rawDate)
           const registeredAt = String(rawDate ?? '').trim() || date
           const consultingNumber = String(getCell(row, ['컨설팅 번호', '컨설팅번호', 'consultingNumber', 'consulting_number', 'consultingNo', 'consulting_no']) ?? '').trim()
 
-          if (!isValidPhone(phone)) { invalidCount++; return }
+          if (!isValidPhone(phone) || !date) { invalidCount++; return }
           const lowerName = name.toLowerCase()
           if (isTestPhone(phone) || lowerName.includes('test') || name.includes('테스트') || name.includes('이음마케팅') || name.includes('이음 마케팅') || name.includes('전환테스트') || name.includes('이동일테스트') || name.includes('함형석')) {
             testCount++; return
