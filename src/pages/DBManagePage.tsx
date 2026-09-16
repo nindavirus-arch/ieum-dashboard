@@ -306,7 +306,9 @@ const MEDIA_BRANDS: Partial<Record<Channel, { label: string; domain?: string; to
 }
 
 function MediaBrand({ row }: { row: LeadRecord }) {
-  const brands = MEDIA_BRANDS[row.channel] || [{
+  const brands = row.channel === 'direct' && row.subChannel === '카카오톡 채널 상담'
+    ? [{ label: '카카오톡 채널', domain: 'kakao.com', tone: 'bg-yellow-50 text-slate-800', mark: 'K' }]
+    : MEDIA_BRANDS[row.channel] || [{
     label: mediaLabel(row),
     tone: 'bg-slate-100 text-slate-600',
     mark: mediaLabel(row).slice(0, 2),
@@ -329,6 +331,7 @@ function MediaBrand({ row }: { row: LeadRecord }) {
 }
 
 function mediaLabel(row: LeadRecord) {
+  if (row.channel === 'direct' && row.subChannel === '카카오톡 채널 상담') return '카카오톡 채널 상담'
   if (row.channel === 'tu_albarich' || row.channel === 'tu_youtube' || row.channel === 'tu_danggeun') return 'TU'
   if (row.channel === 'hugreen_danggeun' || row.channel === 'hugreen_mail') return '휴그린'
   if (row.channel === 'inbound_call') return '인바운드'
@@ -469,7 +472,7 @@ export default function DBManagePage() {
 
   const subChannelOptions = useMemo(() => {
     const fromMap = mappings.map(m => m.subChannel)
-    const base = ['네이버 SA', '네이버 GFA', '네이버 브랜드검색', '구글 검색광고', '구글 디맨드젠', '구글 디스커버리/GDN', '메타', '유튜브', '블로그', '카페', '레뷰', '박람회', '카카오 검색광고', '카카오모먼트', '휴그린본사', '휴그린-당근', 'TU-알바리치', 'TU-유튜브', 'TU-당근', '홈페이지 직접유입', '인바운드콜', '직접영업', '기타']
+    const base = ['네이버 SA', '네이버 GFA', '네이버 브랜드검색', '구글 검색광고', '구글 디맨드젠', '구글 디스커버리/GDN', '메타', '유튜브', '블로그', '카페', '레뷰', '박람회', '카카오 검색광고', '카카오모먼트', '카카오톡 채널 상담', '휴그린본사', '휴그린-당근', 'TU-알바리치', 'TU-유튜브', 'TU-당근', '홈페이지 직접유입', '인바운드콜', '직접영업', '기타']
     return uniq([...fromMap, ...base])
   }, [mappings])
 

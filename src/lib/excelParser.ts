@@ -156,10 +156,18 @@ function isDirectSalesText(raw: unknown): boolean {
   return key.includes('직접영업') || key.includes('directsales')
 }
 
+export function isKakaoTalkChannelConsultation(raw: unknown): boolean {
+  const key = normalizeKey(decodeMaybe(raw).toLowerCase())
+  return key === '카카오채널' || key === '카카오채널상담' || key === '카카오채널문의'
+    || key === '카카오톡채널' || key === '카카오톡채널상담' || key === '카카오톡채널문의'
+    || key === 'kakaochannel' || key === 'kakaotalkchannel'
+}
+
 export function normalizeChannel(raw: unknown): Channel {
   const original = decodeMaybe(raw).toLowerCase()
   const key = normalizeKey(original)
   if (!key) return 'etc'
+  if (isKakaoTalkChannelConsultation(raw)) return 'direct'
   if (CHANNEL_MAP[key]) return CHANNEL_MAP[key]
 
   // 카카오톡 채널 문의는 유료 검색/모먼트 광고가 아니라 자사 채널 직접 유입이다.
@@ -192,6 +200,7 @@ export function normalizeChannel(raw: unknown): Channel {
 
 export function inferChannelStrict(fields: { source?: unknown; sourceRaw?: unknown; medium?: unknown; campaign?: unknown; content?: unknown; term?: unknown }): Channel {
   // 절대 params는 매체 판별에 사용하지 않음.
+  if (isKakaoTalkChannelConsultation(fields.sourceRaw)) return 'direct'
   const source = String(fields.source ?? '').trim()
   if (source) {
     const sourceChannel = normalizeChannel(source)
@@ -235,6 +244,7 @@ export function inferSubChannel(fields: { channel: Channel; source?: unknown; so
   if (fields.channel === 'kakao_moment') return '카카오모먼트'
   if (fields.channel === 'chatgpt') return 'Chat-GPT'
   if (fields.channel === 'direct') {
+    if (isKakaoTalkChannelConsultation(fields.sourceRaw) || isKakaoTalkChannelConsultation(fields.source)) return '카카오톡 채널 상담'
     if (k.includes('직접영업') || k.includes('directsales')) return '직접영업'
     if (k.includes('카카오톡') || k.includes('kakaotalk')) return '카카오톡 채널 상담'
     return '홈페이지 직접유입'

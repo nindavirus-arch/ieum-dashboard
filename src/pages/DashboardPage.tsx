@@ -112,11 +112,18 @@ const CHANNEL_ROW_DEFINITIONS: ChannelRowDefinition[] = [
     spendChannel: ch,
   })),
   {
+    key: 'kakaotalk_channel',
+    label: '카카오톡 채널 상담',
+    color: '#D6A900',
+    group: 'organic',
+    matches: (lead: LeadRecord) => trafficGroup(lead) === 'organic' && lead.subChannel === '카카오톡 채널 상담',
+  },
+  {
     key: 'online_direct',
     label: '홈페이지 직접유입',
     color: '#64748B',
     group: 'organic',
-    matches: (lead: LeadRecord) => trafficGroup(lead) === 'organic',
+    matches: (lead: LeadRecord) => trafficGroup(lead) === 'organic' && lead.subChannel !== '카카오톡 채널 상담',
   },
   {
     key: 'direct_sales',
