@@ -32,7 +32,8 @@ const DETAIL_ORDER = [
   '카카오 검색광고', '카카오모먼트',
 ]
 
-function performanceRange(viewMode: ViewMode, selectedDate: string) {
+function performanceRange(viewMode: ViewMode, selectedDate: string, customStart: string, customEnd: string) {
+  if (viewMode === 'custom') return { start: customStart, end: customEnd, label: `${customStart} ~ ${customEnd} 기간 기준` }
   const base = parseISO(selectedDate)
   if (viewMode === 'daily') return { start: selectedDate, end: selectedDate, label: `${format(base, 'yyyy년 MM월 dd일')} 일별 기준` }
   if (viewMode === 'weekly') {
@@ -128,6 +129,8 @@ export default function ChannelsPage() {
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>('daily')
   const [selectedDate, setSelectedDate] = useState(today)
+  const [customStart, setCustomStart] = useState(format(startOfMonth(parseISO(today)), 'yyyy-MM-dd'))
+  const [customEnd, setCustomEnd] = useState(today)
   const [channelScope, setChannelScope] = useState<TrafficGroup | 'all'>('paid')
   const [filterChannel, setFilterChannel] = useState<string>('all')
 
@@ -149,7 +152,7 @@ export default function ChannelsPage() {
 
   useEffect(() => { load() }, [])
 
-  const range = performanceRange(viewMode, selectedDate)
+  const range = performanceRange(viewMode, selectedDate, customStart, customEnd)
   const periodJourneys = buildLeadJourneys(leads).filter(journey => journey.lead.date >= range.start && journey.lead.date <= range.end)
   const periodLeads = periodJourneys.map(journey => journey.lead)
   const periodSpends = spends.filter(spend => spend.date >= range.start && spend.date <= range.end)
@@ -276,7 +279,7 @@ export default function ChannelsPage() {
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
           <div className="flex h-9 max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 gap-1">
-            {(['daily','weekly','monthly','yearly'] as ViewMode[]).map(mode => <button key={mode} onClick={() => setViewMode(mode)} className={clsx('shrink-0 rounded-md px-3 text-xs font-medium', viewMode === mode ? 'bg-blue-50 text-blue-600' : 'text-slate-500')}>{mode === 'daily' ? '일별' : mode === 'weekly' ? '주별' : mode === 'monthly' ? '월별' : '연별'}</button>)}
+            {(['daily','weekly','monthly','yearly','custom'] as ViewMode[]).map(mode => <button key={mode} onClick={() => setViewMode(mode)} className={clsx('shrink-0 rounded-md px-3 text-xs font-medium', viewMode === mode ? 'bg-blue-50 text-blue-600' : 'text-slate-500')}>{mode === 'daily' ? '일별' : mode === 'weekly' ? '주별' : mode === 'monthly' ? '월별' : mode === 'yearly' ? '연별' : '기간별'}</button>)}
           </div>
           <div className="order-last flex h-9 max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 gap-1 lg:order-none">
             {[
@@ -309,6 +312,25 @@ export default function ChannelsPage() {
           {(viewMode === 'daily' || viewMode === 'weekly') && <input type="date" value={inputValue} onChange={event => changeDate(event.target.value)} className="h-9 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 sm:flex-none" />}
           {viewMode === 'monthly' && <input type="month" value={inputValue} onChange={event => changeDate(event.target.value)} className="h-9 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 sm:flex-none" />}
           {viewMode === 'yearly' && <input type="number" min="2020" max="2035" value={inputValue} onChange={event => changeDate(event.target.value)} className="h-9 w-24 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700" />}
+          {viewMode === 'custom' && <div className="flex flex-wrap items-center gap-1.5">
+            <label className="flex items-center gap-1.5 text-xs text-slate-500">시작일
+              <input type="date" value={customStart} onChange={event => {
+                const value = event.target.value
+                if (!value) return
+                setCustomStart(value)
+                if (value > customEnd) setCustomEnd(value)
+              }} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700" />
+            </label>
+            <span className="text-slate-400">~</span>
+            <label className="flex items-center gap-1.5 text-xs text-slate-500">종료일
+              <input type="date" value={customEnd} onChange={event => {
+                const value = event.target.value
+                if (!value) return
+                setCustomEnd(value)
+                if (value < customStart) setCustomStart(value)
+              }} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700" />
+            </label>
+          </div>}
           <button onClick={() => { setSelectedDate(today); setViewMode('daily') }} className="btn-secondary shrink-0">오늘</button>
           <DataUpdatedAt />
           <button onClick={load} className="btn-secondary shrink-0">
