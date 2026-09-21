@@ -57,7 +57,7 @@ export default function UploadProjectsPage() {
     <div className="space-y-6 p-4 md:p-6">
       <div>
         <h1 className="text-lg font-bold text-slate-800">프로젝트 업로드</h1>
-        <p className="mt-0.5 text-xs text-slate-500">관리시스템 프로젝트리스트 엑셀을 업로드하면 계약 KPI와 매체별 계약성과에 반영됩니다.</p>
+        <p className="mt-0.5 text-xs text-slate-500">관리시스템 프로젝트리스트 엑셀을 업로드하면 기존 프로젝트 스냅샷을 최신 파일로 교체합니다.</p>
       </div>
 
       {(stage === 'idle' || stage === 'parsing') && (

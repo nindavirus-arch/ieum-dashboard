@@ -13,7 +13,7 @@ import { getAuthToken, requestAuthRecheck } from './auth'
 // TODO: Apps Script 배포 후 웹앱 URL을 여기에 붙여넣으세요.
 // 예: const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec'
 type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping' | 'kpiTargets' | 'projects'
-type PostSheetType = Exclude<SheetType, 'mapping'> | 'adSpendReplace' | 'leadCorrections'
+type PostSheetType = Exclude<SheetType, 'mapping'> | 'adSpendReplace' | 'projectsReplace' | 'leadCorrections'
 export type MappingRow = { raw: string; channel: Channel; subChannel: string }
 export type KpiTarget = {
   month: string
@@ -119,7 +119,7 @@ function cacheTypesForPost(type: PostSheetType): SheetType[] {
   if (type === 'firstRaw') return ['firstRaw']
   if (type === 'secondRaw') return ['secondRaw']
   if (type === 'adSpend' || type === 'adSpendReplace') return ['adSpend']
-  if (type === 'projects') return ['projects']
+  if (type === 'projects' || type === 'projectsReplace') return ['projects']
   if (type === 'kpiTargets') return ['kpiTargets']
   return []
 }
@@ -585,7 +585,7 @@ async function postSheetRows(type: PostSheetType, rows: any[], menuOverride?: st
 
   if (!res.ok) throw new Error('Google Sheets 저장 실패')
   const data = await res.json()
-  if (data?.error === 'Invalid type' && type === 'adSpendReplace') {
+  if (data?.error === 'Invalid type' && (type === 'adSpendReplace' || type === 'projectsReplace')) {
     throw new Error('교체 저장 기능을 쓰려면 APPS_SCRIPT_CODE.txt를 구글 Apps Script에 다시 붙여넣고 배포해야 합니다.')
   }
   if (data?.error === 'forbidden') {
@@ -2013,7 +2013,7 @@ function projectRowsFromProjects(projects: Omit<ProjectRecord, 'id' | 'uploadedA
 
 export async function saveProjects(projects: Omit<ProjectRecord, 'id' | 'uploadedAt'>[]) {
   const rows = projectRowsFromProjects(projects)
-  if (rows.length > 0) await postSheetRows('projects', rows, '/upload-projects')
+  if (rows.length > 0) await postSheetRows('projectsReplace', rows, '/upload-projects')
   notifyDataUpdated()
 }
 
