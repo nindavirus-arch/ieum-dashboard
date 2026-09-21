@@ -69,17 +69,27 @@ function paymentStatus(row: Record<string, unknown>) {
   ]) || '').trim()
 }
 
+function isExcludedProjectStatus(status: ProjectStatus) {
+  return status === 'canceled' || status === 'test'
+}
+
 function normalizeProjectRow(row: Record<string, unknown>, fallbackDate: Date): (Omit<ProjectRecord, 'id' | 'uploadedAt'> & { _missingDate?: boolean; _missingKey?: boolean }) | null {
   const customerName = String(getCell(row, ['고객명', '고객 이름', '이름', '성명', 'name', 'customerName']) || '').trim()
   const phone = normalizePhone(getCell(row, ['연락처', '전화번호', '휴대폰', '휴대폰번호', '휴대폰 번호', 'phone']))
   const consultingNumber = String(getCell(row, ['컨설팅번호', '컨설팅 번호', '상담번호', 'consultingNumber']) || '').trim()
   const projectNumber = String(getCell(row, ['프로젝트번호', '프로젝트 번호', '계약번호', '공사번호', 'projectNumber']) || '').trim()
-  const rawContractDate = getCell(row, [
+  const rawCreatedDate = getCell(row, [
     '생성일시', '생성 일시', '생성일', '생성 일자', '생성날짜',
     '등록일시', '등록 일시', '등록일', '등록 일자', '등록날짜',
     'contractDate'
   ])
-  const contractDate = String(rawContractDate || '').trim() ? normalizeDate(rawContractDate, fallbackDate) : ''
+  const rawDepositDate = getCell(row, [
+    '계약금입금일', '계약금 입금일', '계약금입금일시', '계약금 입금일시',
+    'depositDate', 'deposit_date', 'downPaymentDate', 'down_payment_date'
+  ])
+  const createdDate = String(rawCreatedDate || '').trim() ? normalizeDate(rawCreatedDate, fallbackDate) : ''
+  const depositDate = String(rawDepositDate || '').trim() ? normalizeDate(rawDepositDate, fallbackDate) : ''
+  const contractDate = depositDate || createdDate
   const address = String(getCell(row, ['주소', '현장주소', '시공주소', '고객주소', 'address']) || '').trim()
   const regionCell = String(getCell(row, ['지역', '시도', '시/도', '거주지역', '현장지역']) || '').trim()
   const districtCell = String(getCell(row, ['군구', '시군구', '시/군/구', '구군', '구/군']) || '').trim()
@@ -101,6 +111,7 @@ function normalizeProjectRow(row: Record<string, unknown>, fallbackDate: Date): 
     projectNumber,
     consultingNumber,
     contractDate,
+    depositDate,
     customerName,
     phone,
     region: regionCell || inferredRegion.region,
@@ -147,7 +158,7 @@ export function parseProjectsExcel(file: File): Promise<ParsedProjectResult> {
           valid: normalized,
           preview,
           totalCount: rows.length,
-          contractedCount: preview.filter(row => row.paymentStatus === '계약금 입금완료').length,
+          contractedCount: preview.filter(row => Boolean(row.depositDate) && !isExcludedProjectStatus(row.status)).length,
           pendingCount: preview.filter(row => row.status === 'pending').length,
           canceledCount: preview.filter(row => row.status === 'canceled').length,
           testCount: preview.filter(row => row.status === 'test').length,

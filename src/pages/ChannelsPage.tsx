@@ -608,13 +608,13 @@ export default function ChannelsPage() {
         <div className="card overflow-hidden">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <p className="text-xs font-semibold text-slate-700">계약 발생 리스트</p>
-            <span className="text-xs text-slate-400">계약일 기준 {contractList.length}건</span>
+            <span className="text-xs text-slate-400">계약금입금일 기준 {contractList.length}건</span>
           </div>
           <div className="max-h-72 overflow-auto">
             <table className="w-full min-w-[780px] text-xs">
               <thead className="sticky top-0 bg-slate-50 text-slate-500">
                 <tr>
-                  {['계약일', '고객명', '매체', '상세매체', '영업담당자', '계약금액'].map(header => <th key={header} className="px-3 py-2 text-left font-medium">{header}</th>)}
+                  {['계약금입금일', '고객명', '매체', '상세매체', '영업담당자', '계약금액'].map(header => <th key={header} className="px-3 py-2 text-left font-medium">{header}</th>)}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">

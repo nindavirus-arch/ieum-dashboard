@@ -79,7 +79,13 @@ export function contractedProjects(projects: ProjectRecord[]) {
     const nextUpdated = String(project.updatedAt || project.uploadedAt || project.contractDate || '')
     if (!current || nextUpdated >= currentUpdated) unique.set(key, project)
   })
-  return [...unique.values()].filter(project => project.paymentStatus === '계약금 입금완료')
+  return [...unique.values()].filter(project => {
+    if (!project.depositDate) return false
+    const status = String(project.status || '').toLowerCase()
+    const rawStatus = String(project.rawStatus || '').toLowerCase()
+    return !['canceled', 'cancelled', 'deleted', 'test', 'duplicate', 'invalid'].includes(status)
+      && !/취소|삭제|테스트|test|중복|duplicate|무효/.test(rawStatus)
+  })
 }
 
 export function buildProjectAttribution(projects: ProjectRecord[], leads: LeadRecord[]): AttributedProject[] {

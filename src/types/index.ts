@@ -67,7 +67,8 @@ export interface ProjectRecord {
   id: string
   projectNumber?: string
   consultingNumber?: string
-  contractDate: string  // YYYY-MM-DD
+  contractDate: string  // 계약 집계 기준일(계약금입금일 우선), YYYY-MM-DD
+  depositDate?: string  // 원본 계약금입금일, YYYY-MM-DD
   customerName: string
   phone: string
   region?: string

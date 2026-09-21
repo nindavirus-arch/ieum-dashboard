@@ -194,7 +194,7 @@ export default function SalesPerformancePage() {
       <div className="grid gap-3 md:grid-cols-5">
         {[
           { label: '배정건수', value: `${totalAssigned.toLocaleString()}건`, sub: '컨설팅리스트 담당자 기준', tone: 'bg-blue-50 text-blue-700', icon: Users },
-          { label: '계약건수', value: `${totalContracts.toLocaleString()}건`, sub: '프로젝트 실제 계약 기준', tone: 'bg-emerald-50 text-emerald-700', icon: TrendingUp },
+          { label: '계약건수', value: `${totalContracts.toLocaleString()}건`, sub: '계약금입금일 기준 · 취소 제외', tone: 'bg-emerald-50 text-emerald-700', icon: TrendingUp },
           { label: '계약금액', value: `${fmtKRW(totalAmount)}원`, sub: '계약금액 합계', tone: 'bg-violet-50 text-violet-700', icon: TrendingUp },
           { label: '배정→계약율', value: `${totalRate.toFixed(1)}%`, sub: '계약건수 ÷ 배정건수', tone: 'bg-orange-50 text-orange-700', icon: TrendingUp },
           { label: '평균 계약금액', value: `${totalContracts > 0 ? fmtKRW(Math.round(totalAmount / totalContracts)) : 0}원`, sub: '계약금액 ÷ 계약건수', tone: 'bg-slate-50 text-slate-700', icon: TrendingUp },
@@ -270,7 +270,7 @@ export default function SalesPerformancePage() {
             <table className="w-full min-w-[760px] text-xs">
               <thead className="sticky top-0 bg-slate-50 text-slate-500">
                 <tr>
-                  {['계약기준일(생성일시)', '고객명', '영업담당자', '매체', '계약금액'].map(header => <th key={header} className="px-3 py-2 text-left font-medium">{header}</th>)}
+                  {['계약금입금일', '고객명', '영업담당자', '매체', '계약금액'].map(header => <th key={header} className="px-3 py-2 text-left font-medium">{header}</th>)}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">

@@ -10,6 +10,10 @@ function fmtKRW(value: number) {
   return `${Math.round(value).toLocaleString()}원`
 }
 
+function isRecognizedContract(row: ParsedProjectResult['preview'][number]) {
+  return Boolean(row.depositDate) && row.status !== 'canceled' && row.status !== 'test'
+}
+
 export default function UploadProjectsPage() {
   const [stage, setStage] = useState<Stage>('idle')
   const [result, setResult] = useState<ParsedProjectResult | null>(null)
@@ -80,7 +84,7 @@ export default function UploadProjectsPage() {
               </div>
               <div className="text-center">
                 <p className="text-sm font-medium text-slate-700">프로젝트리스트 엑셀 파일 업로드</p>
-                <p className="mt-1 text-xs text-slate-400">결제상태가 정확히 '계약금 입금완료'인 고유 프로젝트만 실제 계약으로 집계합니다.</p>
+                <p className="mt-1 text-xs text-slate-400">계약금입금일이 있는 고유 프로젝트를 계약으로 집계하고 취소·테스트 건은 제외합니다.</p>
               </div>
             </>
           )}
@@ -110,20 +114,20 @@ export default function UploadProjectsPage() {
               저장 제외 사유:
               {result.missingDateCount > 0 && <span className="ml-2 font-semibold">생성일시/등록일시 누락 {result.missingDateCount.toLocaleString()}건</span>}
               {result.missingKeyCount > 0 && <span className="ml-2 font-semibold">연락처/컨설팅번호 누락 {result.missingKeyCount.toLocaleString()}건</span>}
-              <p className="mt-1 text-xs text-amber-700">상태별 건수와 표 미리보기는 분석된 전체 행 기준이고, 저장은 프로젝트 생성일시와 식별값이 있는 행만 진행됩니다.</p>
+              <p className="mt-1 text-xs text-amber-700">상태별 건수와 표 미리보기는 분석된 전체 행 기준이고, 저장은 계약금입금일 또는 생성일시와 식별값이 있는 행만 진행됩니다.</p>
             </div>
           )}
 
           <div className="card overflow-hidden">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <p className="text-xs font-semibold text-slate-600">미리보기 상위 12건</p>
-              <span className="text-xs text-slate-400">계약금액 합계 {fmtKRW(result.preview.filter(row => row.paymentStatus === '계약금 입금완료').reduce((sum, row) => sum + row.contractAmount, 0))}</span>
+              <span className="text-xs text-slate-400">계약금액 합계 {fmtKRW(result.preview.filter(isRecognizedContract).reduce((sum, row) => sum + row.contractAmount, 0))}</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[980px] text-xs">
                 <thead>
                   <tr className="bg-slate-50 text-slate-500">
-                    {['계약기준일(생성일시)', '상태', '고객명', '연락처', '컨설팅번호', '유입경로', '영업담당자', '계약금액'].map(header => <th key={header} className="px-3 py-2 text-left font-medium">{header}</th>)}
+                    {['계약금입금일', '상태', '고객명', '연락처', '컨설팅번호', '유입경로', '영업담당자', '계약금액'].map(header => <th key={header} className="px-3 py-2 text-left font-medium">{header}</th>)}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -131,8 +135,8 @@ export default function UploadProjectsPage() {
                     <tr key={`${row.phone}_${row.contractDate}_${index}`} className="hover:bg-slate-50">
                       <td className="px-3 py-2 text-slate-600">{row.contractDate}</td>
                       <td className="px-3 py-2">
-                        <span className={clsx('rounded px-1.5 py-0.5 font-medium', row.paymentStatus === '계약금 입금완료' ? 'bg-emerald-100 text-emerald-700' : row.status === 'canceled' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600')}>
-                          {row.paymentStatus === '계약금 입금완료' ? '계약' : row.status === 'canceled' ? '제외' : row.status === 'test' ? '테스트' : '대기'}
+                        <span className={clsx('rounded px-1.5 py-0.5 font-medium', isRecognizedContract(row) ? 'bg-emerald-100 text-emerald-700' : row.status === 'canceled' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600')}>
+                          {isRecognizedContract(row) ? '계약' : row.status === 'canceled' ? '제외' : row.status === 'test' ? '테스트' : '대기'}
                         </span>
                       </td>
                       <td className="px-3 py-2 font-medium text-slate-700">{row.customerName || '-'}</td>

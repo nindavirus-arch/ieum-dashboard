@@ -460,7 +460,10 @@ function normalizeProject(row: any, index = 0, mappings: MappingRow[] = []): Pro
   const paymentStatus = String(row.paymentStatus ?? row.payment_status ?? pickCell(row, ['결제상태', '결제 상태', '입금상태', '입금 상태']) ?? '').trim()
   const rawChannel = row.channel ?? pickCell(row, ['매체', '유입경로', '유입경로 원본', '광고매체']) ?? row.sourceRaw ?? ''
   const rawSubChannel = String(row.subChannel ?? pickCell(row, ['상세매체', '상세 매체', '유입상세', '캠페인']) ?? '')
+  const rawDepositDate = row.depositDate ?? row.deposit_date ?? pickCell(row, ['계약금입금일', '계약금 입금일', '계약금입금일시', '계약금 입금일시'])
+  const depositDate = String(rawDepositDate ?? '').trim() ? normalizeDate(rawDepositDate, new Date()) : ''
   const rawContractDate = row.contractDate ?? pickCell(row, ['생성일시', '생성 일시', '생성일', '생성 일자', '생성날짜', '등록일시', '등록 일시', '등록일', '등록 일자', '등록날짜'])
+  const contractDate = depositDate || (String(rawContractDate ?? '').trim() ? normalizeDate(rawContractDate, new Date()) : '')
   const baseChannel = rawChannel ? normalizeChannel(rawChannel) : undefined
   const mapped = baseChannel
     ? applyChannelMapping({ channel: baseChannel, subChannel: rawSubChannel, utm_source: rawChannel, utm_campaign: rawSubChannel }, mappings)
@@ -469,7 +472,8 @@ function normalizeProject(row: any, index = 0, mappings: MappingRow[] = []): Pro
     id: String(row.id ?? makeId('project')),
     projectNumber: String(row.projectNumber ?? pickCell(row, ['프로젝트번호', '프로젝트 번호', '계약번호', '공사번호']) ?? ''),
     consultingNumber: String(row.consultingNumber ?? pickCell(row, ['컨설팅번호', '컨설팅 번호', '상담번호']) ?? ''),
-    contractDate: String(rawContractDate ?? '').trim() ? normalizeDate(rawContractDate, new Date()) : '',
+    contractDate,
+    depositDate,
     customerName: String(row.customerName ?? pickCell(row, ['고객명', '고객 이름', '이름', '성명']) ?? row.name ?? ''),
     phone: normalizePhone(row.phone ?? pickCell(row, ['연락처', '전화번호', '휴대폰', '휴대폰번호', '휴대폰 번호'])),
     region: String(row.region ?? pickCell(row, ['지역', '시도', '시/도']) ?? ''),
@@ -1988,6 +1992,7 @@ function projectRowsFromProjects(projects: Omit<ProjectRecord, 'id' | 'uploadedA
     projectNumber: project.projectNumber || '',
     consultingNumber: project.consultingNumber || '',
     contractDate: project.contractDate,
+    depositDate: project.depositDate || '',
     customerName: project.customerName,
     phone: project.phone,
     region: project.region || '',
