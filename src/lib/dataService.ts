@@ -1028,7 +1028,9 @@ export async function fetchConsultingStatusEvents(): Promise<ConsultingStatusEve
       phone,
       name: String(row._parsed_name ?? row.name ?? pickCell(row, ['이름', '성명', '고객명']) ?? '').trim(),
       consultingNumber: String(row._parsed_consultingNumber ?? row.consultingNumber ?? row.consulting_number ?? pickCell(row, ['컨설팅번호', '컨설팅 번호', '상담번호', '상담 번호']) ?? '').trim(),
-      status: String(row._parsed_consultingStatus ?? row.consultingStatus ?? row.consulting_status ?? pickCell(row, ['컨설팅상태', '컨설팅 상태', '상담상태', '상담 상태']) ?? '').trim(),
+      // 관리시스템 원본의 로켓견적확인/로켓요청/로켓방문요청은 '상태'가 아니라
+      // '컨설팅타입' 칼럼에 저장된다. 상태 칼럼은 진행/완료 같은 처리 상태다.
+      status: String(row.consultingType ?? row.consulting_type ?? pickCell(row, ['컨설팅타입', '컨설팅 타입', '상담타입', '상담 타입']) ?? row._parsed_consultingStatus ?? row.consultingStatus ?? row.consulting_status ?? '').trim(),
       registeredAt,
       date: normalizeDate(rawDate || registeredAt, new Date()),
       sequence,
