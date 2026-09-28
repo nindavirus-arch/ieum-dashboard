@@ -261,9 +261,7 @@ export default function ChannelsPage() {
   const contractList = [...periodContracts]
     .filter(project => projectInScope(project) && (filterChannel === 'all' || rowKeyForProject(project) === filterChannel))
     .sort((a, b) => b.contractDate.localeCompare(a.contractDate))
-  const contractCostCount = stats
-    .filter(row => row.spend > 0)
-    .reduce((sum, row) => sum + row.contractCount, 0)
+  const totalContractCount = stats.reduce((sum, row) => sum + row.contractCount, 0)
   const inputValue = viewMode === 'monthly' ? selectedDate.slice(0, 7) : viewMode === 'yearly' ? selectedDate.slice(0, 4) : selectedDate
   function changeDate(value: string) {
     if (!value) return
@@ -558,7 +556,13 @@ export default function ChannelsPage() {
                 {totalStatDB > 0 ? `${((stats.reduce((a,b)=>a+b.contractCount,0) / totalStatDB) * 100).toFixed(1)}%` : '-'}
               </td>
               <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">
-                {contractCostCount > 0 ? `${fmtKRW(Math.round(totalStatSpend / contractCostCount))}원` : '-'}
+                <MetricExplain lines={totalStatSpend > 0 && totalContractCount > 0 ? [
+                  `선택 범위 광고비 ${totalStatSpend.toLocaleString()}원 ÷ 선택 범위 전체 계약 ${totalContractCount}건`,
+                  channelScope === 'all' ? '전체 선택 시 자연유입·외부제휴 계약도 분모에 포함' : `${channelScope === 'paid' ? '온라인광고' : channelScope === 'organic' ? '온라인 직접·자연유입' : channelScope === 'external' ? '외부·제휴유입' : '미분류'} 범위 계약 기준`,
+                  `결과: 계약당 ${Math.round(totalStatSpend / totalContractCount).toLocaleString()}원`,
+                ] : ['광고비 또는 계약건수가 없어 계약당 광고비를 계산하지 않습니다.']}>
+                  <span>{totalStatSpend > 0 && totalContractCount > 0 ? `${fmtKRW(Math.round(totalStatSpend / totalContractCount))}원` : '-'}</span>
+                </MetricExplain>
               </td>
               <td className="px-4 py-3 text-right text-xs font-bold text-slate-700">
                 <MetricExplain lines={totalStatSpend > 0 && totalStatDB > 0 ? [
