@@ -7,6 +7,7 @@ import { baseStage } from '../lib/leadMetrics'
 import { buildProjectAttribution, contractedProjects } from '../lib/projectMetrics'
 import type { LeadRecord, ProjectRecord } from '../types'
 import DataUpdatedAt from '../components/DataUpdatedAt'
+import { useAutoDataRefresh } from '../lib/appRefresh'
 
 const today = format(new Date(), 'yyyy-MM-dd')
 
@@ -72,6 +73,7 @@ export default function SalesPerformancePage() {
   }
 
   useEffect(() => { load() }, [])
+  useAutoDataRefresh(load)
 
   const range = monthRange(selectedDate)
   const previousRange = previousMonthRange(selectedDate)

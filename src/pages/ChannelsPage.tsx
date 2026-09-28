@@ -4,6 +4,7 @@ import { endOfMonth, endOfYear, format, parseISO, startOfMonth, startOfYear, sub
 import { HelpCircle, RefreshCw, TrendingUp } from 'lucide-react'
 import { Bar, CartesianGrid, ComposedChart, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { fetchLeads, fetchAdSpend, fetchProjects } from '../lib/dataService'
+import { useAutoDataRefresh } from '../lib/appRefresh'
 import type { LeadRecord, AdSpend, ViewMode, ProjectRecord } from '../types'
 import clsx from 'clsx'
 import { buildLeadJourneys, isDirectSales, isPaidChannel, trafficGroup, type TrafficGroup } from '../lib/leadMetrics'
@@ -151,6 +152,7 @@ export default function ChannelsPage() {
   }
 
   useEffect(() => { load() }, [])
+  useAutoDataRefresh(load)
 
   const range = performanceRange(viewMode, selectedDate, customStart, customEnd)
   const periodJourneys = buildLeadJourneys(leads).filter(journey => journey.lead.date >= range.start && journey.lead.date <= range.end)

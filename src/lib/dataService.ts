@@ -140,6 +140,17 @@ export function invalidateDataCache() {
   clearSheetCache()
 }
 
+export function clearClientDataCache() {
+  clearSheetCache()
+  updatedAtCache = null
+  updatedAtPromise = null
+  try {
+    window.localStorage.removeItem(PERSISTED_UPDATED_AT_KEY)
+    window.sessionStorage.removeItem('ieum-db-manage-leads')
+    window.sessionStorage.removeItem('ieum-db-manage-mappings')
+  } catch {}
+}
+
 function makeId(prefix = 'id') {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
 }

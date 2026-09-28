@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { format } from 'date-fns'
 import { RefreshCw, ArrowDown } from 'lucide-react'
 import { fetchLeads } from '../lib/dataService'
+import { useAutoDataRefresh } from '../lib/appRefresh'
 import type { LeadRecord } from '../types'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -44,6 +45,7 @@ export default function FunnelPage() {
   }
 
   useEffect(() => { load() }, [])
+  useAutoDataRefresh(load)
   const isThisMonth = selectedMonth === format(new Date(), 'yyyy-MM')
   const monthLabel = isThisMonth ? '이번달 DB 전환 흐름' : `${selectedMonth} DB 전환 흐름`
 

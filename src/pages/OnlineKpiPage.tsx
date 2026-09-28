@@ -16,6 +16,7 @@ import {
 import { baseStage, buildLeadJourneys, isPaidChannel, trafficGroup } from '../lib/leadMetrics'
 import type { AdSpend, LeadRecord } from '../types'
 import { useAuth } from '../contexts/AuthContext'
+import { useAutoDataRefresh } from '../lib/appRefresh'
 import DataUpdatedAt from '../components/DataUpdatedAt'
 import { normalizeDate } from '../lib/excelParser'
 import OnlineKpiReport from '../components/kpi/OnlineKpiReport'
@@ -230,6 +231,7 @@ export default function OnlineKpiPage() {
   }
 
   useEffect(() => { load() }, [])
+  useAutoDataRefresh(load)
 
   const configuredTarget = targets.find(target => target.month === selectedMonth)
   const minDaily = configuredTarget?.minDaily || DEFAULT_KPI_MIN_DAILY

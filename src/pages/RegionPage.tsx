@@ -5,6 +5,7 @@ import { ChevronRight, MapPin, RefreshCw, TrendingDown, TrendingUp } from 'lucid
 import clsx from 'clsx'
 import DataUpdatedAt from '../components/DataUpdatedAt'
 import { fetchLeads } from '../lib/dataService'
+import { useAutoDataRefresh } from '../lib/appRefresh'
 import { finalLeads } from '../lib/leadMetrics'
 import type { LeadRecord } from '../types'
 
@@ -51,6 +52,7 @@ export default function RegionPage() {
   }
 
   useEffect(() => { load() }, [])
+  useAutoDataRefresh(load)
   useEffect(() => { setSelected(null) }, [selectedMonth])
 
   const prevMonth = previousMonthKey(selectedMonth)

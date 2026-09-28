@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, startOfWeek, endOfWeek, parseISO, subDays, subWeeks, subMonths, subYears, eachDayOfInterval } from 'date-fns'
 import { Users, DollarSign, TrendingDown, CalendarDays, RefreshCw, ChevronDown, HelpCircle } from 'lucide-react'
 import { fetchLeads, fetchAdSpend, fetchKpiTargets, type KpiTarget } from '../lib/dataService'
+import { useAutoDataRefresh } from '../lib/appRefresh'
 import type { LeadRecord, AdSpend, ViewMode } from '../types'
 import TimeSeriesChart from '../components/dashboard/TimeSeriesChart'
 import ChannelBar from '../components/channels/ChannelBar'
@@ -310,6 +311,7 @@ export default function DashboardPage() {
   }
 
   useEffect(() => { load() }, [])
+  useAutoDataRefresh(load)
 
   const journeys = useMemo(() => buildLeadJourneys(leads), [leads])
   const validLeads = useMemo(() => journeys.map(journey => journey.lead), [journeys])
@@ -746,7 +748,7 @@ export default function DashboardPage() {
                   <p className="text-xs font-semibold text-slate-700">일별 최종 DB 합계</p>
                   <span className="text-[11px] text-slate-400">연락처 중복 제거 기준</span>
                 </div>
-                <div className="flex gap-1.5 overflow-x-auto pb-1">
+                <div className="grid grid-cols-5 gap-1.5 md:hidden">
                   {visibleDailyTotalSummary.map(item => (
                     <button
                       key={item.key}
@@ -757,7 +759,7 @@ export default function DashboardPage() {
                       }}
                       title={`${item.key} 유입채널 현황 보기`}
                       className={clsx(
-                        'min-w-[82px] flex-1 rounded-lg border px-2 py-1.5 text-center transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100',
+                        'min-w-0 rounded-lg border px-1 py-1.5 text-center transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100',
                         item.active
                           ? 'border-blue-200 bg-blue-50 shadow-sm'
                           : item.total > 0
@@ -767,6 +769,35 @@ export default function DashboardPage() {
                     >
                       <div className={clsx('text-[10px] font-medium', item.active ? 'text-blue-600' : 'text-slate-400')}>{item.day}</div>
                       <div className={clsx('mt-0.5 text-sm font-bold', item.total > 0 ? 'text-slate-800' : 'text-slate-300')}>
+                        {item.total.toLocaleString()}건
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <div
+                  className="hidden gap-1.5 md:grid"
+                  style={{ gridTemplateColumns: `repeat(${Math.max(1, Math.ceil(visibleDailyTotalSummary.length / 2))}, minmax(0, 1fr))` }}
+                >
+                  {visibleDailyTotalSummary.map(item => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => {
+                        setSelectedDate(item.key)
+                        setViewMode('daily')
+                      }}
+                      title={`${item.key} 유입채널 현황 보기`}
+                      className={clsx(
+                        'min-w-0 rounded-lg border px-1 py-1.5 text-center transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100',
+                        item.active
+                          ? 'border-blue-200 bg-blue-50 shadow-sm'
+                          : item.total > 0
+                            ? 'border-slate-200 bg-white'
+                            : 'border-slate-100 bg-white/60'
+                      )}
+                    >
+                      <div className={clsx('truncate text-[10px] font-medium', item.active ? 'text-blue-600' : 'text-slate-400')}>{item.day}</div>
+                      <div className={clsx('mt-0.5 truncate text-sm font-bold', item.total > 0 ? 'text-slate-800' : 'text-slate-300')}>
                         {item.total.toLocaleString()}건
                       </div>
                     </button>

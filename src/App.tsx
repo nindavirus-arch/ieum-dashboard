@@ -4,6 +4,7 @@ import Layout from './components/Layout'
 import AuthPage from './pages/AuthPage'
 import { useAuth } from './contexts/AuthContext'
 import { canAccess, defaultPath } from './lib/auth'
+import { useDeploymentRefresh } from './lib/appRefresh'
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const ChannelsPage = lazy(() => import('./pages/ChannelsPage'))
@@ -23,6 +24,7 @@ function PageLoading() {
 }
 
 export default function App() {
+  useDeploymentRefresh()
   const { user, loading, setupRequired } = useAuth()
 
   if (loading) return <div className="min-h-screen bg-slate-100 flex items-center justify-center text-sm text-slate-500">관리자 정보를 확인하고 있습니다.</div>
