@@ -3,10 +3,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { format, startOfMonth, endOfMonth, subDays, startOfYear, endOfYear } from 'date-fns'
 import { RefreshCw, Search, Pencil, Plus, X, Save, ChevronDown, History, Trash2 } from 'lucide-react'
 import clsx from 'clsx'
-import { createManualLead, fetchLeads, fetchMappings, invalidateDataCache, updateLeadAttribution, type MappingRow } from '../lib/dataService'
+import { createManualLead, fetchConsultingStatusEvents, fetchLeads, fetchMappings, invalidateDataCache, updateLeadAttribution, type ConsultingStatusEvent, type MappingRow } from '../lib/dataService'
 import type { Channel, DBTier, LeadRecord } from '../types'
 import { baseStage, buildLeadJourneys } from '../lib/leadMetrics'
 import DataUpdatedAt from '../components/DataUpdatedAt'
+import { buildVisitMilestones, latestVisitByPhone, VISIT_PATH_LABELS, type VisitMilestone } from '../lib/visitMetrics'
 
 const CHANNELS: Channel[] = ['naver', 'google', 'meta', 'youtube', 'viral', 'danggeun', 'kakao_search', 'kakao_moment', 'chatgpt', 'direct', 'tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'ezpz', 'inbound_call', 'etc']
 const CHANNEL_LABELS: Record<Channel, string> = {
@@ -15,9 +16,11 @@ const CHANNEL_LABELS: Record<Channel, string> = {
   tu_albarich: 'TU-알바리치', tu_youtube: 'TU-유튜브', tu_danggeun: 'TU-당근',
   hugreen_danggeun: '휴그린-당근', hugreen_mail: '휴그린-메일', ezpz: 'EZPZ', inbound_call: '인바운드-인입콜', etc: '기타'
 }
-const STAGES: DBTier[] = ['retarget', 'first', 'second', 'first_reentry', 'second_reentry']
-const STAGE_LABELS: Record<DBTier, string> = {
-  retarget: '리타겟DB', first: '1차DB', second: '2차DB', first_reentry: '1차 재인입', second_reentry: '2차 재인입'
+type DisplayStage = DBTier | 'third'
+type DisplayLead = LeadRecord & { visitMilestone?: VisitMilestone }
+const STAGES: DisplayStage[] = ['retarget', 'first', 'second', 'third', 'first_reentry', 'second_reentry']
+const STAGE_LABELS: Record<DisplayStage, string> = {
+  retarget: '리타겟DB', first: '1차DB', second: '2차DB', third: '3차DB (방문상담)', first_reentry: '1차 재인입', second_reentry: '2차 재인입'
 }
 const CONSULT_RESULTS = ['단순문의', '방문배정', '부분시공', '견적중', '부재중', '중복']
 
@@ -62,10 +65,18 @@ function dateRange(period: string, selectedDate: string, selectedMonth: string, 
   if (period === 'day') return { start: selectedDate, end: selectedDate, label: selectedDate }
   return { start: undefined, end: undefined, label: '전체' }
 }
-function stageBadge(stage: DBTier) {
+function stageBadge(stage: DisplayStage) {
+  if (stage === 'third') return 'bg-cyan-50 text-cyan-700 border-cyan-100'
   if (stage === 'second' || stage === 'second_reentry') return 'bg-emerald-50 text-emerald-700 border-emerald-100'
   if (stage === 'first' || stage === 'first_reentry') return 'bg-blue-50 text-blue-700 border-blue-100'
   return 'bg-violet-50 text-violet-700 border-violet-100'
+}
+function displayStage(row: DisplayLead): DisplayStage {
+  return row.visitMilestone ? 'third' : row.dbTier
+}
+function VisitPathBadge({ row }: { row: DisplayLead }) {
+  if (!row.visitMilestone) return null
+  return <span className="inline-flex w-fit rounded-md border border-cyan-100 bg-cyan-50 px-2 py-0.5 text-[10px] font-medium text-cyan-700" title="컨설팅리스트의 상태 이력과 등록일시 순서로 분류합니다.">{VISIT_PATH_LABELS[row.visitMilestone.path]}</span>
 }
 function uniq(arr: string[]) { return Array.from(new Set(arr.filter(Boolean))) }
 function formatPhone(value?: string) {
@@ -428,8 +439,9 @@ function StageHistoryPanel({ rows }: { rows: LeadRecord[] }) {
 export default function DBManagePage() {
   const [leads, setLeads] = useState<LeadRecord[]>(() => readSessionRows<LeadRecord>(LEADS_SESSION_KEY))
   const [mappings, setMappings] = useState<MappingRow[]>(() => readSessionRows<MappingRow>(MAPPINGS_SESSION_KEY))
+  const [statusEvents, setStatusEvents] = useState<ConsultingStatusEvent[]>([])
   const [loading, setLoading] = useState(true)
-  const [stage, setStage] = useState<'all' | 'history' | DBTier>('all')
+  const [stage, setStage] = useState<'all' | 'history' | DisplayStage>('all')
   const [period, setPeriod] = useState<'today' | '7d' | 'month' | 'year' | 'day' | 'all'>('month')
   const [selectedDate, setSelectedDate] = useState(today())
   const [selectedMonth, setSelectedMonth] = useState(thisMonth())
@@ -452,9 +464,10 @@ export default function DBManagePage() {
     setLoading(true)
     try {
       if (force) invalidateDataCache()
-      const [l, m] = await Promise.all([fetchLeads(undefined, undefined, { includeRawMeta: true }), fetchMappings()])
+      const [l, m, events] = await Promise.all([fetchLeads(undefined, undefined, { includeRawMeta: true }), fetchMappings(), fetchConsultingStatusEvents()])
       setLeads(l)
       setMappings(m)
+      setStatusEvents(events)
     } finally { setLoading(false) }
   }
   useEffect(() => { load(false) }, [])
@@ -478,7 +491,13 @@ export default function DBManagePage() {
 
   const operatorOptions = useMemo(() => uniq(leads.map(l => String((l as any).operator || '').trim())).sort(), [leads])
   const journeys = useMemo(() => buildLeadJourneys(leads), [leads])
-  const currentLeads = useMemo(() => journeys.map(journey => ({ ...journey.lead, dbTier: journey.finalTier })), [journeys])
+  const visitMilestones = useMemo(() => buildVisitMilestones(statusEvents), [statusEvents])
+  const visitByPhone = useMemo(() => latestVisitByPhone(visitMilestones), [visitMilestones])
+  const currentLeads = useMemo<DisplayLead[]>(() => journeys.map(journey => ({
+    ...journey.lead,
+    dbTier: journey.finalTier,
+    visitMilestone: visitByPhone.get(journey.lead.phone),
+  })), [journeys, visitByPhone])
   const currentPeriodLeads = useMemo(
     () => currentLeads.filter(lead => (!range.start || lead.date >= range.start) && (!range.end || lead.date <= range.end)),
     [currentLeads, range.start, range.end]
@@ -487,7 +506,11 @@ export default function DBManagePage() {
     () => leads.filter(lead => (!range.start || lead.date >= range.start) && (!range.end || lead.date <= range.end)),
     [leads, range.start, range.end]
   )
-  const displayLeads = stage === 'history' ? rawPeriodLeads : currentPeriodLeads
+  const thirdPeriodLeads = useMemo(
+    () => currentLeads.filter(lead => lead.visitMilestone && (!range.start || lead.visitMilestone.date >= range.start) && (!range.end || lead.visitMilestone.date <= range.end)),
+    [currentLeads, range.start, range.end]
+  )
+  const displayLeads: DisplayLead[] = stage === 'history' ? rawPeriodLeads : stage === 'third' ? thirdPeriodLeads : currentPeriodLeads
   const previousByPhone = useMemo(() => {
     const map = new Map<string, LeadRecord[]>()
     journeys.forEach(journey => {
@@ -506,7 +529,7 @@ export default function DBManagePage() {
   const filtered = useMemo(() => {
     const q = keyword.replace(/[^0-9a-zA-Z가-힣]/g, '').toLowerCase()
     return displayLeads
-      .filter(l => (stage === 'all' || stage === 'history') ? true : l.dbTier === stage)
+      .filter(l => (stage === 'all' || stage === 'history' || stage === 'third') ? true : displayStage(l) === stage)
       .filter(l => channel === 'all' ? true : l.channel === channel)
       .filter(l => operatorFilter === 'all' ? true : String((l as any).operator || '').trim() === operatorFilter)
       .filter(l => quotePathFilter === 'all' ? true : quotePath(l)?.key === quotePathFilter)
@@ -518,7 +541,7 @@ export default function DBManagePage() {
       })
       .filter(l => {
         if (!q) return true
-        const hay = `${l.name}${l.phone}${l.rawPhone}${l.region}${l.district}${(l as any).source_raw}${l.subChannel}${l.channel}${(l as any).memo}${(l as any).operator}${(l as any).consultationResult}${preferredVisitDate(l)}${shortAddress(l)}`.replace(/[^0-9a-zA-Z가-힣]/g, '').toLowerCase()
+        const hay = `${l.name}${l.phone}${l.rawPhone}${l.region}${l.district}${(l as any).source_raw}${l.subChannel}${l.channel}${(l as any).memo}${(l as any).operator}${(l as any).consultationResult}${preferredVisitDate(l)}${shortAddress(l)}${l.visitMilestone ? VISIT_PATH_LABELS[l.visitMilestone.path] : ''}`.replace(/[^0-9a-zA-Z가-힣]/g, '').toLowerCase()
         return hay.includes(q)
       })
       .sort((a, b) => sortOrder === 'desc' ? sortTime(b) - sortTime(a) : sortTime(a) - sortTime(b))
@@ -530,7 +553,7 @@ export default function DBManagePage() {
   useEffect(() => { if (page > totalPages) setPage(totalPages) }, [page, totalPages])
 
   const counts: Record<string, number> = { all: currentPeriodLeads.length, history: rawPeriodLeads.length }
-  STAGES.forEach(s => counts[s] = currentPeriodLeads.filter(l => l.dbTier === s).length)
+  STAGES.forEach(s => counts[s] = s === 'third' ? thirdPeriodLeads.length : currentPeriodLeads.filter(l => displayStage(l) === s).length)
   const quotePathCounts = currentPeriodLeads.reduce<Record<QuotePathKey, number>>((acc, lead) => {
     const info = quotePath(lead)
     if (info) acc[info.key] += 1
@@ -613,7 +636,7 @@ export default function DBManagePage() {
       ['history','전체 원본 이력',counts.history],
     ].map(([v,label,count]) => <button key={String(v)} onClick={() => setStage(v as any)} className={clsx('tab-btn', stage === v && 'active', v === 'history' && stage !== 'history' && 'text-slate-500')}>{label} <span className="opacity-70">{Number(count).toLocaleString()}</span></button>)}</div><div className="grid grid-cols-1 md:grid-cols-12 gap-3"><select value={period} onChange={e => setPeriod(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="today">오늘</option><option value="7d">최근 7일</option><option value="day">일자 선택</option><option value="month">월별</option><option value="year">연별</option><option value="all">전체</option></select>{period === 'day' && <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'month' && <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}{period === 'year' && <input type="number" min="2024" max="2030" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm" />}<select value={channel} onChange={e => setChannel(e.target.value as any)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 매체</option>{CHANNELS.map(c => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</select><select value={operatorFilter} onChange={e => setOperatorFilter(e.target.value)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 작업자</option>{operatorOptions.map(o => <option key={o} value={o}>{o}</option>)}</select><select value={quotePathFilter} onChange={e => setQuotePathFilter(e.target.value as 'all' | QuotePathKey)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 견적상태</option><option value="estimate_check">견적확인</option><option value="estimate_consult">견적 후 상담</option><option value="apartment_no_quote_consult">아파트 견적 미산출 상담</option><option value="direct_consult">견적 없이 상담</option><option value="estimate_unavailable">견적 미산출·미상담</option></select><select value={buildingTypeFilter} onChange={e => setBuildingTypeFilter(e.target.value as BuildingTypeFilter)} className="md:col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 건물유형</option><option value="apartment">아파트 확정·추정</option><option value="non_apartment">비아파트 원본확인</option><option value="unclassified">유형 판별불가</option></select><select value={dateOverrideFilter} onChange={e => setDateOverrideFilter(e.target.value as 'all' | 'overridden' | 'normal')} className="md:col-span-1 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="all">전체 보정</option><option value="overridden">수동보정만</option><option value="normal">보정 제외</option></select><select value={sortOrder} onChange={e => setSortOrder(e.target.value as 'desc' | 'asc')} className="md:col-span-1 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"><option value="desc">최신순</option><option value="asc">오래된순</option></select><div className="md:col-span-2 relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="이름/연락처/지역/건물/메모 검색" className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-sm" /></div><div className="md:col-span-1 flex items-center md:justify-end text-xs text-slate-500">{range.label} · {filtered.length.toLocaleString()}건</div></div></div>
     <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700">
-      <b>상담대상 기준</b> 기본 탭은 연락처별 최종 단계 한 건만 표시합니다. 이전 단계는 고객 행에서 확인하고, 모든 단계 행은 전체 원본 이력 탭에서 볼 수 있습니다.
+      <b>상담대상 기준</b> 기본 탭은 연락처별 최종 단계 한 건만 표시합니다. 3차DB는 컨설팅리스트의 로켓방문요청 상태를 별도 전환으로 표시하며, 전체 DB와 CPL은 기존처럼 연락처당 한 건만 집계합니다.
     </div>
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
       {[
@@ -647,7 +670,7 @@ export default function DBManagePage() {
         const previousRows = stage === 'history' ? [] : (previousByPhone.get(l.phone) || [])
         const address = addressParts(l)
         return <div key={key} className="card p-4 space-y-3">
-          <div className="flex items-start justify-between gap-3"><div><div className="text-[11px] text-slate-400">DB 유입/신청일시</div><div className="text-xs text-slate-500">{fmtDateTime(l)} {isDateOverridden(l) && <span className="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">수동보정</span>}</div><div className="font-semibold text-slate-800 mt-1">{l.name || '-'}</div><div className="text-sm text-slate-500">{formatPhone(l.phone)}</div></div><div className="flex flex-col items-end gap-1"><span className={clsx('px-2 py-0.5 rounded-md border text-xs font-medium whitespace-nowrap', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span><QuotePathBadge row={l} /></div></div>
+          <div className="flex items-start justify-between gap-3"><div><div className="text-[11px] text-slate-400">DB 유입/신청일시</div><div className="text-xs text-slate-500">{fmtDateTime(l)} {isDateOverridden(l) && <span className="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">수동보정</span>}</div>{l.visitMilestone && <div className="mt-1 text-[11px] font-medium text-cyan-700">방문신청 {l.visitMilestone.registeredAt || l.visitMilestone.date}</div>}<div className="font-semibold text-slate-800 mt-1">{l.name || '-'}</div><div className="text-sm text-slate-500">{formatPhone(l.phone)}</div></div><div className="flex flex-col items-end gap-1"><span className={clsx('px-2 py-0.5 rounded-md border text-xs font-medium whitespace-nowrap', stageBadge(displayStage(l)))}>{STAGE_LABELS[displayStage(l)]}</span><VisitPathBadge row={l} /><QuotePathBadge row={l} /></div></div>
           {(l as any).memo && <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-800"><b>메모</b> {(l as any).memo}</div>}
           <div className="grid grid-cols-2 gap-3 text-xs text-slate-600">
             <div className="col-span-2">
@@ -701,9 +724,10 @@ export default function DBManagePage() {
               return <tr key={key} className="align-top hover:bg-slate-50/70">
                 <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
                   <div>{fmtDateTime(l)}</div>
+                  {l.visitMilestone && <div className="mt-1 text-[10px] font-medium text-cyan-700">방문신청 {l.visitMilestone.registeredAt || l.visitMilestone.date}</div>}
                   {isDateOverridden(l) && <span className="mt-1 inline-flex rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">수동보정</span>}
                 </td>
-                <td className="px-3 py-3 whitespace-nowrap"><div className="flex flex-col gap-1"><span className={clsx('w-fit px-2 py-0.5 rounded-md border font-medium', stageBadge(l.dbTier))}>{STAGE_LABELS[l.dbTier]}</span><QuotePathBadge row={l} /></div></td>
+                <td className="px-3 py-3 whitespace-nowrap"><div className="flex flex-col gap-1"><span className={clsx('w-fit px-2 py-0.5 rounded-md border font-medium', stageBadge(displayStage(l)))}>{STAGE_LABELS[displayStage(l)]}</span><VisitPathBadge row={l} /><QuotePathBadge row={l} /></div></td>
                 <td className="px-3 py-3 min-w-[220px]">
                   <div className="font-semibold text-slate-700">{l.name || '-'}</div>
                   <div className="text-slate-500 mt-0.5">{formatPhone(l.phone)}</div>

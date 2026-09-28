@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { format } from 'date-fns'
 import { RefreshCw, ArrowDown } from 'lucide-react'
-import { fetchLeads } from '../lib/dataService'
+import { fetchConsultingStatusEvents, fetchLeads, type ConsultingStatusEvent } from '../lib/dataService'
 import { useAutoDataRefresh } from '../lib/appRefresh'
 import type { LeadRecord } from '../types'
 import {
@@ -12,6 +12,7 @@ import {
 import DataUpdatedAt from '../components/DataUpdatedAt'
 import clsx from 'clsx'
 import { buildLeadJourneys } from '../lib/leadMetrics'
+import { buildVisitMilestones, latestVisitByPhone } from '../lib/visitMetrics'
 
 const CHANNELS = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment','chatgpt','direct','tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','ezpz','inbound_call','etc'] as const
 const CHANNEL_LABELS: Record<string, string> = {
@@ -33,14 +34,16 @@ function formatRateLabel(numerator: number, denominator: number) {
 
 export default function FunnelPage() {
   const [leads, setLeads] = useState<LeadRecord[]>([])
+  const [statusEvents, setStatusEvents] = useState<ConsultingStatusEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [filterChannel, setFilterChannel] = useState<string>('all')
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'))
 
   async function load() {
     setLoading(true)
-    const l = await fetchLeads()
+    const [l, events] = await Promise.all([fetchLeads(), fetchConsultingStatusEvents()])
     setLeads(l)
+    setStatusEvents(events)
     setLoading(false)
   }
 
@@ -54,30 +57,39 @@ export default function FunnelPage() {
     ? monthJourneys
     : monthJourneys.filter(journey => journey.lead.channel === filterChannel)
 
-  const retarget = filtered.filter(journey => journey.stage === 'retarget').length
-  const firstTotal = filtered.filter(journey => journey.stage === 'first').length
-  const secondTotal = filtered.filter(journey => journey.stage === 'second').length
+  const visitByPhone = latestVisitByPhone(buildVisitMilestones(statusEvents))
+  const hasVisit = (phone: string) => visitByPhone.has(phone)
+  const retarget = filtered.filter(journey => journey.stage === 'retarget' && !hasVisit(journey.lead.phone)).length
+  const firstTotal = filtered.filter(journey => journey.stage === 'first' && !hasVisit(journey.lead.phone)).length
+  const secondTotal = filtered.filter(journey => journey.stage === 'second' && !hasVisit(journey.lead.phone)).length
+  const thirdTotal = filtered.filter(journey => hasVisit(journey.lead.phone)).length
+  const afterEstimateThird = filtered.filter(journey => visitByPhone.get(journey.lead.phone)?.path === 'after_estimate').length
+  const afterConsultationThird = filtered.filter(journey => visitByPhone.get(journey.lead.phone)?.path === 'after_consultation').length
+  const unknownThird = thirdTotal - afterEstimateThird - afterConsultationThird
   const convertedSecond = filtered.filter(journey => journey.secondType === 'estimate_to_consult').length
   const directSecond = filtered.filter(journey => journey.secondType === 'direct_consult').length
-  const total = retarget + firstTotal + secondTotal
+  const total = retarget + firstTotal + secondTotal + thirdTotal
 
   const funnelSteps = [
     { label: '리타겟 DB', count: retarget, color: '#7c3aed', light: 'bg-violet-50 border-violet-200 text-violet-700' },
     { label: '1차 DB', count: firstTotal, color: '#2563eb', light: 'bg-blue-50 border-blue-200 text-blue-700' },
     { label: '2차 DB', count: secondTotal, color: '#059669', light: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+    { label: '3차 DB (방문상담)', count: thirdTotal, color: '#0891b2', light: 'bg-cyan-50 border-cyan-200 text-cyan-700' },
   ]
 
   // Channel funnel data
   const channelFunnelData = CHANNELS.map(ch => ({
     name: CHANNEL_LABELS[ch],
     ch,
-    retarget: monthJourneys.filter(journey => journey.lead.channel === ch && journey.stage === 'retarget').length,
-    first: monthJourneys.filter(journey => journey.lead.channel === ch && journey.stage === 'first').length,
-    second: monthJourneys.filter(journey => journey.lead.channel === ch && journey.stage === 'second').length,
+    retarget: monthJourneys.filter(journey => journey.lead.channel === ch && journey.stage === 'retarget' && !hasVisit(journey.lead.phone)).length,
+    first: monthJourneys.filter(journey => journey.lead.channel === ch && journey.stage === 'first' && !hasVisit(journey.lead.phone)).length,
+    second: monthJourneys.filter(journey => journey.lead.channel === ch && journey.stage === 'second' && !hasVisit(journey.lead.phone)).length,
+    third: monthJourneys.filter(journey => journey.lead.channel === ch && hasVisit(journey.lead.phone)).length,
   }))
 
   const f2s = formatRateLabel(convertedSecond, firstTotal + convertedSecond)
   const finalSecondShare = formatRateLabel(secondTotal, total)
+  const s2t = formatRateLabel(afterConsultationThird, secondTotal + afterConsultationThird)
 
   return (
     <div className="p-4 md:p-6 space-y-6">
@@ -122,7 +134,7 @@ export default function FunnelPage() {
                   <div className="flex flex-col items-center gap-0.5 py-1">
                     <ArrowDown size={14} className="text-slate-300" />
                     <span className="text-[10px] text-slate-400">
-                      {i === 1 ? '최종 단계 기준' : `견적→상담 ${f2s}`}
+                      {i === 1 ? '최종 단계 기준' : i === 2 ? `견적→상담 ${f2s}` : `상담→방문 ${s2t}`}
                     </span>
                   </div>
                 )}
@@ -147,6 +159,10 @@ export default function FunnelPage() {
               <span className="font-semibold text-slate-700">{convertedSecond}건 / {directSecond}건</span>
             </div>
             <div className="flex justify-between text-xs text-slate-500">
+              <span>3차 진입경로</span>
+              <span className="font-semibold text-slate-700">견적직행 {afterEstimateThird} · 상담후 {afterConsultationThird} · 미상 {unknownThird}</span>
+            </div>
+            <div className="flex justify-between text-xs text-slate-500">
               <span>총 DB</span>
               <span className="font-semibold text-slate-700">{total}건</span>
             </div>
@@ -157,12 +173,13 @@ export default function FunnelPage() {
         <div className="lg:col-span-2 card p-5">
           <p className="text-xs font-semibold text-slate-600 mb-4">매체별 DB 등급 분포</p>
           <div className="space-y-3 md:hidden">
-            {channelFunnelData.filter(row => row.retarget + row.first + row.second > 0).map(row => <div key={row.ch} className="rounded-lg bg-slate-50 p-3">
-              <div className="flex items-center justify-between"><span className="font-medium text-slate-700">{row.name}</span><span className="text-xs font-bold text-slate-700">{row.retarget + row.first + row.second}건</span></div>
-              <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
+            {channelFunnelData.filter(row => row.retarget + row.first + row.second + row.third > 0).map(row => <div key={row.ch} className="rounded-lg bg-slate-50 p-3">
+              <div className="flex items-center justify-between"><span className="font-medium text-slate-700">{row.name}</span><span className="text-xs font-bold text-slate-700">{row.retarget + row.first + row.second + row.third}건</span></div>
+              <div className="mt-2 grid grid-cols-4 gap-2 text-center text-xs">
                 <div className="rounded bg-violet-50 py-1.5 text-violet-700">리타겟 {row.retarget}</div>
                 <div className="rounded bg-blue-50 py-1.5 text-blue-700">1차 {row.first}</div>
                 <div className="rounded bg-emerald-50 py-1.5 text-emerald-700">2차 {row.second}</div>
+                <div className="rounded bg-cyan-50 py-1.5 text-cyan-700">3차 {row.third}</div>
               </div>
             </div>)}
           </div>
@@ -176,12 +193,13 @@ export default function FunnelPage() {
                   contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
                   formatter={(val: number, name: string) => [
                     `${val}건`,
-                    name === 'retarget' ? '리타겟' : name === 'first' ? '1차 DB' : '2차 DB'
+                    name === 'retarget' ? '리타겟' : name === 'first' ? '1차 DB' : name === 'second' ? '2차 DB' : '3차 DB'
                   ]}
                 />
                 <Bar dataKey="retarget" stackId="a" fill="#7c3aed" radius={[0,0,0,0]} />
                 <Bar dataKey="first" stackId="a" fill="#3b82f6" radius={[0,0,0,0]} />
-                <Bar dataKey="second" stackId="a" fill="#10b981" radius={[4,4,0,0]} />
+                <Bar dataKey="second" stackId="a" fill="#10b981" />
+                <Bar dataKey="third" stackId="a" fill="#06b6d4" radius={[4,4,0,0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -190,6 +208,7 @@ export default function FunnelPage() {
               { label: '리타겟', color: '#7c3aed' },
               { label: '1차 DB', color: '#3b82f6' },
               { label: '2차 DB', color: '#10b981' },
+              { label: '3차 DB', color: '#06b6d4' },
             ].map(({ label, color }) => (
               <div key={label} className="flex items-center gap-1.5">
                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
@@ -206,9 +225,9 @@ export default function FunnelPage() {
           <p className="text-xs font-semibold text-slate-700">매체별 퍼널 상세</p>
         </div>
         <div className="divide-y divide-slate-50 md:hidden">
-          {channelFunnelData.filter(row => row.retarget + row.first + row.second > 0).map(row => <div key={row.ch} className="p-4">
-            <div className="flex items-center justify-between"><span className="font-semibold text-slate-700">{row.name}</span><span className="text-xs text-slate-400">합계 {row.retarget + row.first + row.second}건</span></div>
-            <div className="mt-2 flex items-center justify-between text-xs"><span className="text-violet-700">리타겟 {row.retarget}</span><span className="text-slate-300">→</span><span className="text-blue-700">1차 {row.first}</span><span className="text-slate-300">→</span><span className="text-emerald-700">2차 {row.second}</span></div>
+          {channelFunnelData.filter(row => row.retarget + row.first + row.second + row.third > 0).map(row => <div key={row.ch} className="p-4">
+            <div className="flex items-center justify-between"><span className="font-semibold text-slate-700">{row.name}</span><span className="text-xs text-slate-400">합계 {row.retarget + row.first + row.second + row.third}건</span></div>
+            <div className="mt-2 flex items-center justify-between text-xs"><span className="text-violet-700">리타겟 {row.retarget}</span><span className="text-slate-300">→</span><span className="text-blue-700">1차 {row.first}</span><span className="text-slate-300">→</span><span className="text-emerald-700">2차 {row.second}</span><span className="text-slate-300">→</span><span className="text-cyan-700">3차 {row.third}</span></div>
           </div>)}
         </div>
         <div className="hidden overflow-auto md:block"><table className="w-full text-sm min-w-[760px]">
@@ -220,14 +239,16 @@ export default function FunnelPage() {
               <th className="text-right px-4 py-2.5 text-xs font-medium text-blue-600">1차 DB</th>
               <th className="text-center px-2 py-2.5 text-xs font-medium">→</th>
               <th className="text-right px-4 py-2.5 text-xs font-medium text-emerald-600">2차 DB</th>
+              <th className="text-center px-2 py-2.5 text-xs font-medium">→</th>
+              <th className="text-right px-4 py-2.5 text-xs font-medium text-cyan-600">3차 DB</th>
               <th className="text-right px-4 py-2.5 text-xs font-medium">합계</th>
               <th className="text-right px-4 py-2.5 text-xs font-medium">최종전환율</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {channelFunnelData.map(({ name, ch, retarget, first, second }) => {
-              const tot = retarget + first + second
-              const finalRate = formatRateLabel(second, retarget)
+            {channelFunnelData.map(({ name, ch, retarget, first, second, third }) => {
+              const tot = retarget + first + second + third
+              const finalRate = formatRateLabel(third, second + third)
               return (
                 <tr key={ch} className="hover:bg-slate-50/60">
                   <td className="px-4 py-3">
@@ -241,12 +262,14 @@ export default function FunnelPage() {
                   <td className="px-4 py-3 text-right font-medium text-blue-700">{first}</td>
                   <td className="px-2 py-3 text-center text-slate-300 text-xs">↓</td>
                   <td className="px-4 py-3 text-right font-medium text-emerald-700">{second}</td>
+                  <td className="px-2 py-3 text-center text-slate-300 text-xs">↓</td>
+                  <td className="px-4 py-3 text-right font-medium text-cyan-700">{third}</td>
                   <td className="px-4 py-3 text-right font-bold text-slate-800">{tot}</td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex flex-col items-end gap-0.5">
                       <span className="text-xs font-semibold text-slate-700">{finalRate}</span>
                       {retarget > 0 && (
-                        <span className="text-[10px] text-slate-400">2차 {second} / C {retarget}</span>
+                        <span className="text-[10px] text-slate-400">3차 {third} / 2차도달 {second + third}</span>
                       )}
                     </div>
                   </td>

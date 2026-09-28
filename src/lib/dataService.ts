@@ -438,6 +438,7 @@ function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRe
     registeredAt: String(row.registeredAt ?? row['등록일시'] ?? row['등록 일시'] ?? row.접수일시 ?? row.uploadedAt ?? uploadedAt),
     preferredVisitDate: normalizeOptionalDate(row.preferredVisitDate ?? row.preferred_visit_date ?? row['방문희망날짜'] ?? row['방문 희망 날짜'] ?? row['방문희망일'] ?? row['방문 희망일'] ?? row._parsed_preferredVisitDate),
     consultationResult: String(row.consultationResult ?? row['상담결과'] ?? row['상담 결과'] ?? ''),
+    consultingStatus: String(row.consultingStatus ?? row.consulting_status ?? row['컨설팅상태'] ?? row['컨설팅 상태'] ?? row['상담상태'] ?? row['상담 상태'] ?? row._parsed_consultingStatus ?? ''),
     memo: String(row.memo ?? row['메모'] ?? row['특이사항'] ?? row['메모(특이사항)'] ?? ''),
     operator: String(row.operator ?? row['접수자'] ?? row['작업자'] ?? row['처리자'] ?? row['상담원'] ?? row['상담담당자'] ?? row['상담 담당자'] ?? row['등록자'] ?? row.registrant ?? ''),
     salesOwner: String(row.salesOwner ?? row['영업담당자'] ?? row['영업 담당자'] ?? row['영업 담당'] ?? row['배정담당자'] ?? row['배정 담당자'] ?? row['배정'] ?? row['담당자'] ?? row.manager ?? row.owner ?? ''),
@@ -706,6 +707,7 @@ function rawRowsFromLeads(leads: Omit<LeadRecord, 'id' | 'uploadedAt'>[]) {
       _parsed_operator: (lead as any).operator || '',
       _parsed_salesOwner: (lead as any).salesOwner || '',
       _parsed_consultationResult: (lead as any).consultationResult || '',
+      _parsed_consultingStatus: (lead as any).consultingStatus || '',
       _parsed_preferredVisitDate: (lead as any).preferredVisitDate || '',
       _parsed_memo: (lead as any).memo || '',
       _parsed_utm_source: (lead as any).utm_source || '',
@@ -751,6 +753,7 @@ function dashboardRowsFromLeads(leads: LeadRecord[]) {
     registeredAt: (r as any).registeredAt || r.uploadedAt || r.date,
       preferredVisitDate: (r as any).preferredVisitDate || '',
       consultationResult: (r as any).consultationResult || '',
+      consultingStatus: (r as any).consultingStatus || '',
       memo: (r as any).memo || '',
       operator: (r as any).operator || '',
       salesOwner: (r as any).salesOwner || '',
@@ -823,6 +826,7 @@ export async function updateLeadAttribution(params: {
   subChannel?: string
   sourceRaw?: string
   consultationResult?: string
+  consultingStatus?: string
   memo?: string
   operator?: string
   status?: string
@@ -1004,6 +1008,34 @@ function pickRegisteredAtFromRaw(row: any): string {
   )
 }
 
+export type ConsultingStatusEvent = {
+  phone: string
+  name: string
+  consultingNumber: string
+  status: string
+  registeredAt: string
+  date: string
+  sequence: number
+}
+
+export async function fetchConsultingStatusEvents(): Promise<ConsultingStatusEvent[]> {
+  const rows = await getSheetRows('secondRaw').catch(() => [])
+  return rows.map((row: any, sequence: number) => {
+    const phone = normalizePhone(row._parsed_phone ?? row.phone ?? pickCell(row, ['연락처', '전화번호', '휴대폰', '휴대폰번호', '휴대폰 번호', '고객 연락처']) ?? '')
+    const registeredAt = pickRegisteredAtFromRaw(row)
+    const rawDate = row._parsed_date ?? row.date ?? pickCell(row, ['날짜', '등록일', '등록일시', '등록 일시', '접수일시', '신청일시'])
+    return {
+      phone,
+      name: String(row._parsed_name ?? row.name ?? pickCell(row, ['이름', '성명', '고객명']) ?? '').trim(),
+      consultingNumber: String(row._parsed_consultingNumber ?? row.consultingNumber ?? row.consulting_number ?? pickCell(row, ['컨설팅번호', '컨설팅 번호', '상담번호', '상담 번호']) ?? '').trim(),
+      status: String(row._parsed_consultingStatus ?? row.consultingStatus ?? row.consulting_status ?? pickCell(row, ['컨설팅상태', '컨설팅 상태', '상담상태', '상담 상태']) ?? '').trim(),
+      registeredAt,
+      date: normalizeDate(rawDate || registeredAt, new Date()),
+      sequence,
+    }
+  }).filter((event: ConsultingStatusEvent) => Boolean(event.phone && event.status))
+}
+
 function directSalesRawLookup(secondRawRows: any[]) {
   const lookup = new Map<string, { channel: Channel; subChannel: string; source_raw: string }>()
   secondRawRows.forEach((row: any) => {
@@ -1093,6 +1125,7 @@ type RawLeadMeta = {
   operator?: string
   salesOwner?: string
   consultationResult?: string
+  consultingStatus?: string
   memo?: string
 }
 
@@ -1111,6 +1144,7 @@ function buildRawMetaLookup(firstRawRows: any[], secondRawRows: any[]) {
       operator: pickOperatorFromRaw(row),
       salesOwner: pickSalesOwnerFromRaw(row),
       consultationResult: String(row.consultationResult ?? row['상담결과'] ?? row['상담 결과'] ?? row['상담상태'] ?? row['상담 상태'] ?? row['결과'] ?? '').trim(),
+      consultingStatus: String(row.consultingStatus ?? row.consulting_status ?? row['컨설팅상태'] ?? row['컨설팅 상태'] ?? row['상담상태'] ?? row['상담 상태'] ?? row._parsed_consultingStatus ?? '').trim(),
       memo: String(row.memo ?? row['메모'] ?? row['특이사항'] ?? row['메모(특이사항)'] ?? row['비고'] ?? row['상담메모'] ?? '').trim(),
     }
     const byDateKey = date ? `${phone}_${date}` : ''
@@ -1138,6 +1172,7 @@ function enrichMetaFromRaw(lead: LeadRecord, lookup: Map<string, RawLeadMeta>): 
     operator: (lead as any).operator || meta.operator || '',
     salesOwner: meta.salesOwner || (lead as any).salesOwner || '',
     consultationResult: (lead as any).consultationResult || meta.consultationResult || '',
+    consultingStatus: (lead as any).consultingStatus || meta.consultingStatus || '',
     memo: (lead as any).memo || meta.memo || '',
   } as LeadRecord
 }
