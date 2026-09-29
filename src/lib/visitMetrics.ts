@@ -7,7 +7,7 @@ export type VisitMilestone = ConsultingStatusEvent & {
 }
 
 export const VISIT_PATH_LABELS: Record<VisitPath, string> = {
-  after_estimate: '견적확인 후 바로 방문신청',
+  after_estimate: '알림톡 무료방문상담 신청',
   after_consultation: '상담신청 후 방문신청',
   unknown: '이전 경로 확인 불가',
 }
@@ -17,7 +17,7 @@ function normalizeStatus(value: string) {
 }
 
 function eventTime(event: ConsultingStatusEvent) {
-  const normalized = String(event.registeredAt || event.date || '').replace(/\./g, '-').replace(/\s+/g, ' ').trim()
+  const normalized = String(event.registeredAt || event.date || '').replace(/[./]/g, '-').replace(/\s+/g, ' ').trim()
   const parsed = new Date(normalized.includes('T') ? normalized : normalized.replace(' ', 'T')).getTime()
   return Number.isFinite(parsed) ? parsed : new Date(`${event.date}T00:00:00`).getTime()
 }
@@ -59,10 +59,11 @@ export function buildVisitMilestones(events: ConsultingStatusEvent[]): VisitMile
       candidate.phone === visit.phone &&
       (eventTime(candidate) < eventTime(visit) || (eventTime(candidate) === eventTime(visit) && candidate.sequence < visit.sequence))
     )
-    const path: VisitPath = phonePrior.some(candidate => isConsultation(candidate.status))
-      ? 'after_consultation'
-      : phonePrior.some(candidate => isEstimate(candidate.status))
-        ? 'after_estimate'
+    // 견적확인 이력이 있으면 알림톡의 무료방문상담 경로를 우선한다.
+    const path: VisitPath = phonePrior.some(candidate => isEstimate(candidate.status))
+      ? 'after_estimate'
+      : phonePrior.some(candidate => isConsultation(candidate.status))
+        ? 'after_consultation'
         : 'unknown'
     return { ...visit, path }
   })
