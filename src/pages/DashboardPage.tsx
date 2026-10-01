@@ -2,15 +2,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, startOfWeek, endOfWeek, parseISO, subDays, subWeeks, subMonths, subYears, eachDayOfInterval } from 'date-fns'
 import { Users, DollarSign, TrendingDown, CalendarDays, RefreshCw, ChevronDown, HelpCircle } from 'lucide-react'
-import { fetchLeads, fetchAdSpend, fetchKpiTargets, type KpiTarget } from '../lib/dataService'
+import { fetchLeads, fetchAdSpend, fetchKpiTargets, fetchProjects, type KpiTarget } from '../lib/dataService'
 import { useAutoDataRefresh } from '../lib/appRefresh'
-import type { LeadRecord, AdSpend, ViewMode } from '../types'
+import type { LeadRecord, AdSpend, ProjectRecord, ViewMode } from '../types'
 import TimeSeriesChart from '../components/dashboard/TimeSeriesChart'
 import ChannelBar from '../components/channels/ChannelBar'
 import DataUpdatedAt from '../components/DataUpdatedAt'
 import clsx from 'clsx'
 import { buildLeadJourneys, isDirectSales, isPaidChannel, trafficGroup, type TrafficGroup } from '../lib/leadMetrics'
 import { DEFAULT_KPI_MIN_DAILY, DEFAULT_KPI_STRETCH_DAILY } from '../lib/kpiDefaults'
+import { contractedProjects } from '../lib/projectMetrics'
 
 const today = format(new Date(), 'yyyy-MM-dd')
 const PAID_CHANNEL_LIST = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment','chatgpt'] as const
@@ -279,6 +280,10 @@ export default function DashboardPage() {
   const [leads, setLeads] = useState<LeadRecord[]>([])
   const [spends, setSpends] = useState<AdSpend[]>([])
   const [targets, setTargets] = useState<KpiTarget[]>([])
+  const [projects, setProjects] = useState<ProjectRecord[]>([])
+  const [summaryTab, setSummaryTab] = useState<'db' | 'contracts'>(() => {
+    try { return window.sessionStorage.getItem('ieum-dashboard-summary-tab') === 'contracts' ? 'contracts' : 'db' } catch { return 'db' }
+  })
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null)
@@ -291,18 +296,21 @@ export default function DashboardPage() {
     setLoading(true)
     setLoadError('')
     try {
-      const [leadResult, spendResult, targetResult] = await Promise.allSettled([
+      const [leadResult, spendResult, targetResult, projectResult] = await Promise.allSettled([
         fetchLeads(),
         fetchAdSpend(),
         fetchKpiTargets().catch(() => [] as KpiTarget[]),
+        fetchProjects(),
       ])
       if (leadResult.status === 'fulfilled') setLeads(leadResult.value)
       if (spendResult.status === 'fulfilled') setSpends(spendResult.value)
       if (targetResult.status === 'fulfilled') setTargets(targetResult.value)
+      if (projectResult.status === 'fulfilled') setProjects(projectResult.value)
       const errors = [
         leadResult.status === 'rejected' ? `DB: ${leadResult.reason instanceof Error ? leadResult.reason.message : String(leadResult.reason)}` : '',
         spendResult.status === 'rejected' ? `광고비: ${spendResult.reason instanceof Error ? spendResult.reason.message : String(spendResult.reason)}` : '',
         targetResult.status === 'rejected' ? `KPI: ${targetResult.reason instanceof Error ? targetResult.reason.message : String(targetResult.reason)}` : '',
+        projectResult.status === 'rejected' ? `계약: ${projectResult.reason instanceof Error ? projectResult.reason.message : String(projectResult.reason)}` : '',
       ].filter(Boolean)
       if (errors.length) setLoadError(errors.join(' / '))
     } finally {
@@ -312,6 +320,9 @@ export default function DashboardPage() {
 
   useEffect(() => { load() }, [])
   useAutoDataRefresh(load)
+  useEffect(() => {
+    try { window.sessionStorage.setItem('ieum-dashboard-summary-tab', summaryTab) } catch {}
+  }, [summaryTab])
 
   const journeys = useMemo(() => buildLeadJourneys(leads), [leads])
   const validLeads = useMemo(() => journeys.map(journey => journey.lead), [journeys])
@@ -410,6 +421,15 @@ export default function DashboardPage() {
   const compareSpend = compareSpends.filter(s => isPaidChannel(s.channel)).reduce((a, b) => a + b.amount, 0)
   const comparePaidValidLeads = compareLeads.filter(l => isPaidChannel(l.channel) && (l.dbTier === 'first' || l.dbTier === 'second'))
   const compareCpl = comparePaidValidLeads.length > 0 ? Math.round(compareSpend / comparePaidValidLeads.length) : 0
+  const eligibleContracts = useMemo(() => contractedProjects(projects), [projects])
+  const activeContracts = eligibleContracts.filter(project => inRange(project.contractDate, range.activeStart, range.activeEnd))
+  const compareContracts = eligibleContracts.filter(project => inRange(project.contractDate, dbCard.compareStart, dbCard.compareEnd))
+  const cumulativeContracts = eligibleContracts.filter(project => project.contractDate <= range.activeEnd)
+  const activeContractAmount = activeContracts.reduce((sum, project) => sum + project.contractAmount, 0)
+  const compareContractAmount = compareContracts.reduce((sum, project) => sum + project.contractAmount, 0)
+  const cumulativeContractAmount = cumulativeContracts.reduce((sum, project) => sum + project.contractAmount, 0)
+  const contractRate = totalDB > 0 ? Number(((activeContracts.length / totalDB) * 100).toFixed(1)) : 0
+  const costPerContract = activeContracts.length > 0 && periodSpend > 0 ? Math.round(periodSpend / activeContracts.length) : 0
   const periodDays = eachDayOfInterval({ start: safeDate(range.activeStart), end: safeDate(range.activeEnd) }).length
   const activeTarget = targets.find(target => target.month === range.activeEnd.slice(0, 7))
   const minDailyTarget = activeTarget?.minDaily || DEFAULT_KPI_MIN_DAILY
@@ -572,6 +592,104 @@ export default function DashboardPage() {
     },
   ]
 
+  const primaryContractLabel = dbCard.primaryLabel.replace(/DB$/, '계약')
+  const compareContractLabel = dbCard.compareLabel.replace(/DB$/, '계약')
+  const CONTRACT_CARDS = [
+    {
+      label: primaryContractLabel,
+      value: activeContracts.length,
+      unit: '건',
+      sub: `계약금액 ${fmtKRW(activeContractAmount)}원`,
+      tooltip: [
+        `집계기간: ${range.activeStart} ~ ${range.activeEnd}`,
+        '계약금입금일이 집계기간에 포함된 고유 프로젝트를 계약 1건으로 인정합니다.',
+        '취소·삭제·테스트·중복·무효 프로젝트는 제외합니다.',
+        `계약 ${activeContracts.length.toLocaleString()}건 · 계약금액 ${activeContractAmount.toLocaleString()}원`,
+      ],
+      icon: CalendarDays,
+      color: 'text-indigo-600',
+      bg: 'bg-indigo-50',
+    },
+    {
+      label: viewMode === 'daily' ? '선택일 계약금액' : '선택기간 계약금액',
+      value: fmtKRW(activeContractAmount),
+      unit: '원',
+      sub: `${activeContracts.length.toLocaleString()}건 합계`,
+      tooltip: [
+        `집계기간: ${range.activeStart} ~ ${range.activeEnd}`,
+        '위 기간에 인정된 고유 계약 프로젝트의 총금액을 합산합니다.',
+        '계약금 입금액이 아니라 프로젝트 총 계약금액 기준입니다.',
+        `결과: ${activeContractAmount.toLocaleString()}원`,
+      ],
+      icon: DollarSign,
+      color: 'text-violet-600',
+      bg: 'bg-violet-50',
+    },
+    {
+      label: compareContractLabel,
+      value: compareContracts.length,
+      unit: '건',
+      sub: `계약금액 ${fmtKRW(compareContractAmount)}원`,
+      tooltip: [
+        `비교기간: ${dbCard.compareStart} ~ ${dbCard.compareEnd}`,
+        '선택기간과 비교하는 직전 동일 기간의 인정 계약입니다.',
+        '계약금입금일 기준이며 취소·삭제·테스트·중복·무효 프로젝트는 제외합니다.',
+        `계약 ${compareContracts.length.toLocaleString()}건 · 계약금액 ${compareContractAmount.toLocaleString()}원`,
+      ],
+      icon: Users,
+      color: 'text-emerald-600',
+      bg: 'bg-emerald-50',
+    },
+    {
+      label: '누적 계약',
+      value: cumulativeContracts.length,
+      unit: '건',
+      sub: `누적 계약금액 ${fmtKRW(cumulativeContractAmount)}원`,
+      tooltip: [
+        `누적 기준일: ${range.activeEnd}까지`,
+        '최초 데이터부터 기준일까지 계약금입금일이 있는 고유 프로젝트를 집계합니다.',
+        '취소·삭제·테스트·중복·무효 프로젝트는 제외합니다.',
+        `누적 계약 ${cumulativeContracts.length.toLocaleString()}건 · 누적 계약금액 ${cumulativeContractAmount.toLocaleString()}원`,
+      ],
+      icon: Users,
+      color: 'text-teal-600',
+      bg: 'bg-teal-50',
+    },
+    {
+      label: '계약 전환율',
+      value: contractRate,
+      unit: '%',
+      sub: `계약 ${activeContracts.length.toLocaleString()} / 인정 DB ${totalDB.toLocaleString()}`,
+      tooltip: totalDB > 0 ? [
+        `계약 ${activeContracts.length.toLocaleString()}건 ÷ 선택기간 인정 DB ${totalDB.toLocaleString()}건 × 100`,
+        '계약은 계약금입금일 기준이며, DB는 연락처 중복을 제거한 최종 DB 기준입니다.',
+        '같은 기간에 발생한 계약과 DB의 운영 성과 비율이며 개별 고객 코호트 전환율은 아닙니다.',
+        `결과: ${contractRate}%`,
+      ] : ['선택기간에 인정 DB가 없어 계약 전환율을 계산하지 않습니다.'],
+      icon: TrendingDown,
+      color: 'text-cyan-600',
+      bg: 'bg-cyan-50',
+    },
+    {
+      label: '계약당 광고비',
+      value: costPerContract > 0 ? fmtKRW(costPerContract) : '—',
+      unit: costPerContract > 0 ? '원' : '',
+      sub: activeContracts.length > 0 ? `광고비 ÷ 계약 ${activeContracts.length.toLocaleString()}건` : '선택기간 계약 없음',
+      tooltip: costPerContract > 0 ? [
+        `선택기간 온라인 광고비 ${periodSpend.toLocaleString()}원 ÷ 계약 ${activeContracts.length.toLocaleString()}건`,
+        '광고비는 네이버·구글·메타·유튜브·바이럴·당근·카카오·Chat-GPT 합계입니다.',
+        '온라인 직접·자연유입과 외부·제휴 매체 광고비는 제외합니다.',
+        `결과: ${costPerContract.toLocaleString()}원`,
+      ] : [
+        activeContracts.length === 0 ? '선택기간에 인정 계약이 없어 계약당 광고비를 계산하지 않습니다.' : '선택기간에 온라인 광고비가 없어 계약당 광고비를 계산하지 않습니다.',
+      ],
+      icon: DollarSign,
+      color: 'text-orange-600',
+      bg: 'bg-orange-50',
+    },
+  ]
+  const SUMMARY_CARDS = summaryTab === 'db' ? STAT_CARDS : CONTRACT_CARDS
+
   const inputValue = viewMode === 'daily'
     ? selectedDate
     : viewMode === 'weekly'
@@ -673,8 +791,30 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-        {STAT_CARDS.map(({ label, value, unit, sub, tooltip, icon: Icon, color, bg }, index) => (
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex w-fit rounded-lg border border-slate-200 bg-white p-1 shadow-sm" role="tablist" aria-label="상단 성과 요약">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={summaryTab === 'db'}
+            onClick={() => setSummaryTab('db')}
+            className={clsx('tab-btn gap-1.5', summaryTab === 'db' && 'active')}
+          >DB 현황 <span className="opacity-70">{dbCard.primaryValue.toLocaleString()}건</span></button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={summaryTab === 'contracts'}
+            onClick={() => setSummaryTab('contracts')}
+            className={clsx('tab-btn gap-1.5', summaryTab === 'contracts' && 'active')}
+          >계약 현황 <span className="opacity-70">{activeContracts.length.toLocaleString()}건</span></button>
+        </div>
+        <p className="text-[11px] font-medium text-slate-400">
+          {summaryTab === 'db' ? 'DB 유입·광고 효율 요약' : '계약금입금일 기준 계약 성과 요약'}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6" role="tabpanel" aria-label={summaryTab === 'db' ? 'DB 현황' : '계약 현황'}>
+        {SUMMARY_CARDS.map(({ label, value, unit, sub, tooltip, icon: Icon, color, bg }, index) => (
           <div key={label} className="stat-card min-h-[142px] justify-between overflow-visible p-4 transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md">
             <div className="flex items-center justify-between">
               <div className="flex min-w-0 items-center gap-1">
