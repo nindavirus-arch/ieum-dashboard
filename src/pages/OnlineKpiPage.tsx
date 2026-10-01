@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { endOfMonth, format, getDay, getDaysInMonth, parseISO } from 'date-fns'
 import {
-  AlertTriangle, CalendarDays, CheckCircle2, DollarSign, FileDown, Gauge,
+  AlertTriangle, CalendarDays, CheckCircle2, DollarSign, FileDown, FileSpreadsheet, Gauge,
   RefreshCw, Settings, Target, TrendingUp, X,
 } from 'lucide-react'
 import {
@@ -203,6 +203,7 @@ export default function OnlineKpiPage() {
   const [draftMin, setDraftMin] = useState(DEFAULT_KPI_MIN_DAILY)
   const [draftStretch, setDraftStretch] = useState(DEFAULT_KPI_STRETCH_DAILY)
   const [saving, setSaving] = useState(false)
+  const [exportingExcel, setExportingExcel] = useState(false)
   const [includeRetarget, setIncludeRetarget] = useState(false)
 
   async function load(force = false) {
@@ -389,6 +390,170 @@ export default function OnlineKpiPage() {
     }
   }
 
+  async function downloadExcel() {
+    setExportingExcel(true)
+    setNotice('')
+    try {
+      const XLSX = await import('xlsx')
+      const generatedAt = format(new Date(), 'yyyy-MM-dd HH:mm:ss')
+      const stageTotals = {
+        retarget: monthAcquisitions.filter(row => row.stage === 'retarget').length,
+        first: monthAcquisitions.filter(row => row.stage === 'first').length,
+        directSecond: monthAcquisitions.filter(row => row.stage === 'second').length,
+      }
+      const monthlyRows = [{
+        '기준월': selectedMonth,
+        '집계 시작일': monthStart,
+        '집계 종료일': monthEnd,
+        '리타겟 포함 여부': includeRetarget ? '포함' : '제외',
+        '경과일': elapsedDays,
+        '남은 일수': remainingDays,
+        '일 기본 목표': minDaily,
+        '일 상향 목표': stretchDaily,
+        '월 기본 목표': minMonthly,
+        '월 상향 목표': stretchMonthly,
+        '총 KPI DB': totalDb,
+        '매체확인 DB': attributedDb,
+        '온라인 직접·자연 DB': unattributedOnlineDb,
+        '리타겟 DB': stageTotals.retarget,
+        '1차 유효DB': stageTotals.first,
+        '바로 상담 2차DB': stageTotals.directSecond,
+        '상담 전환 건수': monthConversions.length,
+        '기본 목표 달성률': minMonthly > 0 ? totalDb / minMonthly : 0,
+        '경과 목표 달성률': minExpected > 0 ? totalDb / minExpected : 0,
+        '현재 일평균': Number(dailyAverage.toFixed(1)),
+        '월말 예상 DB': forecast,
+        '필요 일평균': neededDaily,
+        '총 광고비': totalSpend,
+        '매체확인 CPL': attributedDb > 0 ? cpl : null,
+        '생성일시': generatedAt,
+      }]
+
+      const dailyRows = dailyData.map(row => {
+        const acquisitionsForDate = monthAcquisitions.filter(item => item.date === row.date)
+        const paidDb = acquisitionsForDate.filter(item => isPaidChannel(item.channel)).length
+        const organicDb = acquisitionsForDate.length - paidDb
+        const conversionsForDate = monthConversions.filter(item => item.date === row.date).length
+        const future = selectedMonth > currentMonth || (selectedMonth === currentMonth && row.date > today)
+        const targetStatus = future
+          ? '집계 전'
+          : row.db >= stretchDaily
+            ? '상향 목표 달성'
+            : row.db >= minDaily
+              ? '기본 목표 달성'
+              : '기본 목표 미달'
+        return {
+          '날짜': row.date,
+          '요일': ['일', '월', '화', '수', '목', '금', '토'][getDay(parseISO(row.date))],
+          '집계 상태': targetStatus,
+          '리타겟': row.retarget,
+          '1차 유효DB': row.first,
+          '바로 상담 2차DB': row.directSecond,
+          '일일 DB 합계': row.db,
+          '매체확인 DB': paidDb,
+          '온라인 직접·자연 DB': organicDb,
+          '상담 전환': conversionsForDate,
+          '일 광고비': row.spend,
+          '일 CPL': paidDb > 0 ? Math.round(row.spend / paidDb) : null,
+          '일 기본 목표': minDaily,
+          '일 상향 목표': stretchDaily,
+          '실제 누적 DB': row.cumulative,
+          '누적 기본 목표': row.minCumulative,
+          '누적 상향 목표': row.stretchCumulative,
+        }
+      })
+
+      const detailRows = detailStats.map(row => ({
+        '매체': row.channelLabel,
+        '상세매체': row.subChannel,
+        '리타겟': row.retarget,
+        '1차 유효DB': row.first,
+        '바로 상담 2차DB': row.directSecond,
+        '신규 DB 합계': row.db,
+        '상담 전환': row.converted,
+        '상담 전환율': row.db > 0 ? row.converted / row.db : null,
+        'DB 기여율': row.share / 100,
+        '광고비': row.spend,
+        'CPL': row.attributed && row.db > 0 ? row.cpl : null,
+      }))
+      detailRows.push({
+        '매체': '합계',
+        '상세매체': '',
+        '리타겟': stageTotals.retarget,
+        '1차 유효DB': stageTotals.first,
+        '바로 상담 2차DB': stageTotals.directSecond,
+        '신규 DB 합계': totalDb,
+        '상담 전환': monthConversions.length,
+        '상담 전환율': totalDb > 0 ? monthConversions.length / totalDb : null,
+        'DB 기여율': totalDb > 0 ? 1 : 0,
+        '광고비': totalSpend,
+        'CPL': attributedDb > 0 ? cpl : null,
+      })
+
+      const criteriaRows = [
+        { '항목': '대상 기간', '집계 기준': `${monthStart} ~ ${monthEnd}` },
+        { '항목': '총 KPI DB', '집계 기준': '온라인광고와 온라인 직접·자연유입을 포함하고 외부·제휴유입은 제외합니다.' },
+        { '항목': '중복 기준', '집계 기준': '연락처 기준 최종 고객 여정으로 중복 제거하며 현재 대시보드와 동일한 건수를 사용합니다.' },
+        { '항목': 'DB 집계일', '집계 기준': '고객의 현재 최종 DB 단계가 접수된 날짜 기준으로 한 번 집계합니다.' },
+        { '항목': '리타겟', '집계 기준': `다운로드 시점 설정: ${includeRetarget ? '포함' : '제외'}` },
+        { '항목': '매체확인 DB', '집계 기준': '유료 온라인광고 매체가 확인된 DB입니다.' },
+        { '항목': '온라인 직접·자연 DB', '집계 기준': '총 KPI에는 포함하지만 매체별 CPL 산정에서는 제외합니다.' },
+        { '항목': 'CPL', '집계 기준': '동일 기간의 매체확인 광고비 ÷ 매체확인 DB로 계산합니다. DB가 없으면 빈칸입니다.' },
+        { '항목': '상담 전환', '집계 기준': '1차 유효DB 이후 2차DB가 확인된 전환 건수이며 최초 1차 유입 매체에 귀속합니다.' },
+        { '항목': '상담 전환율', '집계 기준': '동일 기간 상담 전환 건수 ÷ 동일 기간 신규 DB입니다. 고객 코호트 전환율과는 다를 수 있습니다.' },
+        { '항목': '상세매체 통합', '집계 기준': '네이버 SA·GFA·브랜드검색을 구분하고 구글 디스커버리/GDN·유튜브는 통합합니다.' },
+        { '항목': '금액 단위', '집계 기준': '원' },
+        { '항목': '생성일시', '집계 기준': generatedAt },
+      ]
+
+      const workbook = XLSX.utils.book_new()
+      const summarySheet = XLSX.utils.json_to_sheet(monthlyRows)
+      const dailySheet = XLSX.utils.json_to_sheet(dailyRows)
+      const detailSheet = XLSX.utils.json_to_sheet(detailRows)
+      const criteriaSheet = XLSX.utils.json_to_sheet(criteriaRows)
+
+      summarySheet['!cols'] = Object.keys(monthlyRows[0]).map(header => ({ wch: Math.max(12, Math.min(24, header.length * 2 + 2)) }))
+      dailySheet['!cols'] = Object.keys(dailyRows[0] || {}).map(header => ({ wch: Math.max(12, Math.min(22, header.length * 2 + 2)) }))
+      detailSheet['!cols'] = [
+        { wch: 16 }, { wch: 28 }, { wch: 12 }, { wch: 14 }, { wch: 17 }, { wch: 14 },
+        { wch: 13 }, { wch: 15 }, { wch: 13 }, { wch: 16 }, { wch: 16 },
+      ]
+      criteriaSheet['!cols'] = [{ wch: 22 }, { wch: 90 }]
+      ;[summarySheet, dailySheet, detailSheet, criteriaSheet].forEach(sheet => {
+        if (sheet['!ref']) sheet['!autofilter'] = { ref: sheet['!ref'] }
+      })
+
+      const setColumnFormat = (sheet: any, header: string, cellFormat: string) => {
+        if (!sheet['!ref']) return
+        const range = XLSX.utils.decode_range(sheet['!ref'])
+        let column = -1
+        for (let col = range.s.c; col <= range.e.c; col += 1) {
+          if (sheet[XLSX.utils.encode_cell({ r: 0, c: col })]?.v === header) column = col
+        }
+        if (column < 0) return
+        for (let row = 1; row <= range.e.r; row += 1) {
+          const cell = sheet[XLSX.utils.encode_cell({ r: row, c: column })]
+          if (cell && typeof cell.v === 'number') cell.z = cellFormat
+        }
+      }
+      ;['기본 목표 달성률', '경과 목표 달성률'].forEach(header => setColumnFormat(summarySheet, header, '0.0%'))
+      ;['상담 전환율', 'DB 기여율'].forEach(header => setColumnFormat(detailSheet, header, '0.0%'))
+      ;['총 광고비', '매체확인 CPL'].forEach(header => setColumnFormat(summarySheet, header, '#,##0'))
+      ;['일 광고비', '일 CPL'].forEach(header => setColumnFormat(dailySheet, header, '#,##0'))
+      ;['광고비', 'CPL'].forEach(header => setColumnFormat(detailSheet, header, '#,##0'))
+
+      XLSX.utils.book_append_sheet(workbook, summarySheet, '월간요약')
+      XLSX.utils.book_append_sheet(workbook, dailySheet, '일별성과')
+      XLSX.utils.book_append_sheet(workbook, detailSheet, '상세매체성과')
+      XLSX.utils.book_append_sheet(workbook, criteriaSheet, '집계기준')
+      XLSX.writeFile(workbook, `온라인광고_KPI_${selectedMonth}_${includeRetarget ? '리타겟포함' : '리타겟제외'}.xlsx`, { compression: true })
+    } catch (error) {
+      setNotice(error instanceof Error ? `엑셀 생성 실패: ${error.message}` : '엑셀 생성에 실패했습니다.')
+    } finally {
+      setExportingExcel(false)
+    }
+  }
+
   const progress = minExpected > 0 ? Math.min((totalDb / minExpected) * 100, 130) : 0
   const progressTone = elapsedDays === 0 ? 'bg-slate-300' : totalDb >= stretchExpected ? 'bg-blue-500' : totalDb >= minExpected ? 'bg-emerald-500' : 'bg-red-400'
   const calendarOffset = getDay(monthDate)
@@ -416,6 +581,9 @@ export default function OnlineKpiPage() {
             onChange={event => setSelectedMonth(event.target.value)}
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
           />
+          <button onClick={downloadExcel} disabled={exportingExcel || loading} className="btn-secondary">
+            <FileSpreadsheet size={14} /> {exportingExcel ? '엑셀 생성 중...' : '엑셀 다운로드'}
+          </button>
           <button onClick={() => setReportOpen(true)} className="btn-secondary"><FileDown size={14} /> PDF 리포트</button>
           {user?.role === 'master' && <button onClick={openSettings} className="btn-secondary"><Settings size={14} /> 목표 설정</button>}
           <DataUpdatedAt />
