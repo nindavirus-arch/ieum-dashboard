@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { endOfMonth, format, getDay, getDaysInMonth, parseISO } from 'date-fns'
+import { eachDayOfInterval, endOfMonth, endOfWeek, format, getDay, getDaysInMonth, parseISO, startOfWeek, subMonths } from 'date-fns'
 import {
   AlertTriangle, CalendarDays, CheckCircle2, DollarSign, FileDown, FileSpreadsheet, Gauge,
   RefreshCw, Settings, Target, TrendingUp, X,
@@ -205,6 +205,9 @@ export default function OnlineKpiPage() {
   const [notice, setNotice] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
+  const [excelExportOpen, setExcelExportOpen] = useState(false)
+  const [excelStartMonth, setExcelStartMonth] = useState(selectedMonth)
+  const [excelEndMonth, setExcelEndMonth] = useState(selectedMonth)
   const [draftMin, setDraftMin] = useState(DEFAULT_KPI_MIN_DAILY)
   const [draftStretch, setDraftStretch] = useState(DEFAULT_KPI_STRETCH_DAILY)
   const [draftTargetCpl, setDraftTargetCpl] = useState(30_000)
@@ -404,142 +407,271 @@ export default function OnlineKpiPage() {
     }
   }
 
+  function openExcelExport() {
+    setExcelStartMonth(selectedMonth)
+    setExcelEndMonth(selectedMonth)
+    setExcelExportOpen(true)
+  }
+
+  function setExcelQuickRange(monthCount: number) {
+    const end = parseISO(`${excelEndMonth}-01`)
+    setExcelStartMonth(format(subMonths(end, monthCount - 1), 'yyyy-MM'))
+  }
+
   async function downloadExcel() {
+    if (!/^\d{4}-\d{2}$/.test(excelStartMonth) || !/^\d{4}-\d{2}$/.test(excelEndMonth) || excelStartMonth > excelEndMonth) {
+      setNotice('엑셀 집계 시작월과 종료월을 확인해주세요.')
+      return
+    }
     setExportingExcel(true)
     setNotice('')
     try {
       const XLSX = await import('xlsx')
       const generatedAt = format(new Date(), 'yyyy-MM-dd HH:mm:ss')
-      const stageTotals = {
-        retarget: monthAcquisitions.filter(row => row.stage === 'retarget').length,
-        first: monthAcquisitions.filter(row => row.stage === 'first').length,
-        directSecond: monthAcquisitions.filter(row => row.stage === 'second').length,
-      }
-      const monthlyRows = [{
-        '기준월': selectedMonth,
-        '집계 시작일': monthStart,
-        '집계 종료일': monthEnd,
-        '리타겟 포함 여부': includeRetarget ? '포함' : '제외',
-        '경과일': elapsedDays,
-        '남은 일수': remainingDays,
-        '일 기본 목표': minDaily,
-        '일 상향 목표': stretchDaily,
-        '월 기본 목표': minMonthly,
-        '월 상향 목표': stretchMonthly,
-        'KPI 목표 CPL': targetCpl || null,
-        '총 KPI DB': totalDb,
-        '매체확인 DB': attributedDb,
-        '온라인 직접·자연 DB': unattributedOnlineDb,
-        '리타겟 DB': stageTotals.retarget,
-        '1차 유효DB': stageTotals.first,
-        '바로 상담 2차DB': stageTotals.directSecond,
-        '상담 전환 건수': monthConversions.length,
-        '기본 목표 달성률': minMonthly > 0 ? totalDb / minMonthly : 0,
-        '경과 목표 달성률': minExpected > 0 ? totalDb / minExpected : 0,
-        '현재 일평균': Number(dailyAverage.toFixed(1)),
-        '월말 예상 DB': forecast,
-        '필요 일평균': neededDaily,
-        '총 광고비': totalSpend,
-        '매체확인 CPL': attributedDb > 0 ? cpl : null,
-        'CPL 목표 달성 여부': targetCpl <= 0 ? '목표 미설정' : attributedDb <= 0 ? '집계 전' : cpl <= targetCpl ? '달성' : '미달',
-        '생성일시': generatedAt,
-      }]
-
-      const dailyRows = dailyData.map(row => {
-        const acquisitionsForDate = monthAcquisitions.filter(item => item.date === row.date)
-        const paidDb = acquisitionsForDate.filter(item => isPaidChannel(item.channel)).length
-        const organicDb = acquisitionsForDate.length - paidDb
-        const conversionsForDate = monthConversions.filter(item => item.date === row.date).length
-        const future = selectedMonth > currentMonth || (selectedMonth === currentMonth && row.date > today)
-        const targetStatus = future
-          ? '집계 전'
-          : row.db >= stretchDaily
-            ? '상향 목표 달성'
-            : row.db >= minDaily
-              ? '기본 목표 달성'
-              : '기본 목표 미달'
+      const exportStart = `${excelStartMonth}-01`
+      const exportEnd = format(endOfMonth(parseISO(`${excelEndMonth}-01`)), 'yyyy-MM-dd')
+      const rangeAcquisitions = acquisitions.filter(row => row.date >= exportStart && row.date <= exportEnd)
+      const rangeConversions = conversions.filter(row => row.date >= exportStart && row.date <= exportEnd)
+      const rangeSpends = spends.filter(row => isPaidChannel(row.channel) && row.date >= exportStart && row.date <= exportEnd)
+      const targetForMonth = (month: string) => {
+        const configured = targets.find(row => row.month === month)
+        const base = configured?.minDaily || DEFAULT_KPI_MIN_DAILY
         return {
-          '날짜': row.date,
-          '요일': ['일', '월', '화', '수', '목', '금', '토'][getDay(parseISO(row.date))],
-          '집계 상태': targetStatus,
-          '리타겟': row.retarget,
-          '1차 유효DB': row.first,
-          '바로 상담 2차DB': row.directSecond,
-          '일일 DB 합계': row.db,
-          '매체확인 DB': paidDb,
-          '온라인 직접·자연 DB': organicDb,
-          '상담 전환': conversionsForDate,
-          '일 광고비': row.spend,
-          '일 CPL': paidDb > 0 ? Math.round(row.spend / paidDb) : null,
-          '일 기본 목표': minDaily,
-          '일 상향 목표': stretchDaily,
-          '실제 누적 DB': row.cumulative,
-          '누적 기본 목표': row.minCumulative,
-          '누적 상향 목표': row.stretchCumulative,
+          minDaily: base,
+          stretchDaily: Math.max(configured?.stretchDaily || DEFAULT_KPI_STRETCH_DAILY, base),
+          targetCpl: configured?.targetCpl || 0,
+        }
+      }
+      const days = eachDayOfInterval({ start: parseISO(exportStart), end: parseISO(exportEnd) })
+      let cumulative = 0
+      let cumulativeMin = 0
+      let cumulativeStretch = 0
+      const dailyMetrics = days.map(day => {
+        const date = format(day, 'yyyy-MM-dd')
+        const dateAcquisitions = rangeAcquisitions.filter(row => row.date === date)
+        const dateSpends = rangeSpends.filter(row => row.date === date)
+        const monthTarget = targetForMonth(date.slice(0, 7))
+        const paidDb = dateAcquisitions.filter(row => isPaidChannel(row.channel)).length
+        const spend = dateSpends.reduce((sum, row) => sum + row.amount, 0)
+        const db = dateAcquisitions.length
+        const future = date > today
+        cumulative += db
+        cumulativeMin += monthTarget.minDaily
+        cumulativeStretch += monthTarget.stretchDaily
+        return {
+          date,
+          retarget: dateAcquisitions.filter(row => row.stage === 'retarget').length,
+          first: dateAcquisitions.filter(row => row.stage === 'first').length,
+          directSecond: dateAcquisitions.filter(row => row.stage === 'second').length,
+          db,
+          paidDb,
+          organicDb: db - paidDb,
+          conversions: rangeConversions.filter(row => row.date === date).length,
+          spend,
+          cpl: paidDb > 0 ? Math.round(spend / paidDb) : null,
+          ...monthTarget,
+          cumulative,
+          cumulativeMin,
+          cumulativeStretch,
+          future,
+          status: future ? '집계 전' : db >= monthTarget.stretchDaily ? '상향 목표 달성' : db >= monthTarget.minDaily ? '기본 목표 달성' : '기본 목표 미달',
+          cplStatus: future ? '집계 전' : monthTarget.targetCpl <= 0 ? '목표 미설정' : paidDb <= 0 ? '집계 전' : Math.round(spend / paidDb) <= monthTarget.targetCpl ? '달성' : '미달',
         }
       })
-
-      const detailRows = detailStats.map(row => ({
-        '매체': row.channelLabel,
-        '상세매체': row.subChannel,
+      const dailyRows = dailyMetrics.map(row => ({
+        '날짜': row.date,
+        '요일': ['일', '월', '화', '수', '목', '금', '토'][getDay(parseISO(row.date))],
+        'DB 목표 상태': row.status,
+        'CPL 목표 상태': row.cplStatus,
         '리타겟': row.retarget,
         '1차 유효DB': row.first,
         '바로 상담 2차DB': row.directSecond,
-        '신규 DB 합계': row.db,
-        '상담 전환': row.converted,
-        '상담 전환율': row.db > 0 ? row.converted / row.db : null,
-        'DB 기여율': row.share / 100,
-        '광고비': row.spend,
-        'CPL': row.attributed && row.db > 0 ? row.cpl : null,
+        '일일 DB 합계': row.db,
+        '매체확인 DB': row.paidDb,
+        '온라인 직접·자연 DB': row.organicDb,
+        '상담 전환': row.conversions,
+        '일 광고비': row.spend,
+        '일 CPL': row.cpl,
+        '일 기본 목표': row.minDaily,
+        '일 상향 목표': row.stretchDaily,
+        '목표 CPL': row.targetCpl || null,
+        '실제 누적 DB': row.cumulative,
+        '누적 기본 목표': row.cumulativeMin,
+        '누적 상향 목표': row.cumulativeStretch,
       }))
-      detailRows.push({
-        '매체': '합계',
-        '상세매체': '',
-        '리타겟': stageTotals.retarget,
-        '1차 유효DB': stageTotals.first,
-        '바로 상담 2차DB': stageTotals.directSecond,
-        '신규 DB 합계': totalDb,
-        '상담 전환': monthConversions.length,
-        '상담 전환율': totalDb > 0 ? monthConversions.length / totalDb : null,
-        'DB 기여율': totalDb > 0 ? 1 : 0,
-        '광고비': totalSpend,
-        'CPL': attributedDb > 0 ? cpl : null,
+
+      const aggregateRows = (rows: typeof dailyMetrics) => ({
+        retarget: rows.reduce((sum, row) => sum + row.retarget, 0),
+        first: rows.reduce((sum, row) => sum + row.first, 0),
+        directSecond: rows.reduce((sum, row) => sum + row.directSecond, 0),
+        db: rows.reduce((sum, row) => sum + row.db, 0),
+        paidDb: rows.reduce((sum, row) => sum + row.paidDb, 0),
+        organicDb: rows.reduce((sum, row) => sum + row.organicDb, 0),
+        conversions: rows.reduce((sum, row) => sum + row.conversions, 0),
+        spend: rows.reduce((sum, row) => sum + row.spend, 0),
+        fullMinTarget: rows.reduce((sum, row) => sum + row.minDaily, 0),
+        fullStretchTarget: rows.reduce((sum, row) => sum + row.stretchDaily, 0),
+        elapsedMinTarget: rows.filter(row => !row.future).reduce((sum, row) => sum + row.minDaily, 0),
+        elapsedDays: rows.filter(row => !row.future).length,
+      })
+      const periodStatus = (actual: number, minTarget: number, stretchTarget: number, elapsedCount: number) => elapsedCount === 0
+        ? '집계 전'
+        : actual >= stretchTarget ? '상향 목표 달성' : actual >= minTarget ? '기본 목표 달성' : '기본 목표 미달'
+      const cplTargetSummary = (rows: typeof dailyMetrics) => {
+        const values = Array.from(new Set(rows.map(row => row.targetCpl).filter(Boolean)))
+        return { value: values.length === 1 ? values[0] : null, label: values.length === 0 ? '목표 미설정' : values.length === 1 ? `${values[0].toLocaleString()}원` : '월별 상이' }
+      }
+
+      const weekGroups = new Map<string, typeof dailyMetrics>()
+      dailyMetrics.forEach(row => {
+        const key = format(startOfWeek(parseISO(row.date), { weekStartsOn: 1 }), 'yyyy-MM-dd')
+        weekGroups.set(key, [...(weekGroups.get(key) || []), row])
+      })
+      const weeklyRows = Array.from(weekGroups.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([weekKey, rows], index) => {
+        const totals = aggregateRows(rows)
+        const target = cplTargetSummary(rows)
+        const actualCpl = totals.paidDb > 0 ? Math.round(totals.spend / totals.paidDb) : null
+        const weekEnd = format(endOfWeek(parseISO(weekKey), { weekStartsOn: 1 }), 'yyyy-MM-dd')
+        const elapsedStretch = rows.filter(row => !row.future).reduce((sum, row) => sum + row.stretchDaily, 0)
+        return {
+          '주차': `${index + 1}주차`,
+          '주 시작일': rows[0].date,
+          '주 종료일': rows[rows.length - 1].date < weekEnd ? rows[rows.length - 1].date : weekEnd,
+          '포함 일수': rows.length,
+          '경과 일수': totals.elapsedDays,
+          '리타겟': totals.retarget,
+          '1차 유효DB': totals.first,
+          '바로 상담 2차DB': totals.directSecond,
+          '주간 DB 합계': totals.db,
+          '매체확인 DB': totals.paidDb,
+          '온라인 직접·자연 DB': totals.organicDb,
+          '상담 전환': totals.conversions,
+          '주 광고비': totals.spend,
+          '주 CPL': actualCpl,
+          '경과 기본 목표': totals.elapsedMinTarget,
+          '전체 기본 목표': totals.fullMinTarget,
+          '목표 CPL': target.value,
+          '목표 CPL 기준': target.label,
+          'DB 목표 상태': periodStatus(totals.db, totals.elapsedMinTarget, elapsedStretch, totals.elapsedDays),
+          'CPL 목표 상태': target.value === null ? target.label : actualCpl === null ? '집계 전' : actualCpl <= target.value ? '달성' : '미달',
+        }
       })
 
+      const monthGroups = new Map<string, typeof dailyMetrics>()
+      dailyMetrics.forEach(row => monthGroups.set(row.date.slice(0, 7), [...(monthGroups.get(row.date.slice(0, 7)) || []), row]))
+      const monthlyRows = Array.from(monthGroups.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([month, rows]) => {
+        const totals = aggregateRows(rows)
+        const monthTarget = targetForMonth(month)
+        const actualCpl = totals.paidDb > 0 ? Math.round(totals.spend / totals.paidDb) : null
+        const elapsedStretch = rows.filter(row => !row.future).reduce((sum, row) => sum + row.stretchDaily, 0)
+        const average = totals.elapsedDays > 0 ? totals.db / totals.elapsedDays : 0
+        return {
+          '기준월': month,
+          '경과 일수': totals.elapsedDays,
+          '월 전체 일수': rows.length,
+          '리타겟': totals.retarget,
+          '1차 유효DB': totals.first,
+          '바로 상담 2차DB': totals.directSecond,
+          '월 DB 합계': totals.db,
+          '매체확인 DB': totals.paidDb,
+          '온라인 직접·자연 DB': totals.organicDb,
+          '상담 전환': totals.conversions,
+          '월 광고비': totals.spend,
+          '월 CPL': actualCpl,
+          '일평균 DB': Number(average.toFixed(1)),
+          '월말 예상 DB': totals.elapsedDays > 0 ? Math.round(average * rows.length) : 0,
+          '경과 기본 목표': totals.elapsedMinTarget,
+          '월 기본 목표': totals.fullMinTarget,
+          '월 상향 목표': totals.fullStretchTarget,
+          '목표 CPL': monthTarget.targetCpl || null,
+          'DB 목표 달성률': totals.elapsedMinTarget > 0 ? totals.db / totals.elapsedMinTarget : 0,
+          'DB 목표 상태': periodStatus(totals.db, totals.elapsedMinTarget, elapsedStretch, totals.elapsedDays),
+          'CPL 목표 상태': monthTarget.targetCpl <= 0 ? '목표 미설정' : actualCpl === null ? '집계 전' : actualCpl <= monthTarget.targetCpl ? '달성' : '미달',
+        }
+      })
+
+      const groupedAcquisitions = rangeAcquisitions.map(row => ({ ...row, ...kpiDetailGroup(row.channel, row.subChannel) }))
+      const groupedConversions = rangeConversions.map(row => ({ ...row, ...kpiDetailGroup(row.channel, row.subChannel) }))
+      const groupedSpends = rangeSpends.map(row => ({ ...row, ...kpiDetailGroup(row.channel, String(row.subChannel || '').trim() || defaultDetail(row.channel)) }))
+      const detailKeys = new Set<string>()
+      groupedAcquisitions.forEach(row => detailKeys.add(`${row.channel}__${row.subChannel}`))
+      groupedSpends.forEach(row => detailKeys.add(`${row.channel}__${row.subChannel}`))
+      const detailRows: Record<string, string | number | null>[] = Array.from(detailKeys).map(key => {
+        const [channel, subChannel] = key.split('__')
+        const dbRows = groupedAcquisitions.filter(row => row.channel === channel && row.subChannel === subChannel)
+        const spend = groupedSpends.filter(row => row.channel === channel && row.subChannel === subChannel).reduce((sum, row) => sum + row.amount, 0)
+        const paid = isPaidChannel(channel)
+        const converted = groupedConversions.filter(row => row.channel === channel && row.subChannel === subChannel).length
+        return {
+          '매체': CHANNEL_LABELS[channel] || channel,
+          '상세매체': subChannel,
+          '리타겟': dbRows.filter(row => row.stage === 'retarget').length,
+          '1차 유효DB': dbRows.filter(row => row.stage === 'first').length,
+          '바로 상담 2차DB': dbRows.filter(row => row.stage === 'second').length,
+          '신규 DB 합계': dbRows.length,
+          '상담 전환': converted,
+          '상담 전환율': dbRows.length > 0 ? converted / dbRows.length : null,
+          'DB 기여율': rangeAcquisitions.length > 0 ? dbRows.length / rangeAcquisitions.length : 0,
+          '광고비': spend,
+          'CPL': paid && dbRows.length > 0 ? Math.round(spend / dbRows.length) : null,
+        }
+      }).sort((a, b) => Number(b['신규 DB 합계']) - Number(a['신규 DB 합계']))
+
+      const rangeTotals = aggregateRows(dailyMetrics)
+      const rangeCpl = rangeTotals.paidDb > 0 ? Math.round(rangeTotals.spend / rangeTotals.paidDb) : null
+      detailRows.push({
+        '매체': '합계', '상세매체': '', '리타겟': rangeTotals.retarget, '1차 유효DB': rangeTotals.first,
+        '바로 상담 2차DB': rangeTotals.directSecond, '신규 DB 합계': rangeTotals.db, '상담 전환': rangeTotals.conversions,
+        '상담 전환율': rangeTotals.db > 0 ? rangeTotals.conversions / rangeTotals.db : null, 'DB 기여율': rangeTotals.db > 0 ? 1 : 0,
+        '광고비': rangeTotals.spend, 'CPL': rangeCpl,
+      })
+      const targetCplValues = Array.from(new Set(monthlyRows.map(row => row['목표 CPL']).filter(value => typeof value === 'number' && value > 0)))
+      const configuredCplMonths = monthlyRows.filter(row => typeof row['목표 CPL'] === 'number' && Number(row['목표 CPL']) > 0)
+      const achievedCplMonths = configuredCplMonths.filter(row => row['CPL 목표 상태'] === '달성').length
+      const summaryRows = [{
+        '집계 시작일': exportStart,
+        '집계 종료일': exportEnd,
+        '리타겟 포함 여부': includeRetarget ? '포함' : '제외',
+        '전체 일수': dailyMetrics.length,
+        '경과 일수': rangeTotals.elapsedDays,
+        '총 KPI DB': rangeTotals.db,
+        '매체확인 DB': rangeTotals.paidDb,
+        '온라인 직접·자연 DB': rangeTotals.organicDb,
+        '리타겟 DB': rangeTotals.retarget,
+        '1차 유효DB': rangeTotals.first,
+        '바로 상담 2차DB': rangeTotals.directSecond,
+        '상담 전환 건수': rangeTotals.conversions,
+        '경과 기본 목표': rangeTotals.elapsedMinTarget,
+        '전체 기본 목표': rangeTotals.fullMinTarget,
+        '전체 상향 목표': rangeTotals.fullStretchTarget,
+        '경과 목표 달성률': rangeTotals.elapsedMinTarget > 0 ? rangeTotals.db / rangeTotals.elapsedMinTarget : 0,
+        '경과 일평균 DB': rangeTotals.elapsedDays > 0 ? Number((rangeTotals.db / rangeTotals.elapsedDays).toFixed(1)) : 0,
+        '총 광고비': rangeTotals.spend,
+        '기간 CPL': rangeCpl,
+        '기간 목표 CPL': targetCplValues.length === 1 ? Number(targetCplValues[0]) : targetCplValues.length > 1 ? '월별 상이' : null,
+        'CPL 목표 달성 월': configuredCplMonths.length > 0 ? `${achievedCplMonths}/${configuredCplMonths.length}` : '목표 미설정',
+        '생성일시': generatedAt,
+      }]
       const criteriaRows = [
-        { '항목': '대상 기간', '집계 기준': `${monthStart} ~ ${monthEnd}` },
+        { '항목': '대상 기간', '집계 기준': `${exportStart} ~ ${exportEnd}` },
+        { '항목': '일별 집계', '집계 기준': '선택기간의 날짜별 실적과 해당 월의 DB·CPL 목표를 표시합니다.' },
+        { '항목': '주별 집계', '집계 기준': '월요일~일요일 기준입니다. 선택기간의 첫째·마지막 주는 실제 포함 일수만 집계합니다.' },
+        { '항목': '월별 집계', '집계 기준': '각 월에 저장된 DB 목표와 CPL 목표를 적용합니다. 현재월은 오늘까지 경과 목표로 평가합니다.' },
         { '항목': '총 KPI DB', '집계 기준': '온라인광고와 온라인 직접·자연유입을 포함하고 외부·제휴유입은 제외합니다.' },
-        { '항목': '중복 기준', '집계 기준': '연락처 기준 최종 고객 여정으로 중복 제거하며 현재 대시보드와 동일한 건수를 사용합니다.' },
-        { '항목': 'DB 집계일', '집계 기준': '고객의 현재 최종 DB 단계가 접수된 날짜 기준으로 한 번 집계합니다.' },
+        { '항목': '중복 기준', '집계 기준': '연락처 기준 최종 고객 여정으로 중복 제거하며 KPI 화면과 동일한 건수를 사용합니다.' },
         { '항목': '리타겟', '집계 기준': `다운로드 시점 설정: ${includeRetarget ? '포함' : '제외'}` },
-        { '항목': '매체확인 DB', '집계 기준': '유료 온라인광고 매체가 확인된 DB입니다.' },
-        { '항목': '온라인 직접·자연 DB', '집계 기준': '총 KPI에는 포함하지만 매체별 CPL 산정에서는 제외합니다.' },
-        { '항목': 'CPL', '집계 기준': '동일 기간의 매체확인 광고비 ÷ 매체확인 DB로 계산합니다. DB가 없으면 빈칸입니다.' },
-        { '항목': 'KPI 목표 CPL', '집계 기준': targetCpl > 0 ? `${targetCpl.toLocaleString()}원 이하` : '미설정' },
-        { '항목': '상담 전환', '집계 기준': '1차 유효DB 이후 2차DB가 확인된 전환 건수이며 최초 1차 유입 매체에 귀속합니다.' },
-        { '항목': '상담 전환율', '집계 기준': '동일 기간 상담 전환 건수 ÷ 동일 기간 신규 DB입니다. 고객 코호트 전환율과는 다를 수 있습니다.' },
-        { '항목': '상세매체 통합', '집계 기준': '네이버 SA·GFA·브랜드검색을 구분하고 구글 디스커버리/GDN·유튜브는 통합합니다.' },
+        { '항목': 'CPL', '집계 기준': '각 일·주·월·기간의 총 광고비 ÷ 같은 기간 매체확인 DB로 다시 계산하며 하위 CPL을 평균하지 않습니다.' },
+        { '항목': 'CPL 목표', '집계 기준': '실제 CPL이 해당 월의 목표 CPL 이하이면 달성입니다. 여러 월 목표가 다르면 기간요약은 월별 상이로 표시합니다.' },
+        { '항목': '상담 전환율', '집계 기준': '동일 기간 상담 전환 건수 ÷ 동일 기간 신규 DB이며 고객 코호트 전환율과는 다를 수 있습니다.' },
         { '항목': '금액 단위', '집계 기준': '원' },
         { '항목': '생성일시', '집계 기준': generatedAt },
       ]
 
       const workbook = XLSX.utils.book_new()
-      const summarySheet = XLSX.utils.json_to_sheet(monthlyRows)
-      const dailySheet = XLSX.utils.json_to_sheet(dailyRows)
-      const detailSheet = XLSX.utils.json_to_sheet(detailRows)
-      const criteriaSheet = XLSX.utils.json_to_sheet(criteriaRows)
-
-      summarySheet['!cols'] = Object.keys(monthlyRows[0]).map(header => ({ wch: Math.max(12, Math.min(24, header.length * 2 + 2)) }))
-      dailySheet['!cols'] = Object.keys(dailyRows[0] || {}).map(header => ({ wch: Math.max(12, Math.min(22, header.length * 2 + 2)) }))
-      detailSheet['!cols'] = [
-        { wch: 16 }, { wch: 28 }, { wch: 12 }, { wch: 14 }, { wch: 17 }, { wch: 14 },
-        { wch: 13 }, { wch: 15 }, { wch: 13 }, { wch: 16 }, { wch: 16 },
-      ]
-      criteriaSheet['!cols'] = [{ wch: 22 }, { wch: 90 }]
-      ;[summarySheet, dailySheet, detailSheet, criteriaSheet].forEach(sheet => {
-        if (sheet['!ref']) sheet['!autofilter'] = { ref: sheet['!ref'] }
-      })
-
+      const sheets = [
+        ['기간요약', summaryRows], ['일별집계', dailyRows], ['주별집계', weeklyRows], ['월별집계', monthlyRows],
+        ['상세매체', detailRows], ['집계기준', criteriaRows],
+      ] as const
       const setColumnFormat = (sheet: any, header: string, cellFormat: string) => {
         if (!sheet['!ref']) return
         const range = XLSX.utils.decode_range(sheet['!ref'])
@@ -553,17 +685,17 @@ export default function OnlineKpiPage() {
           if (cell && typeof cell.v === 'number') cell.z = cellFormat
         }
       }
-      ;['기본 목표 달성률', '경과 목표 달성률'].forEach(header => setColumnFormat(summarySheet, header, '0.0%'))
-      ;['상담 전환율', 'DB 기여율'].forEach(header => setColumnFormat(detailSheet, header, '0.0%'))
-      ;['KPI 목표 CPL', '총 광고비', '매체확인 CPL'].forEach(header => setColumnFormat(summarySheet, header, '#,##0'))
-      ;['일 광고비', '일 CPL'].forEach(header => setColumnFormat(dailySheet, header, '#,##0'))
-      ;['광고비', 'CPL'].forEach(header => setColumnFormat(detailSheet, header, '#,##0'))
-
-      XLSX.utils.book_append_sheet(workbook, summarySheet, '월간요약')
-      XLSX.utils.book_append_sheet(workbook, dailySheet, '일별성과')
-      XLSX.utils.book_append_sheet(workbook, detailSheet, '상세매체성과')
-      XLSX.utils.book_append_sheet(workbook, criteriaSheet, '집계기준')
-      XLSX.writeFile(workbook, `온라인광고_KPI_${selectedMonth}_${includeRetarget ? '리타겟포함' : '리타겟제외'}.xlsx`, { compression: true })
+      sheets.forEach(([name, rows]) => {
+        const sheet = XLSX.utils.json_to_sheet(rows as any[])
+        const headers = Object.keys((rows as any[])[0] || {})
+        sheet['!cols'] = headers.map(header => ({ wch: name === '집계기준' && header === '집계 기준' ? 95 : Math.max(12, Math.min(24, header.length * 2 + 2)) }))
+        if (sheet['!ref']) sheet['!autofilter'] = { ref: sheet['!ref'] }
+        ;['경과 목표 달성률', 'DB 목표 달성률', '상담 전환율', 'DB 기여율'].forEach(header => setColumnFormat(sheet, header, '0.0%'))
+        ;['총 광고비', '기간 CPL', '기간 목표 CPL', '일 광고비', '일 CPL', '목표 CPL', '주 광고비', '주 CPL', '월 광고비', '월 CPL', '광고비', 'CPL'].forEach(header => setColumnFormat(sheet, header, '#,##0'))
+        XLSX.utils.book_append_sheet(workbook, sheet, name)
+      })
+      XLSX.writeFile(workbook, `온라인광고_KPI_${excelStartMonth}_${excelEndMonth}_${includeRetarget ? '리타겟포함' : '리타겟제외'}.xlsx`, { compression: true })
+      setExcelExportOpen(false)
     } catch (error) {
       setNotice(error instanceof Error ? `엑셀 생성 실패: ${error.message}` : '엑셀 생성에 실패했습니다.')
     } finally {
@@ -598,7 +730,7 @@ export default function OnlineKpiPage() {
             onChange={event => setSelectedMonth(event.target.value)}
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
           />
-          <button onClick={downloadExcel} disabled={exportingExcel || loading} className="btn-secondary">
+          <button onClick={openExcelExport} disabled={exportingExcel || loading} className="btn-secondary">
             <FileSpreadsheet size={14} /> {exportingExcel ? '엑셀 생성 중...' : '엑셀 다운로드'}
           </button>
           <button onClick={() => setReportOpen(true)} className="btn-secondary"><FileDown size={14} /> PDF 리포트</button>
@@ -800,6 +932,44 @@ export default function OnlineKpiPage() {
         </div>
       </div>
 
+      {excelExportOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="font-bold text-slate-800">KPI 엑셀 다운로드</h2>
+                <p className="mt-1 text-xs text-slate-400">선택기간의 일별·주별·월별 집계를 한 파일로 생성합니다.</p>
+              </div>
+              <button onClick={() => setExcelExportOpen(false)} aria-label="닫기"><X size={18} /></button>
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <label className="space-y-1 text-xs text-slate-500">시작월
+                <input type="month" value={excelStartMonth} max={excelEndMonth} onChange={event => setExcelStartMonth(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+              </label>
+              <label className="space-y-1 text-xs text-slate-500">종료월
+                <input type="month" value={excelEndMonth} min={excelStartMonth} onChange={event => setExcelEndMonth(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+              </label>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {[1, 3, 6, 12].map(months => (
+                <button key={months} type="button" onClick={() => setExcelQuickRange(months)} className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">
+                  최근 {months}개월
+                </button>
+              ))}
+            </div>
+            <div className="mt-4 rounded-lg bg-slate-50 px-3 py-3 text-xs leading-5 text-slate-500">
+              <p>생성 시트: 기간요약 · 일별집계 · 주별집계 · 월별집계 · 상세매체 · 집계기준</p>
+              <p>리타겟: {includeRetarget ? '포함' : '제외'} · 주차 기준: 월요일~일요일</p>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={() => setExcelExportOpen(false)} className="btn-secondary">취소</button>
+              <button onClick={downloadExcel} disabled={exportingExcel} className="btn-primary">
+                <FileSpreadsheet size={14} /> {exportingExcel ? '생성 중...' : '엑셀 생성'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {settingsOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
           <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl">
