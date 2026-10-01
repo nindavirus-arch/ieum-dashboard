@@ -12,8 +12,8 @@ import { getAuthToken, requestAuthRecheck } from './auth'
 
 // TODO: Apps Script 배포 후 웹앱 URL을 여기에 붙여넣으세요.
 // 예: const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec'
-type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping' | 'kpiTargets' | 'projects'
-type PostSheetType = Exclude<SheetType, 'mapping'> | 'adSpendReplace' | 'projectsReplace' | 'leadCorrections'
+type SheetType = 'leads' | 'adSpend' | 'firstRaw' | 'secondRaw' | 'mapping' | 'kpiTargets' | 'projects' | 'dashboardContracts'
+type PostSheetType = Exclude<SheetType, 'mapping' | 'dashboardContracts'> | 'adSpendReplace' | 'projectsReplace' | 'leadCorrections'
 export type MappingRow = { raw: string; channel: Channel; subChannel: string }
 export type KpiTarget = {
   month: string
@@ -25,7 +25,7 @@ export type KpiTarget = {
 const EXCLUDED_LEAD_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted'])
 const SHEET_CACHE_TTL_MS = 5 * 60_000
 const PERSISTED_SHEET_CACHE_TTL_MS = 10 * 60_000
-const PERSISTED_SHEET_TYPES = new Set<SheetType>(['leads', 'adSpend', 'mapping', 'kpiTargets', 'projects'])
+const PERSISTED_SHEET_TYPES = new Set<SheetType>(['leads', 'adSpend', 'mapping', 'kpiTargets', 'projects', 'dashboardContracts'])
 const PERSISTED_UPDATED_AT_KEY = 'ieum:data-updated-at'
 const sheetCache = new Map<SheetType, { expires: number; data?: any[]; promise?: Promise<any[]> }>()
 export const DATA_UPDATED_EVENT = 'ieum:data-updated'
@@ -2078,6 +2078,24 @@ export async function fetchProjects(startDate?: string, endDate?: string): Promi
     .map((row, i) => normalizeProject(row, i, mappings))
     .filter(project => project.contractDate && inRange(project.contractDate, startDate, endDate))
     .sort((a, b) => b.contractDate.localeCompare(a.contractDate))
+}
+
+export type DashboardContractDaily = {
+  date: string
+  contractCount: number
+  contractAmount: number
+}
+
+export async function fetchDashboardContracts(): Promise<DashboardContractDaily[]> {
+  const rows = await getSheetRows('dashboardContracts')
+  return rows
+    .map(row => ({
+      date: normalizeDate(row.date),
+      contractCount: Number(row.contractCount) || 0,
+      contractAmount: Number(row.contractAmount) || 0,
+    }))
+    .filter(row => /^\d{4}-\d{2}-\d{2}$/.test(row.date))
+    .sort((a, b) => a.date.localeCompare(b.date))
 }
 
 export async function fetchKpiTargets(): Promise<KpiTarget[]> {

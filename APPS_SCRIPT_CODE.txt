@@ -19,6 +19,7 @@ function doGet(e) {
   const type = e.parameter.type;
   const action = e.parameter.action;
   if (type === 'report' || action === 'report') return getReadOnlyReport(e.parameter || {});
+  if (type === 'salesDaily' || action === 'salesDaily') return getSalesDailyReport(e.parameter || {});
   if (type === 'authStatus') return authStatus(e.parameter.token || '');
 
   const user = sessionUser(e.parameter.token || '');
@@ -31,6 +32,7 @@ function doGet(e) {
   if (type === 'firstRaw') return getSheetData(SHEETS.firstRaw);
   if (type === 'secondRaw') return getSheetData(SHEETS.secondRaw);
   if (type === 'projects') return getSheetData(SHEETS.projects);
+  if (type === 'dashboardContracts') return getDashboardContractSummary();
   if (type === 'mapping') return getSheetData(SHEETS.mapping);
   if (type === 'kpiTargets') return getKpiTargetData();
   if (type === 'dataUpdatedAt') return getDataUpdatedAt();
@@ -41,6 +43,20 @@ function getDataUpdatedAt() {
   const book = SpreadsheetApp.getActive();
   const updatedAt = DriveApp.getFileById(book.getId()).getLastUpdated();
   return json({ updatedAt: updatedAt.toISOString() });
+}
+
+function getDashboardContractSummary() {
+  const byDate = {};
+  uniqueSalesProjects(readRowsAsObjects(SHEETS.projects)).forEach(function(project) {
+    if (!isSalesContract(project)) return;
+    const date = salesProjectDate(project);
+    if (!byDate[date]) byDate[date] = { date: date, contractCount: 0, contractAmount: 0 };
+    byDate[date].contractCount += 1;
+    byDate[date].contractAmount += salesProjectAmount(project);
+  });
+  return json(objectValues(byDate).sort(function(a, b) {
+    return String(a.date).localeCompare(String(b.date));
+  }));
 }
 
 function getReadOnlyReport(params) {
@@ -70,8 +86,8 @@ function getReadOnlyReport(params) {
 
   leads.forEach(function(row) {
     const date = String(row.date || '').slice(0, 10);
-    const channel = reportChannel(row.channel || 'unknown');
-    const subChannel = reportSubChannel(row.subChannel || row.source_raw || channel);
+    const channel = reportChannel(row.channel || 'unknown', row);
+    const subChannel = reportSubChannel(row.subChannel || row.source_raw || channel, channel);
     const stage = baseLeadStage(row.stage || row.dbTier || row.status);
     addLeadMetric(totals, stage);
     addLeadMetric(ensureReportMetric(byDate, date), stage);
@@ -84,8 +100,8 @@ function getReadOnlyReport(params) {
 
   adSpendRows.forEach(function(row) {
     const date = String(row.date || '').slice(0, 10);
-    const channel = reportChannel(row.channel || 'unknown');
-    const subChannel = reportSubChannel(row.subChannel || row.source_raw || channel);
+    const channel = reportChannel(row.channel || 'unknown', row);
+    const subChannel = reportSubChannel(row.subChannel || row.source_raw || channel, channel);
     const amount = reportNumber(row.amount || row.cost || row['광고비'] || row['비용']);
     addSpendMetric(totals, amount);
     addSpendMetric(ensureReportMetric(byDate, date), amount);
@@ -130,6 +146,755 @@ function getReadOnlyReport(params) {
       fields: ['date', 'channel', 'subChannel', 'adSpend', 'db', 'retarget', 'firstDb', 'secondDb', 'validDb', 'cpl']
     }
   });
+}
+
+function getSalesDailyReport(params) {
+  const reportToken = String(params.reportToken || params.token || '');
+  if (!isActiveReportToken(reportToken)) return json({ error: 'forbidden' });
+
+  const from = normalizeReportDate(params.from || params.start);
+  const to = normalizeReportDate(params.to || params.end);
+  if (!from || !to) return json({ error: 'from/to required. Use YYYY-MM-DD.' });
+  if (from > to) return json({ error: 'invalid range' });
+
+  const allLeads = readRowsAsObjects(SHEETS.leads);
+  const allProjects = readRowsAsObjects(SHEETS.projects);
+  const assignmentRows = readRowsAsObjects(SHEETS.secondRaw);
+  allLeads.forEach(function(row, index) { row.__salesIndex = index; });
+  const assignmentLookup = buildSalesAssignmentLookup(allLeads.concat(assignmentRows));
+  const periodLeads = allLeads.filter(function(row) {
+    return isReportDateInRange(row.date, from, to);
+  });
+  const periodProjects = uniqueSalesProjects(allProjects).filter(function(row) {
+    return isReportDateInRange(salesProjectDate(row), from, to) && isSalesContract(row);
+  });
+
+  const estimateAliases = [
+    '견적서 발송', '견적서발송', '견적 발송', '견적발송', '견적서 발송일', '견적발송일',
+    'quoteSent', 'quoteSentAt', 'estimateSent', 'estimateSentAt'
+  ];
+  const measurementAliases = [
+    '실측 완료', '실측완료', '실측 완료일', '실측완료일', '실측일',
+    'measurementCompleted', 'measurementCompletedAt', 'surveyCompleted', 'surveyCompletedAt'
+  ];
+  const estimateProjectField = findAvailableField([allProjects], estimateAliases);
+  const estimateLeadField = findAvailableField([allLeads], estimateAliases);
+  const estimateField = estimateProjectField || estimateLeadField;
+  const estimateSource = estimateProjectField ? 'PROJECTS' : (estimateLeadField ? 'DASHBOARD_LEADS' : null);
+  const measurementProjectField = findAvailableField([allProjects], measurementAliases);
+  const measurementLeadField = findAvailableField([allLeads], measurementAliases);
+  const measurementField = measurementProjectField || measurementLeadField;
+  const measurementSource = measurementProjectField ? 'PROJECTS' : (measurementLeadField ? 'DASHBOARD_LEADS' : null);
+
+  const buckets = {};
+  const activeLeads = [];
+  const explicitExclusions = { invalid: 0, test: 0, duplicate: 0, deleted: 0 };
+
+  periodLeads.forEach(function(row, index) {
+    const status = salesLeadStatus(row);
+    const rawOwner = resolveSalesOwner(row, assignmentLookup);
+    const rawAssignmentCategory = classifySalesAssignment(row, assignmentLookup, rawOwner);
+    const rawBucket = ensureSalesBucket(buckets, salesLeadDimensions(row, rawOwner, rawAssignmentCategory));
+    rawBucket.rawDb += 1;
+
+    if (Object.prototype.hasOwnProperty.call(explicitExclusions, status)) {
+      explicitExclusions[status] += 1;
+      addSalesExclusion(rawBucket, status, 1);
+      return;
+    }
+
+    activeLeads.push(row);
+  });
+
+  const recognizedByContact = {};
+  allLeads.forEach(function(row) {
+    const status = salesLeadStatus(row);
+    if (status === 'invalid' || status === 'test' || status === 'duplicate' || status === 'deleted') return;
+    const key = salesLeadContactKey(row);
+    const current = recognizedByContact[key];
+    if (!current || compareSalesLead(row, current) > 0) recognizedByContact[key] = row;
+  });
+
+  const recognizedLeads = objectValues(recognizedByContact).filter(function(row) {
+    return isReportDateInRange(row.date, from, to);
+  });
+  const deduplicatedCount = Math.max(0, activeLeads.length - recognizedLeads.length);
+  const duplicatesByBucket = {};
+  activeLeads.forEach(function(row) {
+    const winner = recognizedByContact[salesLeadContactKey(row)];
+    if (winner === row) return;
+    const duplicateOwner = resolveSalesOwner(row, assignmentLookup);
+    const duplicateCategory = classifySalesAssignment(row, assignmentLookup, duplicateOwner);
+    const dimensions = salesLeadDimensions(row, duplicateOwner, duplicateCategory);
+    const bucketKey = salesBucketKey(dimensions);
+    duplicatesByBucket[bucketKey] = (duplicatesByBucket[bucketKey] || 0) + 1;
+  });
+  Object.keys(duplicatesByBucket).forEach(function(key) {
+    const dimensions = salesBucketDimensionsFromKey(key);
+    addSalesExclusion(ensureSalesBucket(buckets, dimensions), 'duplicate', duplicatesByBucket[key]);
+  });
+
+  recognizedLeads.forEach(function(row) {
+    const owner = resolveSalesOwner(row, assignmentLookup);
+    const assignmentCategory = classifySalesAssignment(row, assignmentLookup, owner);
+    const bucket = ensureSalesBucket(buckets, salesLeadDimensions(row, owner, assignmentCategory));
+    bucket.recognizedDb += 1;
+    if (assignmentCategory === 'assigned') bucket.assignedDb += 1;
+    else if (assignmentCategory === 'explicit_assignment_canceled') {
+      bucket.explicitAssignmentCanceledDb += 1;
+      bucket.assignmentCanceledDb += 1;
+      bucket.assignmentCanceledOrExcludedDb += 1;
+    }
+    else if (assignmentCategory === 'blank_owner_excluded') {
+      bucket.blankOwnerExcludedDb += 1;
+      bucket.assignmentCanceledOrExcludedDb += 1;
+    }
+    else if (assignmentCategory === 'pending_assignment') bucket.pendingAssignmentDb += 1;
+    else if (assignmentCategory === 'mapping_failed') bucket.ownerMappingFailedDb += 1;
+    else if (assignmentCategory === 'truly_unassigned') bucket.trulyUnassignedDb += 1;
+    else bucket.otherUnassignedDb += 1;
+    if (estimateSource === 'DASHBOARD_LEADS') bucket.quoteSentCount += isCompletedField(row[estimateField]) ? 1 : 0;
+    if (measurementSource === 'DASHBOARD_LEADS') bucket.measurementCompletedCount += isCompletedField(row[measurementField]) ? 1 : 0;
+  });
+
+  const leadLookup = buildSalesLeadLookup(allLeads);
+  periodProjects.forEach(function(project) {
+    const matchedLead = matchSalesProjectLead(project, leadLookup);
+    const dimensions = salesProjectDimensions(project, matchedLead, assignmentLookup);
+    const bucket = ensureSalesBucket(buckets, dimensions);
+    bucket.contractCount += 1;
+    bucket.contractAmount += salesProjectAmount(project);
+    if (estimateSource === 'PROJECTS') bucket.quoteSentCount += isCompletedField(project[estimateField]) ? 1 : 0;
+    if (measurementSource === 'PROJECTS') bucket.measurementCompletedCount += isCompletedField(project[measurementField]) ? 1 : 0;
+  });
+
+  const rows = objectValues(buckets)
+    .map(function(bucket) {
+      if (!estimateField) bucket.quoteSentCount = 'unavailable';
+      if (!measurementField) bucket.measurementCompletedCount = 'unavailable';
+      return bucket;
+    })
+    .sort(function(a, b) {
+      return String(a.date).localeCompare(String(b.date)) ||
+        String(a.salesManager).localeCompare(String(b.salesManager)) ||
+        String(a.inflowType).localeCompare(String(b.inflowType)) ||
+        String(a.channel).localeCompare(String(b.channel));
+    });
+
+  const totals = rows.reduce(function(total, row) {
+    total.rawDb += row.rawDb;
+    total.recognizedDb += row.recognizedDb;
+    total.assignedDb += row.assignedDb;
+    total.explicitAssignmentCanceledDb += row.explicitAssignmentCanceledDb;
+    total.blankOwnerExcludedDb += row.blankOwnerExcludedDb;
+    total.assignmentCanceledOrExcludedDb += row.assignmentCanceledOrExcludedDb;
+    total.pendingAssignmentDb += row.pendingAssignmentDb;
+    total.assignmentCanceledDb += row.assignmentCanceledDb;
+    total.trulyUnassignedDb += row.trulyUnassignedDb;
+    total.ownerMappingFailedDb += row.ownerMappingFailedDb;
+    total.otherUnassignedDb += row.otherUnassignedDb;
+    total.contractCount += row.contractCount;
+    total.contractAmount += row.contractAmount;
+    total.excluded.duplicate += row.excluded.duplicate;
+    total.excluded.test += row.excluded.test;
+    total.excluded.invalid += row.excluded.invalid;
+    total.excluded.deleted += row.excluded.deleted;
+    if (typeof row.quoteSentCount === 'number') total.quoteSentCount += row.quoteSentCount;
+    if (typeof row.measurementCompletedCount === 'number') total.measurementCompletedCount += row.measurementCompletedCount;
+    return total;
+  }, {
+    rawDb: 0,
+    recognizedDb: 0,
+    assignedDb: 0,
+    explicitAssignmentCanceledDb: 0,
+    blankOwnerExcludedDb: 0,
+    assignmentCanceledOrExcludedDb: 0,
+    pendingAssignmentDb: 0,
+    assignmentCanceledDb: 0,
+    trulyUnassignedDb: 0,
+    ownerMappingFailedDb: 0,
+    otherUnassignedDb: 0,
+    contractCount: 0,
+    contractAmount: 0,
+    excluded: { duplicate: 0, test: 0, invalid: 0, deleted: 0 },
+    quoteSentCount: 0,
+    measurementCompletedCount: 0
+  });
+  if (!estimateField) totals.quoteSentCount = 'unavailable';
+  if (!measurementField) totals.measurementCompletedCount = 'unavailable';
+  const assignmentClassifiedDb = totals.assignedDb + totals.explicitAssignmentCanceledDb +
+    totals.blankOwnerExcludedDb + totals.pendingAssignmentDb + totals.trulyUnassignedDb +
+    totals.ownerMappingFailedDb + totals.otherUnassignedDb;
+
+  const salesManagerMap = {};
+  rows.forEach(function(row) {
+    const manager = row.salesManager || '미배정';
+    if (!salesManagerMap[manager]) {
+      salesManagerMap[manager] = {
+        salesManager: manager,
+        recognizedDb: 0,
+        assignedDb: 0,
+        explicitAssignmentCanceledDb: 0,
+        blankOwnerExcludedDb: 0,
+        assignmentCanceledOrExcludedDb: 0,
+        pendingAssignmentDb: 0,
+        assignmentCanceledDb: 0,
+        trulyUnassignedDb: 0,
+        ownerMappingFailedDb: 0,
+        otherUnassignedDb: 0,
+        contractCount: 0,
+        contractAmount: 0
+      };
+    }
+    salesManagerMap[manager].recognizedDb += row.recognizedDb;
+    salesManagerMap[manager].assignedDb += row.assignedDb;
+    salesManagerMap[manager].explicitAssignmentCanceledDb += row.explicitAssignmentCanceledDb;
+    salesManagerMap[manager].blankOwnerExcludedDb += row.blankOwnerExcludedDb;
+    salesManagerMap[manager].assignmentCanceledOrExcludedDb += row.assignmentCanceledOrExcludedDb;
+    salesManagerMap[manager].pendingAssignmentDb += row.pendingAssignmentDb;
+    salesManagerMap[manager].assignmentCanceledDb += row.assignmentCanceledDb;
+    salesManagerMap[manager].trulyUnassignedDb += row.trulyUnassignedDb;
+    salesManagerMap[manager].ownerMappingFailedDb += row.ownerMappingFailedDb;
+    salesManagerMap[manager].otherUnassignedDb += row.otherUnassignedDb;
+    salesManagerMap[manager].contractCount += row.contractCount;
+    salesManagerMap[manager].contractAmount += row.contractAmount;
+  });
+  const bySalesManager = objectValues(salesManagerMap).sort(function(a, b) {
+    return b.contractCount - a.contractCount || b.assignedDb - a.assignedDb || String(a.salesManager).localeCompare(String(b.salesManager));
+  });
+  const unassignedReasonBreakdown = {
+    explicitAssignmentCanceled: totals.explicitAssignmentCanceledDb,
+    blankOwnerExcluded: totals.blankOwnerExcludedDb,
+    assignmentCanceledOrExcluded: totals.assignmentCanceledOrExcludedDb,
+    pendingAssignment: totals.pendingAssignmentDb,
+    trulyUnassigned: totals.trulyUnassignedDb,
+    mappingFailed: totals.ownerMappingFailedDb,
+    other: totals.otherUnassignedDb
+  };
+  const assignmentBreakdownMap = {};
+  rows.forEach(function(row) {
+    const key = [row.date, row.inflowType, row.channel].join('|');
+    if (!assignmentBreakdownMap[key]) {
+      assignmentBreakdownMap[key] = {
+        date: row.date,
+        inflowType: row.inflowType,
+        channel: row.channel,
+        channelLabel: row.channelLabel,
+        recognizedDb: 0,
+        assignedDb: 0,
+        explicitAssignmentCanceledDb: 0,
+        blankOwnerExcludedDb: 0,
+        assignmentCanceledOrExcludedDb: 0,
+        pendingAssignmentDb: 0,
+        assignmentCanceledDb: 0,
+        trulyUnassignedDb: 0,
+        ownerMappingFailedDb: 0,
+        otherUnassignedDb: 0
+      };
+    }
+    const item = assignmentBreakdownMap[key];
+    item.recognizedDb += row.recognizedDb;
+    item.assignedDb += row.assignedDb;
+    item.explicitAssignmentCanceledDb += row.explicitAssignmentCanceledDb;
+    item.blankOwnerExcludedDb += row.blankOwnerExcludedDb;
+    item.assignmentCanceledOrExcludedDb += row.assignmentCanceledOrExcludedDb;
+    item.pendingAssignmentDb += row.pendingAssignmentDb;
+    item.assignmentCanceledDb += row.assignmentCanceledDb;
+    item.trulyUnassignedDb += row.trulyUnassignedDb;
+    item.ownerMappingFailedDb += row.ownerMappingFailedDb;
+    item.otherUnassignedDb += row.otherUnassignedDb;
+  });
+  const assignmentBreakdownByDateChannel = objectValues(assignmentBreakdownMap).sort(function(a, b) {
+    return String(a.date).localeCompare(String(b.date)) || String(a.channel).localeCompare(String(b.channel));
+  });
+
+  const fileUpdatedAt = formatReportDateTime(DriveApp.getFileById(SpreadsheetApp.getActive().getId()).getLastUpdated());
+  const lastUpdatedAt = latestReportTimestamp(
+    periodLeads.concat(periodProjects),
+    ['updatedAt', 'uploadedAt', 'dateOverrideAt', 'registeredAt', 'contractDate', 'date']
+  ) || fileUpdatedAt;
+
+  return json({
+    success: true,
+    report: 'sales-daily',
+    timezone: REPORT_TIMEZONE,
+    range: { from: from, to: to, inclusive: true },
+    lastUpdatedAt: lastUpdatedAt,
+    totals: totals,
+    availability: {
+      quoteSentCount: estimateField ? { status: 'available', source: estimateSource, field: estimateField } : 'unavailable',
+      measurementCompletedCount: measurementField ? { status: 'available', source: measurementSource, field: measurementField } : 'unavailable'
+    },
+    bySalesManager: bySalesManager,
+    assignmentSummary: {
+      assignedDb: totals.assignedDb,
+      explicitAssignmentCanceledDb: totals.explicitAssignmentCanceledDb,
+      blankOwnerExcludedDb: totals.blankOwnerExcludedDb,
+      assignmentCanceledOrExcludedDb: totals.assignmentCanceledOrExcludedDb,
+      pendingAssignmentDb: totals.pendingAssignmentDb,
+      assignmentCanceledDb: totals.assignmentCanceledDb,
+      trulyUnassignedDb: totals.trulyUnassignedDb,
+      ownerMappingFailedDb: totals.ownerMappingFailedDb,
+      otherUnassignedDb: totals.otherUnassignedDb
+    },
+    unassignedReasonBreakdown: unassignedReasonBreakdown,
+    assignmentBreakdownByDateChannel: assignmentBreakdownByDateChannel,
+    rows: rows,
+    reconciliation: {
+      recognizedDb: recognizedLeads.length,
+      sourceRows: periodLeads.length,
+      activeRowsBeforeContactDedupe: activeLeads.length,
+      contactDedupeExcluded: deduplicatedCount,
+      explicitStatusExcluded: explicitExclusions,
+      assignmentClassifiedDb: assignmentClassifiedDb,
+      assignmentClassificationMatchesRecognized: assignmentClassifiedDb === totals.recognizedDb,
+      dashboardComparisonRule: '선택 기간 내 활성 리드를 연락처 기준으로 묶고 최종 단계 1건만 인정합니다.'
+    },
+    criteria: {
+      source: 'DASHBOARD_LEADS 및 PROJECTS 시트',
+      datePolicy: 'Asia/Seoul 기준 DB는 date, 계약은 계약금입금일(depositDate)을 사용하며 from/to 양끝 날짜를 포함합니다.',
+      recognizedDbPolicy: 'invalid, test, duplicate, deleted 상태를 제외한 뒤 연락처 기준으로 중복 제거하고 최종 단계 1건을 인정합니다.',
+      assignedDbPolicy: '인정 DB를 컨설팅번호 우선, 연락처 보조로 컨설팅리스트 담당자와 연결하고 유효한 영업지점장이 있는 건입니다.',
+      assignmentClassificationPolicy: '영업담당자가 있으면 assigned, 명시적 배정취소는 explicit_assignment_canceled, 담당자 공란은 당일 유입일 때 pending_assignment·익일 이후 blank_owner_excluded로 분류합니다. 원본 담당자 값이 있지만 매핑이 실패하면 mapping_failed, 명시적 미배정 상태가 확인된 경우에만 truly_unassigned로 분류합니다.',
+      contractPolicy: '계약금입금일이 있는 고유 프로젝트를 집계합니다. 결제상태 문구와 관계없이 취소·삭제·테스트·중복 프로젝트는 제외합니다.',
+      attributionPolicy: '계약은 project.salesOwner를 우선 사용하고, 없을 때만 컨설팅번호 우선·연락처 보조로 연결한 담당자를 사용합니다. 유입매체는 매칭된 DASHBOARD_LEADS를 우선합니다.',
+      inflowPolicy: '당근은 온라인 광고, direct는 온라인 직접·자연, TU·휴그린은 외부 TU·휴그린·제휴로 분리합니다.',
+      privacyPolicy: '이름, 연락처, 주소, 컨설팅번호, 프로젝트번호 및 원본 행은 반환하지 않습니다.'
+    },
+    privacy: {
+      personalDataIncluded: false,
+      returnedDimensions: ['date', 'salesManager', 'inflowType', 'channel', 'channelLabel'],
+      returnedMetrics: ['rawDb', 'recognizedDb', 'assignedDb', 'explicitAssignmentCanceledDb', 'blankOwnerExcludedDb', 'assignmentCanceledOrExcludedDb', 'pendingAssignmentDb', 'trulyUnassignedDb', 'ownerMappingFailedDb', 'otherUnassignedDb', 'contractCount', 'contractAmount', 'excluded', 'quoteSentCount', 'measurementCompletedCount']
+    }
+  });
+}
+
+function salesLeadStatus(row) {
+  return String(row.status || '').trim().toLowerCase();
+}
+
+function salesLeadContactKey(row) {
+  // Main dashboard buildLeadJourneys uses this exact key order without extra normalization.
+  return String(row.phone || row.rawPhone || row.id || ('row_' + String(row.__salesIndex)));
+}
+
+function salesLeadStageRank(row) {
+  // Keep this identical to src/lib/leadMetrics.ts: stage selection is based on dbTier.
+  const resolvedDbTierStage = baseLeadStage(row.dbTier);
+  if (resolvedDbTierStage === 'second') return 3;
+  if (resolvedDbTierStage === 'first') return 2;
+  if (resolvedDbTierStage === 'retarget') return 1;
+  return 0;
+}
+
+function salesLeadSortValue(row) {
+  // The dashboard compares the stored values as strings without reparsing timestamps.
+  return String(row.registeredAt || row.date || row.uploadedAt || '');
+}
+
+function compareSalesLead(a, b) {
+  const rankDiff = salesLeadStageRank(a) - salesLeadStageRank(b);
+  if (rankDiff) return rankDiff;
+  return salesLeadSortValue(a).localeCompare(salesLeadSortValue(b));
+}
+
+function hasSalesOwner(value) {
+  const owner = String(value || '').trim();
+  if (!owner || owner === '-') return false;
+  const normalized = owner.toLowerCase().replace(/\s/g, '');
+  if (['미배정', '시스템', 'system', '업로드', '없음', '미지정', 'null', 'undefined'].indexOf(normalized) >= 0) return false;
+  return !/배정(취소|해제|회수|철회)/.test(normalized);
+}
+
+function cleanSalesOwner(value) {
+  return hasSalesOwner(value) ? String(value || '').trim() : '미배정';
+}
+
+function firstSalesValue(row, keys) {
+  if (!row) return '';
+  for (let index = 0; index < keys.length; index++) {
+    const value = row[keys[index]];
+    if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+  }
+  return '';
+}
+
+function salesOwnerValue(row) {
+  return firstSalesValue(row, [
+    'salesOwner', '_parsed_salesOwner', '영업담당자', '영업 담당자', '영업 담당',
+    '영업담당자명', '영업 담당자명', '배정담당자', '배정 담당자', '담당자', '지점장', '담당 지점장'
+  ]);
+}
+
+function salesAssignmentStatusText(row) {
+  if (!row) return '';
+  return [
+    row.assignmentStatus, row.assignment_status, row.consultingStatus, row.consulting_status,
+    row._parsed_consultingStatus, row['배정상태'], row['배정 상태'], row['컨설팅상태'],
+    row['컨설팅 상태'], row['진행상태'], row['진행 상태'], row['상태값'], row['상태'],
+    row.consultationResult, row._parsed_consultationResult, row['상담결과'], row['상담 결과'],
+    salesOwnerValue(row)
+  ].map(function(value) { return String(value || '').trim(); }).filter(Boolean).join(' ');
+}
+
+function salesAssignmentLifecycleStatuses(row) {
+  if (!row) return [];
+  return [
+    row.assignmentStatus, row.assignment_status, row.consultingStatus, row.consulting_status,
+    row._parsed_consultingStatus, row['배정상태'], row['배정 상태'], row['컨설팅상태'],
+    row['컨설팅 상태'], row['진행상태'], row['진행 상태'], row['상태값'], row['상태']
+  ].map(function(value) { return String(value || '').trim(); }).filter(Boolean);
+}
+
+function isSalesAssignmentCanceled(row) {
+  if (/배정\s*(취소|해제|회수|철회)/.test(salesAssignmentStatusText(row))) return true;
+  return salesAssignmentLifecycleStatuses(row).some(function(value) {
+    const normalized = String(value || '').toLowerCase().replace(/\s/g, '');
+    return normalized === '취소' || normalized === '배정취소' || normalized === '배정해제' ||
+      normalized === '배정회수' || normalized === '배정철회';
+  });
+}
+
+function isSalesExplicitlyUnassigned(row) {
+  return salesAssignmentLifecycleStatuses(row).some(function(value) {
+    const normalized = String(value || '').toLowerCase().replace(/\s/g, '');
+    return normalized === '미배정' || normalized === '실제미배정';
+  });
+}
+
+function reportTodayDate() {
+  return Utilities.formatDate(new Date(), REPORT_TIMEZONE, 'yyyy-MM-dd');
+}
+
+function salesConsultingNumberValue(row) {
+  return firstSalesValue(row, [
+    'consultingNumber', 'consulting_number', '_parsed_consultingNumber', '컨설팅번호', '컨설팅 번호', '상담번호', '상담 번호'
+  ]);
+}
+
+function salesPhoneValue(row) {
+  return firstSalesValue(row, [
+    'phone', 'rawPhone', '_parsed_phone', 'phoneNumber', 'phone_number', '연락처', '전화번호', '휴대폰번호', '휴대폰 번호', '고객번호', '고객 번호'
+  ]);
+}
+
+function salesAssignmentSortValue(row) {
+  return normalizeReportDateTime(firstSalesValue(row, [
+    'updatedAt', 'registeredAt', 'date', 'uploadedAt', '등록일시', '등록 일시', '접수일시', '신청일시'
+  ]));
+}
+
+function setSalesAssignment(map, key, owner, sortValue) {
+  if (!key) return;
+  const current = map[key];
+  if (!current || String(sortValue || '').localeCompare(String(current.sortValue || '')) >= 0) {
+    map[key] = { owner: owner, sortValue: sortValue || '' };
+  }
+}
+
+function setSalesAssignmentEvidence(map, key, row) {
+  if (!key) return;
+  const current = map[key] || {
+    assignmentCanceled: false,
+    rawOwnerPresent: false,
+    validOwnerPresent: false,
+    explicitlyUnassigned: false
+  };
+  const rawOwner = salesOwnerValue(row);
+  if (String(rawOwner || '').trim()) current.rawOwnerPresent = true;
+  if (hasSalesOwner(rawOwner)) current.validOwnerPresent = true;
+  if (isSalesAssignmentCanceled(row)) current.assignmentCanceled = true;
+  if (isSalesExplicitlyUnassigned(row)) current.explicitlyUnassigned = true;
+  map[key] = current;
+}
+
+function buildSalesAssignmentLookup(rows) {
+  const byConsulting = {};
+  const byPhone = {};
+  const evidenceByConsulting = {};
+  const evidenceByPhone = {};
+  (rows || []).forEach(function(row) {
+    const owner = salesOwnerValue(row);
+    const consultingNumber = salesConsultingNumberValue(row);
+    const phone = normalizePhone(salesPhoneValue(row));
+    setSalesAssignmentEvidence(evidenceByConsulting, consultingNumber, row);
+    setSalesAssignmentEvidence(evidenceByPhone, phone, row);
+    if (!hasSalesOwner(owner)) return;
+    const sortValue = salesAssignmentSortValue(row);
+    setSalesAssignment(byConsulting, consultingNumber, owner, sortValue);
+    setSalesAssignment(byPhone, phone, owner, sortValue);
+  });
+  return {
+    byConsulting: byConsulting,
+    byPhone: byPhone,
+    evidenceByConsulting: evidenceByConsulting,
+    evidenceByPhone: evidenceByPhone
+  };
+}
+
+function resolveSalesOwner(row, lookup) {
+  const ownOwner = salesOwnerValue(row);
+  if (hasSalesOwner(ownOwner)) return ownOwner;
+  if (!lookup) return '';
+  const consultingNumber = salesConsultingNumberValue(row);
+  const phone = normalizePhone(salesPhoneValue(row));
+  const matched = (consultingNumber && lookup.byConsulting[consultingNumber]) || (phone && lookup.byPhone[phone]);
+  return matched ? matched.owner : '';
+}
+
+function mergeSalesAssignmentEvidence(target, source) {
+  if (!source) return target;
+  target.assignmentCanceled = target.assignmentCanceled || source.assignmentCanceled;
+  target.rawOwnerPresent = target.rawOwnerPresent || source.rawOwnerPresent;
+  target.validOwnerPresent = target.validOwnerPresent || source.validOwnerPresent;
+  target.explicitlyUnassigned = target.explicitlyUnassigned || source.explicitlyUnassigned;
+  return target;
+}
+
+function resolveSalesAssignmentEvidence(row, lookup) {
+  const ownOwner = salesOwnerValue(row);
+  const evidence = {
+    assignmentCanceled: isSalesAssignmentCanceled(row),
+    rawOwnerPresent: Boolean(String(ownOwner || '').trim()),
+    validOwnerPresent: hasSalesOwner(ownOwner),
+    explicitlyUnassigned: isSalesExplicitlyUnassigned(row)
+  };
+  if (!lookup) return evidence;
+  const consultingNumber = salesConsultingNumberValue(row);
+  const phone = normalizePhone(salesPhoneValue(row));
+  if (consultingNumber) mergeSalesAssignmentEvidence(evidence, lookup.evidenceByConsulting[consultingNumber]);
+  if (phone) mergeSalesAssignmentEvidence(evidence, lookup.evidenceByPhone[phone]);
+  return evidence;
+}
+
+function classifySalesAssignment(row, lookup, resolvedOwner) {
+  if (hasSalesOwner(resolvedOwner)) return 'assigned';
+  const evidence = resolveSalesAssignmentEvidence(row, lookup);
+  if (evidence.assignmentCanceled) return 'explicit_assignment_canceled';
+  if (evidence.explicitlyUnassigned) return 'truly_unassigned';
+  if (evidence.rawOwnerPresent) return 'mapping_failed';
+  if (normalizeReportDate(row && row.date) === reportTodayDate()) return 'pending_assignment';
+  return 'blank_owner_excluded';
+}
+
+function salesAssignmentManagerLabel(category, owner) {
+  if (category === 'assigned') return cleanSalesOwner(owner);
+  if (category === 'explicit_assignment_canceled') return '명시적 배정취소';
+  if (category === 'blank_owner_excluded') return '담당자 공란 배정제외';
+  if (category === 'pending_assignment') return '배정 대기';
+  if (category === 'mapping_failed') return '담당자 매핑 실패';
+  if (category === 'truly_unassigned') return '실제 미배정';
+  return '기타 미배정';
+}
+
+function salesTrafficType(channel, row) {
+  const ch = String(channel || 'etc').trim().toLowerCase();
+  const text = [row && row.subChannel, row && row.source_raw, row && row.originPath]
+    .map(function(value) { return String(value || '').toLowerCase(); })
+    .join(' ');
+  const paid = ['naver', 'google', 'meta', 'youtube', 'viral', 'danggeun', 'kakao_search', 'kakao_moment', 'chatgpt', 'inbound_call'];
+  const external = ['tu_albarich', 'tu_youtube', 'tu_danggeun', 'hugreen_danggeun', 'hugreen_mail', 'ezpz'];
+  if (paid.indexOf(ch) >= 0) return '온라인 광고';
+  if (external.indexOf(ch) >= 0 || text.indexOf('tu') >= 0 || text.indexOf('휴그린') >= 0 || text.indexOf('제휴') >= 0) return '외부 TU·휴그린·제휴';
+  if (ch === 'direct') return text.indexOf('직접영업') >= 0 ? '외부 TU·휴그린·제휴' : '온라인 직접·자연';
+  return '미분류';
+}
+
+function salesChannelLabel(channel) {
+  const labels = {
+    naver: '네이버', google: '구글', meta: '메타', youtube: '유튜브', viral: '바이럴',
+    danggeun: '당근', kakao_search: '카카오 검색광고', kakao_moment: '카카오모먼트', chatgpt: 'Chat-GPT',
+    direct: '홈페이지 직접유입', tu_albarich: 'TU-알바리치', tu_youtube: 'TU-유튜브', tu_danggeun: 'TU-당근',
+    hugreen_danggeun: '휴그린-당근', hugreen_mail: '휴그린-메일', ezpz: 'EZPZ', inbound_call: '인바운드-인입콜', etc: '기타'
+  };
+  const key = String(channel || 'etc').trim().toLowerCase();
+  return labels[key] || String(channel || '기타');
+}
+
+function salesLeadDimensions(row, resolvedOwner, assignmentCategory) {
+  const channel = reportChannel(row.channel || 'etc', row);
+  const category = assignmentCategory || (hasSalesOwner(resolvedOwner) ? 'assigned' : 'blank_owner_excluded');
+  return {
+    date: normalizeReportDate(row.date),
+    salesManager: salesAssignmentManagerLabel(category, resolvedOwner || salesOwnerValue(row)),
+    assignmentCategory: category,
+    inflowType: salesTrafficType(channel, row),
+    channel: channel,
+    channelLabel: salesChannelLabel(channel)
+  };
+}
+
+function salesBucketKey(dimensions) {
+  return [dimensions.date, dimensions.salesManager, dimensions.assignmentCategory, dimensions.inflowType, dimensions.channel]
+    .map(function(value) { return encodeURIComponent(String(value || '')); })
+    .join('|');
+}
+
+function salesBucketDimensionsFromKey(key) {
+  const parts = String(key).split('|').map(function(value) { return decodeURIComponent(value); });
+  return {
+    date: parts[0] || '',
+    salesManager: parts[1] || '담당자 공란 배정제외',
+    assignmentCategory: parts[2] || 'blank_owner_excluded',
+    inflowType: parts[3] || '미분류',
+    channel: parts[4] || 'etc',
+    channelLabel: salesChannelLabel(parts[4] || 'etc')
+  };
+}
+
+function ensureSalesBucket(buckets, dimensions) {
+  const key = salesBucketKey(dimensions);
+  if (!buckets[key]) {
+    buckets[key] = {
+      date: dimensions.date,
+      salesManager: dimensions.salesManager,
+      assignmentCategory: dimensions.assignmentCategory || 'blank_owner_excluded',
+      inflowType: dimensions.inflowType,
+      channel: dimensions.channel,
+      channelLabel: dimensions.channelLabel,
+      rawDb: 0,
+      recognizedDb: 0,
+      assignedDb: 0,
+      explicitAssignmentCanceledDb: 0,
+      blankOwnerExcludedDb: 0,
+      assignmentCanceledOrExcludedDb: 0,
+      pendingAssignmentDb: 0,
+      assignmentCanceledDb: 0,
+      trulyUnassignedDb: 0,
+      ownerMappingFailedDb: 0,
+      otherUnassignedDb: 0,
+      contractCount: 0,
+      contractAmount: 0,
+      excluded: { duplicate: 0, test: 0, invalid: 0, deleted: 0 },
+      quoteSentCount: 0,
+      measurementCompletedCount: 0
+    };
+  }
+  return buckets[key];
+}
+
+function addSalesExclusion(bucket, status, amount) {
+  if (!bucket.excluded[status]) bucket.excluded[status] = 0;
+  bucket.excluded[status] += amount || 1;
+}
+
+function salesProjectDate(project) {
+  return normalizeReportDate(project.depositDate || project.deposit_date || project['계약금입금일'] || project['계약금 입금일'] || '');
+}
+
+function salesProjectAmount(project) {
+  return reportNumber(project.contractAmount || project.totalAmount || project['총계약금액'] || project['총 계약금액'] || project['계약금액'] || project['공사금액'] || project['계약금'] || 0);
+}
+
+function isSalesContract(project) {
+  return Boolean(salesProjectDate(project)) && !isExcludedSalesProject(project);
+}
+
+function salesProjectPaymentStatus(project) {
+  return String(
+    project.paymentStatus || project.payment_status || project['결제상태'] || project['결제 상태'] ||
+    project['입금상태'] || project['입금 상태'] || ''
+  ).trim();
+}
+
+function isExcludedSalesProject(project) {
+  const status = String(project.status || '').trim().toLowerCase();
+  const rawStatus = String(project.rawStatus || project['상태'] || project['프로젝트상태'] || '').trim().toLowerCase();
+  return ['canceled', 'cancelled', 'deleted', 'test', 'duplicate', 'invalid'].indexOf(status) >= 0 ||
+    /취소|삭제|테스트|test|중복|duplicate|무효/.test(rawStatus);
+}
+
+function salesProjectUniqueKey(project, index) {
+  const projectNumber = String(project.projectNumber || project['프로젝트번호'] || project['프로젝트 번호'] || '').trim().toLowerCase();
+  const consultingNumber = salesConsultingNumberValue(project).toLowerCase();
+  const phone = normalizePhone(salesPhoneValue(project));
+  if (projectNumber) return 'project_' + projectNumber;
+  if (consultingNumber) return 'consult_' + consultingNumber;
+  if (phone) return 'phone_' + phone;
+  return 'row_' + index;
+}
+
+function salesProjectVersion(project) {
+  return String(project.updatedAt || project.uploadedAt || project.contractDate || project.createdAt || project['수정일시'] || project['생성일시'] || '');
+}
+
+function uniqueSalesProjects(projects) {
+  const byKey = {};
+  (projects || []).forEach(function(project, index) {
+    const key = salesProjectUniqueKey(project, index);
+    const current = byKey[key];
+    if (!current || salesProjectVersion(project) >= salesProjectVersion(current)) byKey[key] = project;
+  });
+  return objectValues(byKey);
+}
+
+function betterSalesLookupLead(current, next) {
+  if (!current) return next;
+  const currentOwner = hasSalesOwner(salesOwnerValue(current));
+  const nextOwner = hasSalesOwner(salesOwnerValue(next));
+  if (currentOwner !== nextOwner) return nextOwner ? next : current;
+  return compareSalesLead(next, current) > 0 ? next : current;
+}
+
+function buildSalesLeadLookup(leads) {
+  const byConsulting = {};
+  const byPhone = {};
+  leads.forEach(function(row) {
+    if (isExcludedReportLead(row)) return;
+    const consultingNumber = salesConsultingNumberValue(row);
+    const phone = normalizePhone(salesPhoneValue(row));
+    if (consultingNumber) byConsulting[consultingNumber] = betterSalesLookupLead(byConsulting[consultingNumber], row);
+    if (phone) byPhone[phone] = betterSalesLookupLead(byPhone[phone], row);
+  });
+  return { byConsulting: byConsulting, byPhone: byPhone };
+}
+
+function matchSalesProjectLead(project, lookup) {
+  const consultingNumber = salesConsultingNumberValue(project);
+  const phone = normalizePhone(salesPhoneValue(project));
+  return (consultingNumber && lookup.byConsulting[consultingNumber]) || (phone && lookup.byPhone[phone]) || null;
+}
+
+function salesProjectDimensions(project, matchedLead, assignmentLookup) {
+  const source = matchedLead || project;
+  const channel = reportChannel((matchedLead && matchedLead.channel) || project.channel || 'etc', source);
+  const projectOwner = salesOwnerValue(project);
+  const matchedOwner = matchedLead ? resolveSalesOwner(matchedLead, assignmentLookup) : '';
+  const owner = hasSalesOwner(projectOwner) ? projectOwner : matchedOwner;
+  const assignmentSource = hasSalesOwner(projectOwner) ? project : source;
+  const assignmentCategory = classifySalesAssignment(assignmentSource, assignmentLookup, owner);
+  return {
+    date: salesProjectDate(project),
+    salesManager: salesAssignmentManagerLabel(assignmentCategory, owner),
+    assignmentCategory: assignmentCategory,
+    inflowType: salesTrafficType(channel, source),
+    channel: channel,
+    channelLabel: salesChannelLabel(channel)
+  };
+}
+
+function normalizeSalesHeader(value) {
+  return String(value || '').toLowerCase().replace(/[\s_\-\/()\[\].]/g, '');
+}
+
+function findAvailableField(rowGroups, aliases) {
+  const aliasKeys = aliases.map(normalizeSalesHeader);
+  for (let groupIndex = 0; groupIndex < rowGroups.length; groupIndex++) {
+    const rows = rowGroups[groupIndex] || [];
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      const keys = Object.keys(rows[rowIndex] || {});
+      for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+        if (aliasKeys.indexOf(normalizeSalesHeader(keys[keyIndex])) >= 0) return keys[keyIndex];
+      }
+    }
+  }
+  return '';
+}
+
+function isCompletedField(value) {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text || ['0', 'false', 'n', 'no', '미완료', '대기', '-'].indexOf(text) >= 0) return false;
+  return true;
 }
 
 function isActiveReportToken(token) {
@@ -207,12 +972,35 @@ function reportNumber(value) {
   return Number(String(value || '').replace(/[^0-9.-]/g, '')) || 0;
 }
 
-function reportChannel(value) {
+function reportChannel(value, row) {
+  const rawValues = [
+    value,
+    row && row.subChannel,
+    row && row.source_raw,
+    row && row.sourceRaw,
+    row && row.utm_source,
+    row && row.utmSource,
+    row && row.originPath
+  ].map(function(item) { return String(item || '').trim().toLowerCase(); });
+  const keys = rawValues.map(function(item) { return item.replace(/[\s_\-\/()\[\].]/g, ''); });
+  if (keys.indexOf('gptad') >= 0) return 'chatgpt';
+  if (keys.indexOf('ezpz') >= 0) return 'ezpz';
+  if (keys.indexOf('direct') >= 0 || keys.indexOf('다이렉트') >= 0) return 'direct';
   return String(value || 'unknown').trim() || 'unknown';
 }
 
-function reportSubChannel(value) {
-  return String(value || 'unknown').trim() || 'unknown';
+function reportSubChannel(value, channel) {
+  const label = String(value || 'unknown').trim() || 'unknown';
+  const normalized = label.toLowerCase().replace(/[\s_\-\/()\[\].]/g, '');
+  if (channel === 'chatgpt' && (normalized === 'gptad' || normalized === '기타' || normalized === 'etc')) return 'Chat-GPT';
+  if (channel === 'ezpz') return 'EZPZ';
+  if (channel === 'direct' && (normalized === 'direct' || normalized === '다이렉트' || normalized === '기타' || normalized === 'etc')) return '홈페이지 직접유입';
+  if (normalized.indexOf('네이버') >= 0 || normalized.indexOf('naver') >= 0) {
+    if (normalized.indexOf('gfa') >= 0) return '네이버 GFA';
+    if (normalized.indexOf('브랜드검색') >= 0 || normalized.indexOf('brand') >= 0) return '네이버 브랜드검색';
+    if (normalized.indexOf('sa') >= 0 || normalized.indexOf('파워링크') >= 0) return '네이버 SA';
+  }
+  return label;
 }
 
 function blankReportMetric(extra) {
@@ -292,6 +1080,7 @@ function doPost(e) {
     const menu = resolveWriteMenu(type, String(body.menu || ''));
     if (!canAccessMenu(user, menu) || !canWriteData(type, menu)) return json({ error: 'forbidden' });
 
+    if (type === 'leadUploadContext') return getLeadUploadContext(body);
     if (type === 'leads') return appendRowsUnique(SHEETS.leads, rows, 'leads');
     if (type === 'adSpend') return appendRowsUnique(SHEETS.adSpend, rows, 'adSpend');
     if (type === 'adSpendReplace') return replaceAdSpendRows(rows);
@@ -300,6 +1089,7 @@ function doPost(e) {
     if (type === 'firstRaw') return upsertRowsUnique(SHEETS.firstRaw, rows, 'firstRaw');
     if (type === 'secondRaw') return upsertRowsUnique(SHEETS.secondRaw, rows, 'secondRaw');
     if (type === 'projects') return upsertRowsUnique(SHEETS.projects, rows, 'projects');
+    if (type === 'projectsReplace') return replaceProjectRows(rows);
     if (type === 'leadCorrections') return updateLeadCorrections(body);
     if (type === 'updateLead') return updateLeadRow(body);
     if (type === 'saveKpiTarget') return saveKpiTarget(body, user);
@@ -308,6 +1098,37 @@ function doPost(e) {
   } catch (err) {
     return json({ error: String(err) });
   }
+}
+
+function getLeadUploadContext(body) {
+  const keys = body.rows || [];
+  if (!keys.length) return json({ success: true, leads: [], firstRaw: [] });
+
+  const phones = {};
+  const consultingNumbers = {};
+  const phoneDates = {};
+  keys.forEach(function(item) {
+    const phone = normalizePhone(item.phone || item._parsed_phone || '');
+    const date = String(item.date || item._parsed_date || '').slice(0, 10);
+    const consultingNumber = String(item.consultingNumber || item.consulting_number || '').trim();
+    if (phone) phones[phone] = true;
+    if (consultingNumber) consultingNumbers[consultingNumber] = true;
+    if (phone && date) phoneDates[phone + '_' + date] = true;
+  });
+
+  const leads = readRowsAsObjects(SHEETS.leads).filter(function(row) {
+    const phone = normalizePhone(row.phone || row._parsed_phone || row['연락처'] || row['휴대폰번호'] || '');
+    const consultingNumber = String(row.consultingNumber || row.consulting_number || row['컨설팅번호'] || '').trim();
+    return Boolean((phone && phones[phone]) || (consultingNumber && consultingNumbers[consultingNumber]));
+  });
+
+  const firstRaw = readRowsAsObjects(SHEETS.firstRaw).filter(function(row) {
+    const phone = normalizePhone(row._parsed_phone || row.phone || row['연락처'] || row['휴대폰번호'] || '');
+    const date = String(row._parsed_date || row.date || row['등록일시'] || row['등록 일시'] || row['접수일시'] || '').slice(0, 10);
+    return Boolean(phone && date && phoneDates[phone + '_' + date]);
+  });
+
+  return json({ success: true, leads: leads, firstRaw: firstRaw });
 }
 
 function getSheetData(sheetName) {
@@ -451,22 +1272,64 @@ function upsertRowsUnique(sheetName, rows, type) {
 
   let inserted = 0;
   let updated = 0;
+  let unchanged = 0;
   const seenIncoming = {};
+  const updatesByRow = {};
+  const rowsToAppend = [];
+  const ignoreUploadTimestamp = type === 'firstRaw' || type === 'secondRaw';
   rows.forEach(row => {
     const key = makeUniqueKey(row, type);
     if (!key || seenIncoming[key]) return;
     seenIncoming[key] = true;
     const output = headers.map(h => row[h] === undefined || row[h] === null ? '' : row[h]);
     if (existingRows[key]) {
-      sheet.getRange(existingRows[key], 1, 1, headers.length).setValues([output]);
+      const rowNumber = existingRows[key];
+      const previous = values[rowNumber - 1];
+      const changed = headers.some(function(header, column) {
+        if (ignoreUploadTimestamp && header === '_uploadedAt') return false;
+        return String(previous[column] == null ? '' : previous[column]) !== String(output[column]);
+      });
+      if (!changed) {
+        unchanged++;
+        return;
+      }
+      updatesByRow[rowNumber] = output;
       updated++;
     } else {
-      sheet.getRange(sheet.getLastRow() + 1, 1, 1, headers.length).setValues([output]);
+      rowsToAppend.push(output);
       inserted++;
     }
   });
 
-  return json({ success: true, count: inserted, updated: updated, skipped: rows.length - inserted - updated });
+  // 기존 행은 연속된 구간끼리 묶어서 저장한다. 행마다 setValues를 호출하면
+  // 대용량 컨설팅리스트에서 Google Sheets 왕복이 수백 번 발생한다.
+  const updateRows = Object.keys(updatesByRow).map(Number).sort((a, b) => a - b);
+  let groupStart = -1;
+  let groupValues = [];
+  let previousRow = -1;
+  const flushUpdateGroup = function() {
+    if (groupStart < 0 || !groupValues.length) return;
+    sheet.getRange(groupStart, 1, groupValues.length, headers.length).setValues(groupValues);
+    groupStart = -1;
+    groupValues = [];
+    previousRow = -1;
+  };
+
+  updateRows.forEach(rowNumber => {
+    if (groupStart < 0 || rowNumber !== previousRow + 1) {
+      flushUpdateGroup();
+      groupStart = rowNumber;
+    }
+    groupValues.push(updatesByRow[rowNumber]);
+    previousRow = rowNumber;
+  });
+  flushUpdateGroup();
+
+  if (rowsToAppend.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, headers.length).setValues(rowsToAppend);
+  }
+
+  return json({ success: true, count: inserted, updated: updated, unchanged: unchanged, skipped: rows.length - inserted - updated });
 }
 
 function replaceAdSpendRows(rows) {
@@ -515,6 +1378,40 @@ function replaceAdSpendRows(rows) {
   appendResult.deleted = deleted;
   appendResult.replaced = true;
   return json(appendResult);
+}
+
+function replaceProjectRows(rows) {
+  const book = SpreadsheetApp.getActive();
+  let sheet = book.getSheetByName(SHEETS.projects);
+  if (!sheet) sheet = book.insertSheet(SHEETS.projects);
+  if (!rows || rows.length === 0) return json({ success: true, count: 0, replaced: false });
+
+  let lastCol = sheet.getLastColumn();
+  let headers = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0].filter(String) : [];
+  const incomingKeys = [];
+  rows.forEach(function(row) {
+    Object.keys(row).forEach(function(key) {
+      if (incomingKeys.indexOf(key) === -1) incomingKeys.push(key);
+    });
+  });
+  incomingKeys.forEach(function(key) {
+    if (headers.indexOf(key) === -1) headers.push(key);
+  });
+  if (headers.length === 0) return json({ error: 'No headers found' });
+
+  const previousCount = Math.max(sheet.getLastRow() - 1, 0);
+  const clearRows = Math.max(sheet.getLastRow() - 1, 0);
+  const clearCols = Math.max(sheet.getLastColumn(), headers.length);
+  if (clearRows > 0 && clearCols > 0) sheet.getRange(2, 1, clearRows, clearCols).clearContent();
+
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  const values = rows.map(function(row) {
+    return headers.map(function(header) {
+      return row[header] === undefined || row[header] === null ? '' : row[header];
+    });
+  });
+  sheet.getRange(2, 1, values.length, headers.length).setValues(values);
+  return json({ success: true, count: values.length, previousCount: previousCount, replaced: true });
 }
 
 function adSpendRowKey(row) {
@@ -695,6 +1592,7 @@ function updateLeadCorrections(body) {
   if (phoneIdx < 0 || stageIdx < 0) return json({ error: 'phone/stage column not found' });
 
   let updated = 0;
+  const changedRowNumbers = {};
   items.forEach(item => {
     const phone = normalizePhone(item.phone || '');
     const stage = baseLeadStage(item.stage || '');
@@ -737,10 +1635,29 @@ function updateLeadCorrections(body) {
       const col = headers.indexOf(k);
       if (col >= 0) values[matchedRow][col] = patch[k] == null ? '' : patch[k];
     });
+    changedRowNumbers[matchedRow] = true;
     updated++;
   });
 
-  sheet.getRange(1, 1, values.length, headers.length).setValues(values);
+  const changedRows = Object.keys(changedRowNumbers).map(Number).sort(function(a, b) { return a - b; });
+  let start = -1;
+  let group = [];
+  let last = -1;
+  const flush = function() {
+    if (start < 0) return;
+    sheet.getRange(start + 1, 1, group.length, headers.length).setValues(group);
+    start = -1;
+    group = [];
+  };
+  changedRows.forEach(function(rowNumber) {
+    if (start < 0 || rowNumber !== last + 1) {
+      flush();
+      start = rowNumber;
+    }
+    group.push(values[rowNumber]);
+    last = rowNumber;
+  });
+  flush();
   return json({ success: true, updated: updated, requested: items.length });
 }
 
@@ -1128,6 +2045,7 @@ function canReadData(type, menu) {
     firstRaw: ['/dashboard', '/channels', '/funnel', '/db-manage', '/upload-db'],
     secondRaw: ['/dashboard', '/channels', '/funnel', '/db-manage', '/upload-db'],
     projects: ['/channels', '/upload-projects', '/sales-performance'],
+    dashboardContracts: ['/dashboard'],
     mapping: ['/dashboard', '/channels', '/kpi', '/funnel', '/region', '/db-manage', '/upload-db', '/upload-spend', '/manage-spend', '/upload-projects', '/sales-performance'],
     kpiTargets: ['/kpi'],
     dataUpdatedAt: ['/dashboard', '/channels', '/kpi', '/funnel', '/region', '/db-manage', '/upload-db', '/upload-spend', '/manage-spend', '/upload-projects', '/sales-performance', '/admin-users']
@@ -1136,13 +2054,13 @@ function canReadData(type, menu) {
 }
 
 function resolveWriteMenu(type, menu) {
-  if (type === 'firstRaw' || type === 'secondRaw' || type === 'leadCorrections') return '/upload-db';
+  if (type === 'firstRaw' || type === 'secondRaw' || type === 'leadCorrections' || type === 'leadUploadContext') return '/upload-db';
   if (type === 'leads') {
     if (menu === '/db-manage' || menu === '/upload-db') return menu;
     return '/upload-db';
   }
   if (type === 'adSpend' || type === 'adSpendReplace') return '/upload-spend';
-  if (type === 'projects') return '/upload-projects';
+  if (type === 'projects' || type === 'projectsReplace') return '/upload-projects';
   if (type === 'updateAdSpend' || type === 'deleteAdSpend') return '/manage-spend';
   if (type === 'saveKpiTarget') return '/kpi';
   return VALID_MENUS.indexOf(menu) >= 0 ? menu : '';
@@ -1153,11 +2071,13 @@ function canWriteData(type, menu) {
     leads: ['/db-manage', '/upload-db'],
     firstRaw: ['/upload-db'],
     secondRaw: ['/upload-db'],
+    leadUploadContext: ['/upload-db'],
     leadCorrections: ['/db-manage', '/upload-db'],
     updateLead: ['/db-manage', '/upload-db'],
     adSpend: ['/upload-spend'],
     adSpendReplace: ['/upload-spend'],
     projects: ['/upload-projects'],
+    projectsReplace: ['/upload-projects'],
     updateAdSpend: ['/manage-spend'],
     deleteAdSpend: ['/manage-spend'],
     saveKpiTarget: ['/kpi']
