@@ -25,7 +25,7 @@ export type KpiTarget = {
 const EXCLUDED_LEAD_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted'])
 const SHEET_CACHE_TTL_MS = 5 * 60_000
 const PERSISTED_SHEET_CACHE_TTL_MS = 10 * 60_000
-const PERSISTED_SHEET_TYPES = new Set<SheetType>(['leads', 'adSpend', 'mapping', 'kpiTargets', 'projects', 'dashboardContracts'])
+const PERSISTED_SHEET_TYPES = new Set<SheetType>(['leads', 'adSpend', 'mapping', 'kpiTargets', 'projects'])
 const PERSISTED_UPDATED_AT_KEY = 'ieum:data-updated-at'
 const sheetCache = new Map<SheetType, { expires: number; data?: any[]; promise?: Promise<any[]> }>()
 export const DATA_UPDATED_EVENT = 'ieum:data-updated'
@@ -119,7 +119,7 @@ function cacheTypesForPost(type: PostSheetType): SheetType[] {
   if (type === 'firstRaw') return ['firstRaw']
   if (type === 'secondRaw') return ['secondRaw']
   if (type === 'adSpend' || type === 'adSpendReplace') return ['adSpend']
-  if (type === 'projects' || type === 'projectsReplace') return ['projects']
+  if (type === 'projects' || type === 'projectsReplace') return ['projects', 'dashboardContracts']
   if (type === 'kpiTargets') return ['kpiTargets']
   return []
 }

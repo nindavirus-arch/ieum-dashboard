@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, startOfWeek, endOfWeek, parseISO, subDays, subWeeks, subMonths, subYears, eachDayOfInterval } from 'date-fns'
 import { Users, DollarSign, TrendingDown, CalendarDays, RefreshCw, ChevronDown, HelpCircle } from 'lucide-react'
-import { fetchLeads, fetchAdSpend, fetchKpiTargets, fetchDashboardContracts, type DashboardContractDaily, type KpiTarget } from '../lib/dataService'
+import { fetchLeads, fetchAdSpend, fetchKpiTargets, fetchDashboardContracts, invalidateDataCache, type DashboardContractDaily, type KpiTarget } from '../lib/dataService'
 import { useAutoDataRefresh } from '../lib/appRefresh'
 import type { LeadRecord, AdSpend, ViewMode } from '../types'
 import TimeSeriesChart from '../components/dashboard/TimeSeriesChart'
@@ -315,6 +315,11 @@ export default function DashboardPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  function refreshNow() {
+    invalidateDataCache()
+    void load()
   }
 
   useEffect(() => { load() }, [])
@@ -731,7 +736,7 @@ export default function DashboardPage() {
           </div>
           <div className="flex items-center gap-2 self-start xl:self-auto">
             <DataUpdatedAt />
-            <button onClick={load} className="btn-secondary h-9 shrink-0 shadow-sm">
+            <button onClick={refreshNow} className="btn-secondary h-9 shrink-0 shadow-sm">
               <RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> 새로고침
             </button>
           </div>
