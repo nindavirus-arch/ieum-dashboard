@@ -19,6 +19,7 @@ export type KpiTarget = {
   month: string
   minDaily: number
   stretchDaily: number
+  targetCpl?: number
   updatedBy?: string
   updatedAt?: string
 }
@@ -2105,6 +2106,7 @@ export async function fetchKpiTargets(): Promise<KpiTarget[]> {
       month: String(row.month || '').slice(0, 7),
       minDaily: Number(String(row.minDaily || '').replace(/[^0-9.]/g, '')) || 0,
       stretchDaily: Number(String(row.stretchDaily || '').replace(/[^0-9.]/g, '')) || 0,
+      targetCpl: Number(String(row.targetCpl || '').replace(/[^0-9.]/g, '')) || 0,
       updatedBy: String(row.updatedBy || ''),
       updatedAt: String(row.updatedAt || ''),
     }))
@@ -2126,7 +2128,7 @@ export async function saveKpiTarget(target: KpiTarget) {
   const data = await res.json()
   if (data?.error === 'Invalid type') throw new Error('KPI 목표 저장 기능을 사용하려면 최신 Apps Script를 배포해야 합니다.')
   handleDataError(data)
-  sheetCache.delete('kpiTargets')
+  invalidateSheetCache('kpiTargets')
   notifyDataUpdated()
   return data
 }

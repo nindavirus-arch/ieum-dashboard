@@ -1155,11 +1155,19 @@ function ensureKpiTargetSheet() {
   let sheet = book.getSheetByName(SHEETS.kpiTargets);
   if (!sheet) sheet = book.insertSheet(SHEETS.kpiTargets);
   if (sheet.getLastRow() === 0) {
-    sheet.getRange(1, 1, 1, 5).setValues([['month', 'minDaily', 'stretchDaily', 'updatedBy', 'updatedAt']]);
+    sheet.getRange(1, 1, 1, 6).setValues([['month', 'minDaily', 'stretchDaily', 'targetCpl', 'updatedBy', 'updatedAt']]);
     sheet.setFrozenRows(1);
+  } else {
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
+    if (headers.indexOf('targetCpl') < 0) sheet.getRange(1, headers.length + 1).setValue('targetCpl');
   }
   if (sheet.getLastRow() === 1) {
-    sheet.getRange(2, 1, 1, 5).setValues([['2026-07', 40, 60, 'system', new Date().toISOString()]]);
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
+    const initial = {
+      month: '2026-07', minDaily: 40, stretchDaily: 60, targetCpl: '',
+      updatedBy: 'system', updatedAt: new Date().toISOString()
+    };
+    sheet.getRange(2, 1, 1, headers.length).setValues([headers.map(function(header) { return initial[header] || ''; })]);
   }
   return sheet;
 }
@@ -1182,6 +1190,7 @@ function saveKpiTarget(body, user) {
   const month = String(target.month || '').slice(0, 7);
   const minDaily = Math.max(0, Math.round(Number(target.minDaily) || 0));
   const stretchDaily = Math.max(minDaily, Math.round(Number(target.stretchDaily) || 0));
+  const targetCpl = Math.max(0, Math.round(Number(target.targetCpl) || 0));
   if (!/^\d{4}-\d{2}$/.test(month)) return json({ error: 'invalid target month' });
   if (minDaily <= 0 || stretchDaily <= 0) return json({ error: 'invalid target value' });
 
@@ -1190,6 +1199,7 @@ function saveKpiTarget(body, user) {
   try {
     const sheet = ensureKpiTargetSheet();
     const values = sheet.getDataRange().getDisplayValues();
+    const headers = values[0] || [];
     let rowNumber = -1;
     for (let row = 1; row < values.length; row++) {
       if (String(values[row][0] || '').slice(0, 7) === month) {
@@ -1197,13 +1207,24 @@ function saveKpiTarget(body, user) {
         break;
       }
     }
-    const output = [[month, minDaily, stretchDaily, String(user.name || user.id || ''), new Date().toISOString()]];
-    if (rowNumber > 0) sheet.getRange(rowNumber, 1, 1, 5).setValues(output);
-    else sheet.getRange(sheet.getLastRow() + 1, 1, 1, 5).setValues(output);
+    const nextTarget = {
+      month: month,
+      minDaily: minDaily,
+      stretchDaily: stretchDaily,
+      targetCpl: targetCpl || '',
+      updatedBy: String(user.name || user.id || ''),
+      updatedAt: new Date().toISOString()
+    };
+    const output = [headers.map(function(header) {
+      return nextTarget[header] === undefined ? '' : nextTarget[header];
+    })];
+    if (rowNumber > 0) sheet.getRange(rowNumber, 1, 1, headers.length).setValues(output);
+    else sheet.getRange(sheet.getLastRow() + 1, 1, headers.length).setValues(output);
     return json({ success: true, target: {
       month: month,
       minDaily: minDaily,
       stretchDaily: stretchDaily,
+      targetCpl: targetCpl,
       updatedBy: String(user.name || user.id || '')
     }});
   } finally {

@@ -1,28 +1,26 @@
-온라인광고 KPI 엑셀 다운로드 기능
+온라인광고 KPI DB + CPL 목표 설정 업데이트
 
-적용 방법
-1. dist 폴더를 Vercel에 재배포합니다.
-2. 온라인광고 KPI 화면 상단의 '엑셀 다운로드' 버튼을 누릅니다.
-3. 현재 선택한 월과 '리타겟 포함' 설정이 파일에 반영됩니다.
+추가 기능
+- 월별 KPI DB 목표: 일일 기본 DB, 일일 상향 DB
+- 월별 KPI CPL 목표: 실제 CPL이 설정 금액 이하이면 달성
+- KPI 카드에서 실제 CPL과 목표 CPL 비교 표시
+- 운영 알림에 CPL 목표 이내/초과 안내
+- PDF 리포트에 CPL 목표 및 달성 평가 표시
+- KPI 엑셀 월간요약과 집계기준에 목표 CPL 및 달성 여부 포함
 
-파일명
-- 온라인광고_KPI_YYYY-MM_리타겟포함.xlsx
-- 온라인광고_KPI_YYYY-MM_리타겟제외.xlsx
+기존 데이터 보호
+- 기존 KPI_TARGETS 시트의 month, minDaily, stretchDaily, updatedBy, updatedAt 값은 유지합니다.
+- targetCpl 칼럼만 자동으로 추가합니다.
+- 기존 월별 DB 목표는 변경되지 않습니다.
 
-시트 구성
-1. 월간요약
-2. 일별성과
-3. 상세매체성과
-4. 집계기준
-
-집계 안전장치
-- 화면과 동일한 고객 여정, 채널 분류, 광고비 및 KPI 목표 데이터를 사용합니다.
-- 상세매체성과 마지막 합계 행으로 월간요약 DB와 광고비를 대조할 수 있습니다.
-- 금액과 퍼센트는 Excel 숫자 형식으로 저장합니다.
-- 개인정보 로우데이터는 포함하지 않습니다.
-
-Apps Script
-- 교체하거나 새로 배포할 필요 없습니다.
+적용 순서
+1. APPS_SCRIPT_CODE.txt 전체를 Google Apps Script 코드에 교체합니다.
+2. 기존 웹 앱 배포를 새 버전으로 업데이트합니다. 기존 URL은 유지합니다.
+3. dist 폴더를 Vercel에 재배포합니다.
+4. 온라인광고 KPI 화면에서 목표 설정을 열어 CPL 목표를 입력하고 저장합니다.
 
 수정 소스
+- APPS_SCRIPT_CODE.txt
+- src/lib/dataService.ts
 - src/pages/OnlineKpiPage.tsx
+- src/components/kpi/OnlineKpiReport.tsx

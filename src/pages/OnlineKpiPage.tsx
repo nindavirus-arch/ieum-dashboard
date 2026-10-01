@@ -155,6 +155,11 @@ function fmtMoney(value: number) {
   return `${Math.round(value).toLocaleString()}원`
 }
 
+function fmtCpl(value: number) {
+  if (value >= 10_000) return `${(value / 10_000).toFixed(1)}만원`
+  return `${Math.round(value).toLocaleString()}원`
+}
+
 function percent(value: number) {
   if (!Number.isFinite(value)) return '0%'
   return `${value.toFixed(1)}%`
@@ -202,6 +207,7 @@ export default function OnlineKpiPage() {
   const [reportOpen, setReportOpen] = useState(false)
   const [draftMin, setDraftMin] = useState(DEFAULT_KPI_MIN_DAILY)
   const [draftStretch, setDraftStretch] = useState(DEFAULT_KPI_STRETCH_DAILY)
+  const [draftTargetCpl, setDraftTargetCpl] = useState(30_000)
   const [saving, setSaving] = useState(false)
   const [exportingExcel, setExportingExcel] = useState(false)
   const [includeRetarget, setIncludeRetarget] = useState(false)
@@ -237,6 +243,7 @@ export default function OnlineKpiPage() {
   const configuredTarget = targets.find(target => target.month === selectedMonth)
   const minDaily = configuredTarget?.minDaily || DEFAULT_KPI_MIN_DAILY
   const stretchDaily = Math.max(configuredTarget?.stretchDaily || DEFAULT_KPI_STRETCH_DAILY, minDaily)
+  const targetCpl = configuredTarget?.targetCpl || 0
   const monthDate = parseISO(`${selectedMonth}-01`)
   const daysInMonth = getDaysInMonth(monthDate)
   const monthStart = `${selectedMonth}-01`
@@ -347,6 +354,11 @@ export default function OnlineKpiPage() {
     if (lastTwo.length === 2 && lastTwo.every(row => row.db < minDaily)) {
       result.push({ tone: 'warn', text: '최근 2일 연속 기본 목표에 미달했습니다.' })
     }
+    if (targetCpl > 0 && attributedDb > 0) {
+      result.push(cpl <= targetCpl
+        ? { tone: 'good', text: `CPL ${fmtCpl(cpl)}로 목표 ${fmtCpl(targetCpl)} 이내입니다.` }
+        : { tone: 'warn', text: `CPL이 목표보다 ${(cpl - targetCpl).toLocaleString()}원 높습니다.` })
+    }
     detailStats.filter(row => isPaidChannel(row.channel) && row.spend > 0 && row.db === 0).slice(0, 2).forEach(row => {
       result.push({ tone: 'warn', text: `${row.subChannel}: 광고비가 집행됐지만 유효DB가 없습니다.` })
     })
@@ -356,17 +368,18 @@ export default function OnlineKpiPage() {
       result.push({ tone: 'warn', text: `누적 기본 목표보다 ${minExpected - totalDb}건 부족합니다.` })
     }
     return result.slice(0, 4)
-  }, [dailyData, detailStats, elapsedDays, minDaily, minExpected, selectedMonth, totalDb])
+  }, [attributedDb, cpl, dailyData, detailStats, elapsedDays, minDaily, minExpected, selectedMonth, targetCpl, totalDb])
 
   function openSettings() {
     setDraftMin(minDaily)
     setDraftStretch(stretchDaily)
+    setDraftTargetCpl(targetCpl || 30_000)
     setSettingsOpen(true)
   }
 
   async function saveSettings() {
-    if (draftMin <= 0 || draftStretch < draftMin) {
-      setNotice('상향 목표는 기본 목표보다 크거나 같아야 합니다.')
+    if (draftMin <= 0 || draftStretch < draftMin || draftTargetCpl <= 0) {
+      setNotice('DB 목표와 CPL 목표를 확인해주세요. 상향 목표는 기본 목표보다 크거나 같아야 합니다.')
       return
     }
     setSaving(true)
@@ -375,11 +388,12 @@ export default function OnlineKpiPage() {
         month: selectedMonth,
         minDaily: Math.round(draftMin),
         stretchDaily: Math.round(draftStretch),
+        targetCpl: Math.round(draftTargetCpl),
         updatedBy: user?.name || user?.id || '',
       })
       setTargets(current => [
         ...current.filter(target => target.month !== selectedMonth),
-        { month: selectedMonth, minDaily: Math.round(draftMin), stretchDaily: Math.round(draftStretch), updatedBy: user?.name || user?.id || '' },
+        { month: selectedMonth, minDaily: Math.round(draftMin), stretchDaily: Math.round(draftStretch), targetCpl: Math.round(draftTargetCpl), updatedBy: user?.name || user?.id || '' },
       ])
       setSettingsOpen(false)
       setNotice('KPI 목표가 저장되었습니다.')
@@ -412,6 +426,7 @@ export default function OnlineKpiPage() {
         '일 상향 목표': stretchDaily,
         '월 기본 목표': minMonthly,
         '월 상향 목표': stretchMonthly,
+        'KPI 목표 CPL': targetCpl || null,
         '총 KPI DB': totalDb,
         '매체확인 DB': attributedDb,
         '온라인 직접·자연 DB': unattributedOnlineDb,
@@ -426,6 +441,7 @@ export default function OnlineKpiPage() {
         '필요 일평균': neededDaily,
         '총 광고비': totalSpend,
         '매체확인 CPL': attributedDb > 0 ? cpl : null,
+        'CPL 목표 달성 여부': targetCpl <= 0 ? '목표 미설정' : attributedDb <= 0 ? '집계 전' : cpl <= targetCpl ? '달성' : '미달',
         '생성일시': generatedAt,
       }]
 
@@ -499,6 +515,7 @@ export default function OnlineKpiPage() {
         { '항목': '매체확인 DB', '집계 기준': '유료 온라인광고 매체가 확인된 DB입니다.' },
         { '항목': '온라인 직접·자연 DB', '집계 기준': '총 KPI에는 포함하지만 매체별 CPL 산정에서는 제외합니다.' },
         { '항목': 'CPL', '집계 기준': '동일 기간의 매체확인 광고비 ÷ 매체확인 DB로 계산합니다. DB가 없으면 빈칸입니다.' },
+        { '항목': 'KPI 목표 CPL', '집계 기준': targetCpl > 0 ? `${targetCpl.toLocaleString()}원 이하` : '미설정' },
         { '항목': '상담 전환', '집계 기준': '1차 유효DB 이후 2차DB가 확인된 전환 건수이며 최초 1차 유입 매체에 귀속합니다.' },
         { '항목': '상담 전환율', '집계 기준': '동일 기간 상담 전환 건수 ÷ 동일 기간 신규 DB입니다. 고객 코호트 전환율과는 다를 수 있습니다.' },
         { '항목': '상세매체 통합', '집계 기준': '네이버 SA·GFA·브랜드검색을 구분하고 구글 디스커버리/GDN·유튜브는 통합합니다.' },
@@ -538,7 +555,7 @@ export default function OnlineKpiPage() {
       }
       ;['기본 목표 달성률', '경과 목표 달성률'].forEach(header => setColumnFormat(summarySheet, header, '0.0%'))
       ;['상담 전환율', 'DB 기여율'].forEach(header => setColumnFormat(detailSheet, header, '0.0%'))
-      ;['총 광고비', '매체확인 CPL'].forEach(header => setColumnFormat(summarySheet, header, '#,##0'))
+      ;['KPI 목표 CPL', '총 광고비', '매체확인 CPL'].forEach(header => setColumnFormat(summarySheet, header, '#,##0'))
       ;['일 광고비', '일 CPL'].forEach(header => setColumnFormat(dailySheet, header, '#,##0'))
       ;['광고비', 'CPL'].forEach(header => setColumnFormat(detailSheet, header, '#,##0'))
 
@@ -607,7 +624,7 @@ export default function OnlineKpiPage() {
         <StatCard label="현재 일평균" value={dailyAverage.toFixed(1)} suffix="건" sub={`월말 예상 ${forecast.toLocaleString()}건`} icon={TrendingUp} tone="cyan" />
         <StatCard label="필요 일평균" value={neededDaily} suffix="건" sub={`남은 ${remainingDays}일 · 기본 목표 기준`} icon={AlertTriangle} tone="orange" />
         <StatCard label="온라인 직접·자연" value={unattributedOnlineDb} suffix="건" sub="총 KPI 포함 · 매체 CPL 제외" icon={Gauge} tone="slate" />
-        <StatCard label="광고비 / 매체확인 CPL" value={fmtMoney(totalSpend)} sub={attributedDb > 0 ? `매체확인 DB ${attributedDb}건 · CPL ${fmtMoney(cpl)}` : '매체확인 DB 집계 전'} icon={DollarSign} tone="slate" />
+        <StatCard label="광고비 / 매체확인 CPL" value={fmtMoney(totalSpend)} sub={attributedDb > 0 ? `매체확인 DB ${attributedDb}건 · CPL ${fmtCpl(cpl)}${targetCpl > 0 ? ` · 목표 ${fmtCpl(targetCpl)}` : ' · 목표 미설정'}` : `매체확인 DB 집계 전${targetCpl > 0 ? ` · 목표 ${fmtCpl(targetCpl)}` : ''}`} icon={DollarSign} tone="slate" />
       </div>
 
       <div className="card p-4">
@@ -750,7 +767,7 @@ export default function OnlineKpiPage() {
                 <div><p className="text-[10px] text-slate-400">1차</p><p className="font-semibold text-blue-700">{row.first}</p></div>
                 <div><p className="text-[10px] text-slate-400">바로상담</p><p className="font-semibold text-emerald-700">{row.directSecond}</p></div>
                 <div><p className="text-[10px] text-slate-400">광고비</p><p className="font-semibold text-slate-700">{fmtMoney(row.spend)}</p></div>
-                <div><p className="text-[10px] text-slate-400">CPL</p><p className="font-semibold text-slate-700">{row.attributed && row.db > 0 ? fmtMoney(row.cpl) : '-'}</p></div>
+                <div><p className="text-[10px] text-slate-400">CPL</p><p className="font-semibold text-slate-700">{row.attributed && row.db > 0 ? fmtCpl(row.cpl) : '-'}</p></div>
               </div>
             </div>
           ))}
@@ -775,7 +792,7 @@ export default function OnlineKpiPage() {
                 <td className="px-4 py-3 text-right text-slate-600">{row.converted}</td>
                 <td className="px-4 py-3 text-right text-slate-600">{percent(row.share)}</td>
                 <td className="px-4 py-3 text-right font-medium text-slate-700">{fmtMoney(row.spend)}</td>
-                <td className="px-4 py-3 text-right font-semibold text-slate-800">{row.attributed && row.db > 0 ? fmtMoney(row.cpl) : '-'}</td>
+                <td className="px-4 py-3 text-right font-semibold text-slate-800">{row.attributed && row.db > 0 ? fmtCpl(row.cpl) : '-'}</td>
               </tr>)}
               {!detailStats.length && <tr><td colSpan={10} className="px-4 py-10 text-center text-slate-400">선택한 달의 온라인광고 데이터가 없습니다.</td></tr>}
             </tbody>
@@ -790,16 +807,29 @@ export default function OnlineKpiPage() {
               <div><h2 className="font-bold text-slate-800">월별 KPI 목표 설정</h2><p className="mt-1 text-xs text-slate-400">{selectedMonth.replace('-', '년 ')}월</p></div>
               <button onClick={() => setSettingsOpen(false)} aria-label="닫기"><X size={18} /></button>
             </div>
-            <div className="mt-5 grid grid-cols-2 gap-3">
-              <label className="space-y-1 text-xs text-slate-500">일일 기본 목표
-                <input type="number" min={1} value={draftMin} onChange={event => setDraftMin(Number(event.target.value))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+            <div className="mt-5">
+              <p className="text-xs font-semibold text-slate-700">KPI DB 목표</p>
+              <div className="mt-2 grid grid-cols-2 gap-3">
+                <label className="space-y-1 text-xs text-slate-500">일일 기본 DB
+                  <input type="number" min={1} value={draftMin} onChange={event => setDraftMin(Number(event.target.value))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1 text-xs text-slate-500">일일 상향 DB
+                  <input type="number" min={draftMin} value={draftStretch} onChange={event => setDraftStretch(Number(event.target.value))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                </label>
+              </div>
+            </div>
+            <div className="mt-4 border-t border-slate-100 pt-4">
+              <p className="text-xs font-semibold text-slate-700">KPI CPL 목표</p>
+              <label className="mt-2 block space-y-1 text-xs text-slate-500">목표 CPL 금액
+                <div className="relative">
+                  <input type="number" min={1} step={1000} value={draftTargetCpl} onChange={event => setDraftTargetCpl(Number(event.target.value))} className="w-full rounded-lg border border-slate-200 px-3 py-2 pr-9 text-sm" />
+                  <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-slate-400">원</span>
+                </div>
               </label>
-              <label className="space-y-1 text-xs text-slate-500">일일 상향 목표
-                <input type="number" min={draftMin} value={draftStretch} onChange={event => setDraftStretch(Number(event.target.value))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-              </label>
+              <p className="mt-2 text-[11px] text-slate-400">실제 CPL이 목표 금액 이하이면 달성으로 판단합니다.</p>
             </div>
             <div className="mt-4 rounded-lg bg-slate-50 px-3 py-3 text-xs text-slate-500">
-              월 기본 목표 {(draftMin * daysInMonth).toLocaleString()}건 · 월 상향 목표 {(draftStretch * daysInMonth).toLocaleString()}건
+              월 기본 {(draftMin * daysInMonth).toLocaleString()}건 · 월 상향 {(draftStretch * daysInMonth).toLocaleString()}건 · 목표 CPL {Math.round(draftTargetCpl).toLocaleString()}원
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={() => setSettingsOpen(false)} className="btn-secondary">취소</button>

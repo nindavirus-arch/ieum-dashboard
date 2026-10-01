@@ -53,6 +53,11 @@ function money(value: number) {
   return `${Math.round(value).toLocaleString()}원`
 }
 
+function cplMoney(value: number) {
+  if (value >= 10_000) return `${(value / 10_000).toFixed(1)}만원`
+  return `${Math.round(value).toLocaleString()}원`
+}
+
 function rate(value: number) {
   return Number.isFinite(value) ? `${value.toFixed(1)}%` : '0.0%'
 }
@@ -104,6 +109,7 @@ export default function OnlineKpiReport({ acquisitions, conversions, spends, tar
     const target = targets.find(row => row.month === targetMonth)
     const minDaily = target?.minDaily || DEFAULT_KPI_MIN_DAILY
     const stretchDaily = Math.max(target?.stretchDaily || DEFAULT_KPI_STRETCH_DAILY, minDaily)
+    const targetCpl = target?.targetCpl || 0
     const minTarget = minDaily * days.length
     const stretchTarget = stretchDaily * days.length
     const paidDb = rows.filter(row => isPaidChannel(row.channel)).length
@@ -163,6 +169,7 @@ export default function OnlineKpiReport({ acquisitions, conversions, spends, tar
       stretchDaily,
       minTarget,
       stretchTarget,
+      targetCpl,
       paidDb,
       organicDb,
       totalSpend,
@@ -219,7 +226,7 @@ export default function OnlineKpiReport({ acquisitions, conversions, spends, tar
               ['매체확인 DB', `${period.paidDb.toLocaleString()}건`, 'CPL 산정 대상'],
               ['온라인 직접·자연', `${period.organicDb.toLocaleString()}건`, 'KPI 포함·CPL 제외'],
               ['광고비', money(period.totalSpend), `기간 ${period.trend.length}일`],
-              ['CPL', period.paidDb > 0 ? money(period.cpl) : '-', '광고비 ÷ 매체확인 DB'],
+              ['CPL', period.paidDb > 0 ? cplMoney(period.cpl) : '-', period.targetCpl > 0 ? `목표 ${cplMoney(period.targetCpl)} 이하` : '목표 미설정'],
             ].map(([label, value, sub]) => (
               <div key={label} className="rounded-lg border border-slate-200 p-4">
                 <p className="text-[11px] text-slate-500">{label}</p>
@@ -251,11 +258,17 @@ export default function OnlineKpiReport({ acquisitions, conversions, spends, tar
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-3 gap-3">
+          <div className="mt-6 grid grid-cols-4 gap-3">
             <div className="rounded-lg bg-slate-50 p-4">
               <p className="text-[11px] text-slate-400">목표 평가</p>
               <p className={`mt-1 text-sm font-semibold ${targetRate >= 100 ? 'text-emerald-700' : 'text-red-600'}`}>
                 {targetRate >= 100 ? `기본 목표 대비 ${Math.round(targetRate - 100)}% 초과` : `기본 목표 대비 ${period.minTarget - period.rows.length}건 부족`}
+              </p>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-4">
+              <p className="text-[11px] text-slate-400">CPL 목표 평가</p>
+              <p className={`mt-1 text-sm font-semibold ${period.targetCpl > 0 && period.paidDb > 0 && period.cpl <= period.targetCpl ? 'text-emerald-700' : 'text-red-600'}`}>
+                {period.targetCpl <= 0 ? '목표 미설정' : period.paidDb <= 0 ? '집계 전' : period.cpl <= period.targetCpl ? `목표 대비 ${(period.targetCpl - period.cpl).toLocaleString()}원 절감` : `목표 대비 ${(period.cpl - period.targetCpl).toLocaleString()}원 초과`}
               </p>
             </div>
             <div className="rounded-lg bg-slate-50 p-4">
@@ -264,7 +277,7 @@ export default function OnlineKpiReport({ acquisitions, conversions, spends, tar
             </div>
             <div className="rounded-lg bg-slate-50 p-4">
               <p className="text-[11px] text-slate-400">최저 CPL</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{bestCpl ? `${bestCpl.subChannel} · ${money(bestCpl.cpl)}` : '집계 전'}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">{bestCpl ? `${bestCpl.subChannel} · ${cplMoney(bestCpl.cpl)}` : '집계 전'}</p>
             </div>
           </div>
         </section>
@@ -299,7 +312,7 @@ export default function OnlineKpiReport({ acquisitions, conversions, spends, tar
                   <td className="px-2 py-2.5 text-right text-slate-600">{row.converted}</td>
                   <td className="px-2 py-2.5 text-right text-slate-600">{rate(row.share)}</td>
                   <td className="px-3 py-2.5 text-right font-medium text-slate-700">{money(row.spend)}</td>
-                  <td className="px-3 py-2.5 text-right font-semibold text-slate-900">{row.attributed && row.db > 0 ? money(row.cpl) : '-'}</td>
+                  <td className="px-3 py-2.5 text-right font-semibold text-slate-900">{row.attributed && row.db > 0 ? cplMoney(row.cpl) : '-'}</td>
                 </tr>
               ))}
               {!period.details.length && <tr><td colSpan={9} className="py-16 text-center text-slate-400">선택 기간의 집계 데이터가 없습니다.</td></tr>}
@@ -313,7 +326,7 @@ export default function OnlineKpiReport({ acquisitions, conversions, spends, tar
                 <td className="px-2 py-3 text-right">{period.conversionCount}</td>
                 <td className="px-2 py-3 text-right">100%</td>
                 <td className="px-3 py-3 text-right">{money(period.totalSpend)}</td>
-                <td className="px-3 py-3 text-right">{period.paidDb > 0 ? money(period.cpl) : '-'}</td>
+                <td className="px-3 py-3 text-right">{period.paidDb > 0 ? cplMoney(period.cpl) : '-'}</td>
               </tr>
             </tfoot>
           </table>
