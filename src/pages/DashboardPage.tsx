@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, startOfWeek, endOfWeek, parseISO, subDays, subWeeks, subMonths, subYears, eachDayOfInterval } from 'date-fns'
 import { Users, DollarSign, TrendingDown, CalendarDays, RefreshCw, ChevronDown, HelpCircle } from 'lucide-react'
-import { fetchLeads, fetchAdSpend, fetchKpiTargets, fetchDashboardContracts, invalidateDataCache, type DashboardContractDaily, type KpiTarget } from '../lib/dataService'
+import { fetchLeads, fetchAdSpend, fetchKpiTargets, fetchDashboardContracts, fetchConsultingStatusEvents, invalidateDataCache, type ConsultingStatusEvent, type DashboardContractDaily, type KpiTarget } from '../lib/dataService'
 import { useAutoDataRefresh } from '../lib/appRefresh'
 import type { LeadRecord, AdSpend, ViewMode } from '../types'
 import TimeSeriesChart from '../components/dashboard/TimeSeriesChart'
@@ -11,6 +11,7 @@ import DataUpdatedAt from '../components/DataUpdatedAt'
 import clsx from 'clsx'
 import { buildLeadJourneys, isDirectSales, isPaidChannel, trafficGroup, type TrafficGroup } from '../lib/leadMetrics'
 import { DEFAULT_KPI_MIN_DAILY, DEFAULT_KPI_STRETCH_DAILY } from '../lib/kpiDefaults'
+import { buildVisitMilestones, latestVisitByPhone } from '../lib/visitMetrics'
 
 const today = format(new Date(), 'yyyy-MM-dd')
 const PAID_CHANNEL_LIST = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment','chatgpt'] as const
@@ -280,6 +281,7 @@ export default function DashboardPage() {
   const [spends, setSpends] = useState<AdSpend[]>([])
   const [targets, setTargets] = useState<KpiTarget[]>([])
   const [contractDaily, setContractDaily] = useState<DashboardContractDaily[]>([])
+  const [statusEvents, setStatusEvents] = useState<ConsultingStatusEvent[]>([])
   const [summaryTab, setSummaryTab] = useState<'db' | 'contracts'>(() => {
     try { return window.sessionStorage.getItem('ieum-dashboard-summary-tab') === 'contracts' ? 'contracts' : 'db' } catch { return 'db' }
   })
@@ -295,21 +297,24 @@ export default function DashboardPage() {
     setLoading(true)
     setLoadError('')
     try {
-      const [leadResult, spendResult, targetResult, projectResult] = await Promise.allSettled([
+      const [leadResult, spendResult, targetResult, projectResult, statusEventResult] = await Promise.allSettled([
         fetchLeads(),
         fetchAdSpend(),
         fetchKpiTargets().catch(() => [] as KpiTarget[]),
         fetchDashboardContracts(),
+        fetchConsultingStatusEvents(),
       ])
       if (leadResult.status === 'fulfilled') setLeads(leadResult.value)
       if (spendResult.status === 'fulfilled') setSpends(spendResult.value)
       if (targetResult.status === 'fulfilled') setTargets(targetResult.value)
       if (projectResult.status === 'fulfilled') setContractDaily(projectResult.value)
+      if (statusEventResult.status === 'fulfilled') setStatusEvents(statusEventResult.value)
       const errors = [
         leadResult.status === 'rejected' ? `DB: ${leadResult.reason instanceof Error ? leadResult.reason.message : String(leadResult.reason)}` : '',
         spendResult.status === 'rejected' ? `광고비: ${spendResult.reason instanceof Error ? spendResult.reason.message : String(spendResult.reason)}` : '',
         targetResult.status === 'rejected' ? `KPI: ${targetResult.reason instanceof Error ? targetResult.reason.message : String(targetResult.reason)}` : '',
         projectResult.status === 'rejected' ? `계약: ${projectResult.reason instanceof Error && projectResult.reason.message === 'forbidden' ? '최신 Apps Script 배포가 필요합니다.' : projectResult.reason instanceof Error ? projectResult.reason.message : String(projectResult.reason)}` : '',
+        statusEventResult.status === 'rejected' ? `방문요청: ${statusEventResult.reason instanceof Error ? statusEventResult.reason.message : String(statusEventResult.reason)}` : '',
       ].filter(Boolean)
       if (errors.length) setLoadError(errors.join(' / '))
     } finally {
@@ -367,6 +372,22 @@ export default function DashboardPage() {
   const directSecond = activeJourneys.filter(journey => journey.secondType === 'direct_consult').length
   const estimatePool = firstOnly + convertedSecond
   const conversionRate = estimatePool > 0 ? Math.round((convertedSecond / estimatePool) * 100) : 0
+  const visitMilestones = useMemo(() => buildVisitMilestones(statusEvents), [statusEvents])
+  const visitByPhone = useMemo(
+    () => latestVisitByPhone(visitMilestones.filter(milestone => milestone.date <= range.activeEnd)),
+    [range.activeEnd, visitMilestones],
+  )
+  const finalRetarget = activeJourneys.filter(journey => journey.stage === 'retarget' && !visitByPhone.has(journey.lead.phone)).length
+  const finalFirst = activeJourneys.filter(journey => journey.stage === 'first' && !visitByPhone.has(journey.lead.phone)).length
+  const finalSecondJourneys = activeJourneys.filter(journey => journey.stage === 'second' && !visitByPhone.has(journey.lead.phone))
+  const finalSecond = finalSecondJourneys.length
+  const finalThirdJourneys = activeJourneys.filter(journey => visitByPhone.has(journey.lead.phone))
+  const finalThird = finalThirdJourneys.length
+  const finalSecondAfterEstimate = finalSecondJourneys.filter(journey => journey.secondType === 'estimate_to_consult').length
+  const finalSecondDirect = finalSecondJourneys.filter(journey => journey.secondType === 'direct_consult').length
+  const thirdAfterEstimate = finalThirdJourneys.filter(journey => visitByPhone.get(journey.lead.phone)?.path === 'after_estimate').length
+  const thirdAfterConsultation = finalThirdJourneys.filter(journey => visitByPhone.get(journey.lead.phone)?.path === 'after_consultation').length
+  const thirdUnknown = finalThird - thirdAfterEstimate - thirdAfterConsultation
 
   const yesterday = format(subDays(safeDate(today), 1), 'yyyy-MM-dd')
   const dbCard = useMemo(() => {
@@ -1046,29 +1067,52 @@ export default function DashboardPage() {
 
           {analysisPanel === 'stages' && (
             <div>
-              <div className="mb-4 flex items-center justify-between text-[11px] text-slate-400"><span>선택기간 최종 상담 단계</span><span>연락처 중복 제거</span></div>
-              <div className="space-y-5">
+              <div className="mb-4 flex items-center justify-between text-[11px] text-slate-400">
+                <span className="flex items-center gap-1">
+                  선택기간 최종 DB 단계
+                  <StatFormulaTooltip
+                    align="left"
+                    lines={[
+                      '동일 연락처는 조회기간 종료일 기준 최종 단계 1건으로 집계합니다.',
+                      '3차DB는 컨설팅리스트의 로켓방문요청 이력으로 판별합니다.',
+                      '3차DB로 분류된 고객은 1차·2차DB에서 제외합니다.',
+                    ]}
+                  />
+                </span>
+                <span>연락처 중복 제거</span>
+              </div>
+              <div className="space-y-4">
                 {[
-                  { label: '리타겟만', count: retargetOnly, color: 'bg-violet-500', text: 'text-violet-700', bg: 'bg-violet-50' },
-                  { label: '견적만 확인', count: firstOnly, color: 'bg-blue-500', text: 'text-blue-700', bg: 'bg-blue-50' },
-                  { label: '견적 후 상담', count: convertedSecond, color: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50' },
-                  { label: '광고에서 바로 상담', count: directSecond, color: 'bg-cyan-500', text: 'text-cyan-700', bg: 'bg-cyan-50' },
+                  { label: '리타겟 DB', badge: '', count: finalRetarget, color: 'bg-violet-500', text: 'text-violet-700', bg: 'bg-violet-50', detail: '' },
+                  { label: '로켓견적확인', badge: '1차DB', count: finalFirst, color: 'bg-blue-500', text: 'text-blue-700', bg: 'bg-blue-50', detail: '견적 확인 후 상담·방문 이력 없음' },
+                  { label: '로켓상담요청', badge: '2차DB', count: finalSecond, color: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50', detail: `견적 후 상담 ${finalSecondAfterEstimate} · 바로 상담 ${finalSecondDirect}` },
+                  { label: '로켓방문요청', badge: '3차DB', count: finalThird, color: 'bg-cyan-500', text: 'text-cyan-700', bg: 'bg-cyan-50', detail: `견적 직행 ${thirdAfterEstimate} · 상담 후 ${thirdAfterConsultation} · 미상 ${thirdUnknown}` },
                 ].map(item => {
                   const pct = totalDB > 0 ? Math.round((item.count / totalDB) * 100) : 0
                   return (
                     <div key={item.label}>
                       <div className="mb-1.5 flex items-center justify-between text-xs">
-                        <span className={clsx('rounded-md px-2 py-0.5 font-medium', item.bg, item.text)}>{item.label}</span>
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span className={clsx('rounded-md px-2 py-0.5 font-medium', item.bg, item.text)}>{item.label}</span>
+                          {item.badge && <span className="shrink-0 text-[10px] font-medium text-slate-400">{item.badge}</span>}
+                        </span>
                         <span className="font-semibold text-slate-700">{item.count.toLocaleString()}건 <span className="font-normal text-slate-400">{pct}%</span></span>
                       </div>
                       <div className="h-1.5 rounded-full bg-slate-100"><div className={clsx('h-1.5 rounded-full', item.color)} style={{ width: `${pct}%` }} /></div>
+                      {item.detail && <p className="mt-1 text-[10px] leading-4 text-slate-400">{item.detail}</p>}
                     </div>
                   )
                 })}
               </div>
-              <div className="mt-6 flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-3 text-xs">
-                <span className="text-slate-500">견적 → 상담 전환율</span>
-                <span className="font-bold text-slate-800">{conversionRate}% <span className="font-normal text-slate-400">({convertedSecond}/{estimatePool})</span></span>
+              <div className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-slate-100 bg-slate-100 text-xs">
+                <div className="flex items-center justify-between bg-slate-50 px-3 py-3">
+                  <span className="text-slate-500">견적→상담</span>
+                  <span className="font-bold text-slate-800">{conversionRate}% <span className="font-normal text-slate-400">({convertedSecond}/{estimatePool})</span></span>
+                </div>
+                <div className="flex items-center justify-between bg-slate-50 px-3 py-3">
+                  <span className="text-slate-500">방문요청</span>
+                  <span className="font-bold text-cyan-700">{finalThird.toLocaleString()}건</span>
+                </div>
               </div>
             </div>
           )}
