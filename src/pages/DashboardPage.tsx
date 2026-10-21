@@ -413,10 +413,16 @@ export default function DashboardPage() {
       compareLabel = periodPreset === 'previous' ? '전전주 DB' : '저번주 DB'
     } else if (viewMode === 'monthly') {
       const prevMonth = subMonths(safeDate(range.activeStart), 1)
+      const isCurrentMonth = range.activeStart.slice(0, 7) === today.slice(0, 7)
       compareStart = format(startOfMonth(prevMonth), 'yyyy-MM-dd')
-      compareEnd = format(endOfMonth(prevMonth), 'yyyy-MM-dd')
+      if (isCurrentMonth) {
+        const sameDay = Math.min(safeDate(today).getDate(), endOfMonth(prevMonth).getDate())
+        compareEnd = format(new Date(prevMonth.getFullYear(), prevMonth.getMonth(), sameDay), 'yyyy-MM-dd')
+      } else {
+        compareEnd = format(endOfMonth(prevMonth), 'yyyy-MM-dd')
+      }
       primaryLabel = periodPreset === 'previous' ? '저번달 DB' : periodPreset === 'selected' ? '선택월 DB' : '이번달 DB'
-      compareLabel = periodPreset === 'previous' ? '전전월 DB' : '저번달 DB'
+      compareLabel = isCurrentMonth ? '전월 동일기간 DB' : periodPreset === 'previous' ? '전전월 DB' : '저번달 DB'
     } else if (viewMode === 'yearly') {
       const prevYear = subYears(safeDate(range.activeStart), 1)
       compareStart = format(startOfYear(prevYear), 'yyyy-MM-dd')
