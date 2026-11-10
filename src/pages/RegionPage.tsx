@@ -4,14 +4,15 @@ import { format, subMonths } from 'date-fns'
 import { ChevronRight, MapPin, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
 import clsx from 'clsx'
 import DataUpdatedAt from '../components/DataUpdatedAt'
-import { fetchLeads } from '../lib/dataService'
+import { fetchConsultingStatusEvents, fetchLeads } from '../lib/dataService'
 import { useAutoDataRefresh } from '../lib/appRefresh'
 import { finalLeads } from '../lib/leadMetrics'
+import { buildVisitMilestones, latestVisitByPhone } from '../lib/visitMetrics'
 import type { LeadRecord } from '../types'
 
 const PROVINCES = [
-  '서울','부산','대구','인천','광주','대전','울산','세종',
-  '경기','강원','충북','충남','전북','전남','경북','경남','제주'
+  '서울','부산','대구','인천','광주·전남','대전','울산','세종',
+  '경기','강원','충북','충남','전북','경북','경남','제주'
 ]
 
 function monthKey(date: Date) {
@@ -22,21 +23,38 @@ function previousMonthKey(month: string) {
   return monthKey(subMonths(new Date(`${month}-01T00:00:00`), 1))
 }
 
-function provinceStats(leads: LeadRecord[]) {
+function matchesProvince(lead: LeadRecord, province: string) {
+  const region = String(lead.region || '')
+  if (province === '광주·전남') return region.includes('광주') || region.includes('전남')
+  return region.includes(province)
+}
+
+function districtLabel(lead: LeadRecord, province: string) {
+  const district = lead.district || '미입력'
+  if (province !== '광주·전남') return district
+  const region = String(lead.region || '')
+  const prefix = region.includes('광주') ? '광주' : region.includes('전남') ? '전남' : ''
+  return prefix ? `${prefix} ${district}` : district
+}
+
+function provinceStats(leads: LeadRecord[], thirdLeads: LeadRecord[]) {
   return PROVINCES.map(prov => {
-    const rows = leads.filter(lead => lead.region?.includes(prov))
+    const rows = leads.filter(lead => matchesProvince(lead, prov))
+    const thirdRows = thirdLeads.filter(lead => matchesProvince(lead, prov))
     return {
       prov,
       total: rows.length,
       retarget: rows.filter(lead => lead.dbTier === 'retarget').length,
       first: rows.filter(lead => lead.dbTier === 'first').length,
       second: rows.filter(lead => lead.dbTier === 'second').length,
+      third: thirdRows.length,
     }
-  }).filter(row => row.total > 0).sort((a, b) => b.total - a.total)
+  }).filter(row => row.total > 0 || row.third > 0).sort((a, b) => b.total - a.total || b.third - a.third)
 }
 
 export default function RegionPage() {
   const [allLeads, setAllLeads] = useState<LeadRecord[]>([])
+  const [statusEvents, setStatusEvents] = useState<Awaited<ReturnType<typeof fetchConsultingStatusEvents>>>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<string | null>(null)
   const [selectedMonth, setSelectedMonth] = useState(monthKey(new Date()))
@@ -44,8 +62,9 @@ export default function RegionPage() {
   async function load() {
     setLoading(true)
     try {
-      const rows = await fetchLeads()
+      const [rows, events] = await Promise.all([fetchLeads(), fetchConsultingStatusEvents()])
       setAllLeads(finalLeads(rows))
+      setStatusEvents(events)
     } finally {
       setLoading(false)
     }
@@ -64,8 +83,20 @@ export default function RegionPage() {
     () => allLeads.filter(lead => lead.date.startsWith(prevMonth)),
     [allLeads, prevMonth]
   )
-  const currentStats = useMemo(() => provinceStats(monthLeads), [monthLeads])
-  const previousStats = useMemo(() => provinceStats(prevMonthLeads), [prevMonthLeads])
+  const visitByPhone = useMemo(
+    () => latestVisitByPhone(buildVisitMilestones(statusEvents)),
+    [statusEvents]
+  )
+  const monthThirdLeads = useMemo(
+    () => allLeads.filter(lead => visitByPhone.get(lead.phone)?.date.startsWith(selectedMonth)),
+    [allLeads, selectedMonth, visitByPhone]
+  )
+  const prevMonthThirdLeads = useMemo(
+    () => allLeads.filter(lead => visitByPhone.get(lead.phone)?.date.startsWith(prevMonth)),
+    [allLeads, prevMonth, visitByPhone]
+  )
+  const currentStats = useMemo(() => provinceStats(monthLeads, monthThirdLeads), [monthLeads, monthThirdLeads])
+  const previousStats = useMemo(() => provinceStats(prevMonthLeads, prevMonthThirdLeads), [prevMonthLeads, prevMonthThirdLeads])
   const currentMap = useMemo(() => new Map(currentStats.map(row => [row.prov, row])), [currentStats])
   const previousMap = useMemo(() => new Map(previousStats.map(row => [row.prov, row])), [previousStats])
   const maxTotal = Math.max(...currentStats.map(row => row.total), 1)
@@ -83,19 +114,22 @@ export default function RegionPage() {
 
   const districtStats = useMemo(() => {
     if (!selected) return []
-    const provinceLeads = monthLeads.filter(lead => lead.region?.includes(selected))
-    const districts = [...new Set(provinceLeads.map(lead => lead.district || '미입력'))]
+    const provinceLeads = monthLeads.filter(lead => matchesProvince(lead, selected))
+    const provinceThirdLeads = monthThirdLeads.filter(lead => matchesProvince(lead, selected))
+    const districts = [...new Set([...provinceLeads, ...provinceThirdLeads].map(lead => districtLabel(lead, selected)))]
     return districts.map(district => {
-      const rows = provinceLeads.filter(lead => (lead.district || '미입력') === district)
+      const rows = provinceLeads.filter(lead => districtLabel(lead, selected) === district)
+      const thirdRows = provinceThirdLeads.filter(lead => districtLabel(lead, selected) === district)
       return {
         district,
         total: rows.length,
         retarget: rows.filter(lead => lead.dbTier === 'retarget').length,
         first: rows.filter(lead => lead.dbTier === 'first').length,
         second: rows.filter(lead => lead.dbTier === 'second').length,
+        third: thirdRows.length,
       }
-    }).sort((a, b) => b.total - a.total)
-  }, [monthLeads, selected])
+    }).sort((a, b) => b.total - a.total || b.third - a.third)
+  }, [monthLeads, monthThirdLeads, selected])
 
   const isThisMonth = selectedMonth === monthKey(new Date())
   const monthLabel = isThisMonth ? '이번달 최종 DB 기준' : `${selectedMonth} 최종 DB 기준`
@@ -135,7 +169,7 @@ export default function RegionPage() {
             <p className="text-xs font-semibold text-slate-700">시도별 현황</p>
           </div>
           <div className="divide-y divide-slate-50">
-            {currentStats.map(({ prov, total, retarget, first, second }) => (
+            {currentStats.map(({ prov, total, retarget, first, second, third }) => (
               <button
                 key={prov}
                 onClick={() => setSelected(selected === prov ? null : prov)}
@@ -151,10 +185,11 @@ export default function RegionPage() {
                 <div className="mb-1.5 h-1.5 w-full rounded-full bg-slate-100">
                   <div className="h-1.5 rounded-full bg-blue-500 transition-all" style={{ width: `${Math.round(total / maxTotal * 100)}%` }} />
                 </div>
-                <div className="flex gap-3 text-xs text-slate-400">
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
                   <span className="text-violet-600">리타겟 {retarget}</span>
                   <span className="text-blue-500">1차 {first}</span>
                   <span className="text-emerald-600">2차 {second}</span>
+                  <span className="text-cyan-600">3차 {third}</span>
                 </div>
               </button>
             ))}
@@ -170,16 +205,17 @@ export default function RegionPage() {
           </div>
           {selected ? (
             <div className="divide-y divide-slate-50">
-              {districtStats.map(({ district, total, retarget, first, second }) => (
+              {districtStats.map(({ district, total, retarget, first, second, third }) => (
                 <div key={district} className="px-4 py-3">
                   <div className="mb-1.5 flex items-center justify-between">
                     <span className="text-sm font-medium text-slate-700">{district}</span>
                     <span className="text-sm font-bold text-slate-800">{total}건</span>
                   </div>
-                  <div className="flex gap-3 text-xs text-slate-400">
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
                     <span className="text-violet-600">리타겟 {retarget}</span>
                     <span className="text-blue-500">1차 {first}</span>
                     <span className="text-emerald-600">2차 {second}</span>
+                    <span className="text-cyan-600">3차 {third}</span>
                   </div>
                 </div>
               ))}
@@ -195,10 +231,13 @@ export default function RegionPage() {
 
       <div className="card overflow-hidden">
         <div className="border-b border-slate-100 px-4 py-3">
-          <p className="text-xs font-semibold text-slate-700">전체 지역 집계</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-slate-700">전체 지역 집계</p>
+            <p className="text-[11px] text-slate-400">3차DB는 방문요청 전환이며 합계에는 중복 반영하지 않습니다.</p>
+          </div>
         </div>
         <div className="divide-y divide-slate-50 md:hidden">
-          {currentStats.map(({ prov, total, retarget, first, second }) => {
+          {currentStats.map(({ prov, total, retarget, first, second, third }) => {
             const pct = grandTotal > 0 ? Math.round(total / grandTotal * 100) : 0
             return (
               <div key={prov} className="p-4">
@@ -206,10 +245,11 @@ export default function RegionPage() {
                   <span className="font-semibold text-slate-700">{prov}</span>
                   <span className="font-bold text-slate-800">{total}건 <span className="text-xs font-normal text-slate-400">{pct}%</span></span>
                 </div>
-                <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="mt-2 grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4">
                   <span className="rounded bg-violet-50 py-1 text-violet-700">리타겟 {retarget}</span>
                   <span className="rounded bg-blue-50 py-1 text-blue-700">1차 {first}</span>
                   <span className="rounded bg-emerald-50 py-1 text-emerald-700">2차 {second}</span>
+                  <span className="rounded bg-cyan-50 py-1 text-cyan-700">3차 {third}</span>
                 </div>
               </div>
             )
@@ -222,12 +262,13 @@ export default function RegionPage() {
               <th className="px-4 py-2.5 text-right text-xs font-medium">리타겟</th>
               <th className="px-4 py-2.5 text-right text-xs font-medium">1차 DB</th>
               <th className="px-4 py-2.5 text-right text-xs font-medium">2차 DB</th>
+              <th className="px-4 py-2.5 text-right text-xs font-medium" title="로켓방문요청 발생 월 기준">3차 DB</th>
               <th className="px-4 py-2.5 text-right text-xs font-medium">합계</th>
               <th className="px-4 py-2.5 text-xs font-medium">비율</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {currentStats.map(({ prov, total, retarget, first, second }) => {
+            {currentStats.map(({ prov, total, retarget, first, second, third }) => {
               const pct = grandTotal > 0 ? Math.round(total / grandTotal * 100) : 0
               return (
                 <tr key={prov} className="hover:bg-slate-50/60">
@@ -235,6 +276,7 @@ export default function RegionPage() {
                   <td className="px-4 py-2.5 text-right text-xs text-violet-600">{retarget}</td>
                   <td className="px-4 py-2.5 text-right text-xs text-blue-600">{first}</td>
                   <td className="px-4 py-2.5 text-right text-xs text-emerald-600">{second}</td>
+                  <td className="px-4 py-2.5 text-right text-xs text-cyan-600">{third}</td>
                   <td className="px-4 py-2.5 text-right font-bold text-slate-800">{total}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2">
