@@ -25,6 +25,7 @@ export type KpiTarget = {
 }
 const EXCLUDED_LEAD_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted'])
 type ManagementDataType = 'consultings' | 'consulting-utms' | 'projects'
+type ManagementSnapshotKey = ManagementDataType | 'derived:leads' | 'derived:status-events' | 'derived:dashboard-contracts'
 const MANAGEMENT_API_ENABLED = String(import.meta.env.VITE_MANAGEMENT_API_ENABLED ?? 'true').toLowerCase() !== 'false'
 const MANAGEMENT_CACHE_TTL_MS = 60_000
 const MANAGEMENT_SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60_000
@@ -44,7 +45,7 @@ let updatedAtCache: { expires: number; value: string } | null = null
 let updatedAtPromise: Promise<string> | null = null
 
 type PersistedManagementSnapshot = {
-  type: ManagementDataType
+  type: ManagementSnapshotKey
   savedAt: number
   data: any[]
 }
@@ -67,7 +68,7 @@ function openManagementSnapshotDb(): Promise<IDBDatabase | null> {
   return managementSnapshotDbPromise
 }
 
-async function readManagementSnapshot(type: ManagementDataType): Promise<PersistedManagementSnapshot | null> {
+async function readManagementSnapshot(type: ManagementSnapshotKey): Promise<PersistedManagementSnapshot | null> {
   try {
     const db = await openManagementSnapshotDb()
     if (!db) return null
@@ -88,7 +89,7 @@ async function readManagementSnapshot(type: ManagementDataType): Promise<Persist
   }
 }
 
-async function writeManagementSnapshot(type: ManagementDataType, data: any[]) {
+async function writeManagementSnapshot(type: ManagementSnapshotKey, data: any[]) {
   try {
     const db = await openManagementSnapshotDb()
     if (!db) return
@@ -100,6 +101,16 @@ async function writeManagementSnapshot(type: ManagementDataType, data: any[]) {
       transaction.onabort = () => resolve()
     })
   } catch {}
+}
+
+async function readDerivedSnapshot<T>(type: ManagementSnapshotKey): Promise<T[] | null> {
+  if (Date.now() - managementSyncedAt <= 5_000) return null
+  const snapshot = await readManagementSnapshot(type)
+  if (!snapshot?.data.length) return null
+  void ensureManagementSynced().catch(error => {
+    console.warn(`[management API sync deferred] ${type}:`, error)
+  })
+  return snapshot.data as T[]
 }
 
 function notifyDataUpdated() {
@@ -1234,8 +1245,12 @@ export type ConsultingStatusEvent = {
 }
 
 export async function fetchConsultingStatusEvents(): Promise<ConsultingStatusEvent[]> {
+  if (MANAGEMENT_API_ENABLED) {
+    const persisted = await readDerivedSnapshot<ConsultingStatusEvent>('derived:status-events')
+    if (persisted) return persisted
+  }
   const rows = await tryManagementRows('consultings') || await getSheetRows('secondRaw').catch(() => [])
-  return rows.map((row: any, sequence: number) => {
+  const events = rows.map((row: any, sequence: number) => {
     const phone = normalizePhone(row._parsed_phone ?? row.phone ?? pickCell(row, ['연락처', '전화번호', '휴대폰', '휴대폰번호', '휴대폰 번호', '고객 연락처']) ?? '')
     const registeredAt = pickRegisteredAtFromRaw(row)
     const rawDate = row._parsed_date ?? row.date ?? pickCell(row, ['날짜', '등록일', '등록일시', '등록 일시', '접수일시', '신청일시'])
@@ -1251,6 +1266,8 @@ export async function fetchConsultingStatusEvents(): Promise<ConsultingStatusEve
       sequence,
     }
   }).filter((event: ConsultingStatusEvent) => Boolean(event.phone && /^01[0-9]{8,9}$/.test(event.phone) && event.status))
+  if (MANAGEMENT_API_ENABLED) void writeManagementSnapshot('derived:status-events', events)
+  return events
 }
 
 function directSalesRawLookup(secondRawRows: any[]) {
@@ -2218,16 +2235,23 @@ export async function fetchConsultingRawLeads(startDate?: string, endDate?: stri
 }
 
 export async function fetchLeads(startDate?: string, endDate?: string, options: { includeRawMeta?: boolean; includeRawAttribution?: boolean } = {}): Promise<LeadRecord[]> {
+  const canUseDerivedSnapshot = MANAGEMENT_API_ENABLED && !startDate && !endDate && !options.includeRawMeta && !options.includeRawAttribution
+  if (canUseDerivedSnapshot) {
+    const persisted = await readDerivedSnapshot<LeadRecord>('derived:leads')
+    if (persisted) return persisted
+  }
   const [managementConsultings, managementUtms] = await Promise.all([
     tryManagementRows('consultings'),
     tryManagementRows('consulting-utms'),
   ])
   if (managementConsultings && managementUtms) {
     const mappings = await fetchMappings()
-    return applyReentryClassification(buildLeadRowsFromManagementApi(managementUtms, managementConsultings, mappings))
+    const result = applyReentryClassification(buildLeadRowsFromManagementApi(managementUtms, managementConsultings, mappings))
       .filter((row: LeadRecord) => !EXCLUDED_LEAD_STATUSES.has(String(row.status || '').toLowerCase()))
       .filter((row: LeadRecord) => inRange(row.date, startDate, endDate))
       .sort((a, b) => String(b.registeredAt || b.date).localeCompare(String(a.registeredAt || a.date)))
+    if (canUseDerivedSnapshot) void writeManagementSnapshot('derived:leads', result)
+    return result
   }
 
   let mappings: MappingRow[] = []
@@ -2444,6 +2468,8 @@ export type DashboardContractDaily = {
 
 export async function fetchDashboardContracts(): Promise<DashboardContractDaily[]> {
   if (MANAGEMENT_API_ENABLED) {
+    const persisted = await readDerivedSnapshot<DashboardContractDaily>('derived:dashboard-contracts')
+    if (persisted) return persisted
     const projects = await fetchProjects()
     if (projects.length) {
       const daily = new Map<string, DashboardContractDaily>()
@@ -2456,7 +2482,9 @@ export async function fetchDashboardContracts(): Promise<DashboardContractDaily[
           current.contractAmount += Number(project.contractAmount) || 0
           daily.set(date, current)
         })
-      return Array.from(daily.values()).sort((a, b) => a.date.localeCompare(b.date))
+      const result = Array.from(daily.values()).sort((a, b) => a.date.localeCompare(b.date))
+      void writeManagementSnapshot('derived:dashboard-contracts', result)
+      return result
     }
   }
 
