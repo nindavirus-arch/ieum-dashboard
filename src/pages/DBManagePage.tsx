@@ -155,6 +155,13 @@ function paramsObject(row: LeadRecord): Record<string, any> {
 function quoteRows(row: LeadRecord): QuoteRow[] {
   const cached = QUOTE_ROWS_CACHE.get(row as object)
   if (cached) return cached
+  const rawApiEstimateAmount = (row as any).externalWindowEstimateAmount
+  const apiEstimateAmount = Number(rawApiEstimateAmount)
+  if (rawApiEstimateAmount !== null && rawApiEstimateAmount !== undefined && Number.isFinite(apiEstimateAmount) && apiEstimateAmount >= 0) {
+    const apiRows = [{ brand: '외부창 견적 합계', price: `${apiEstimateAmount.toLocaleString()}원` }]
+    QUOTE_ROWS_CACHE.set(row as object, apiRows)
+    return apiRows
+  }
   const decoded = decodeParams(row)
   if (!decoded) {
     QUOTE_ROWS_CACHE.set(row as object, [])

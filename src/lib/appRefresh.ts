@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react'
-import { clearClientDataCache, invalidateDataCache } from './dataService'
+import { clearClientDataCache, DATA_UPDATED_EVENT, invalidateDataCache } from './dataService'
 
 const VERSION_CHECK_INTERVAL_MS = 10 * 60_000
-const DATA_REFRESH_INTERVAL_MS = 5 * 60_000
+const DATA_REFRESH_INTERVAL_MS = 60_000
 const VERSION_RELOAD_GUARD_KEY = 'ieum:version-reload-guard'
 
 type VersionResponse = { buildId?: string }
@@ -67,11 +67,11 @@ export function useAutoDataRefresh(refresh: () => void | Promise<void>) {
   }, [refresh])
 
   useEffect(() => {
-    async function refreshIfStale() {
+    async function refreshData(force = false) {
       if (
         document.visibilityState !== 'visible' ||
         refreshingRef.current ||
-        Date.now() - lastRefreshRef.current < DATA_REFRESH_INTERVAL_MS
+        (!force && Date.now() - lastRefreshRef.current < DATA_REFRESH_INTERVAL_MS)
       ) return
 
       refreshingRef.current = true
@@ -87,14 +87,17 @@ export function useAutoDataRefresh(refresh: () => void | Promise<void>) {
     }
 
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') void refreshIfStale()
+      if (document.visibilityState === 'visible') void refreshData()
     }
-    const interval = window.setInterval(() => void refreshIfStale(), DATA_REFRESH_INTERVAL_MS)
+    const handleDataUpdated = () => void refreshData(true)
+    const interval = window.setInterval(() => void refreshData(), DATA_REFRESH_INTERVAL_MS)
     document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener(DATA_UPDATED_EVENT, handleDataUpdated)
 
     return () => {
       window.clearInterval(interval)
       document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener(DATA_UPDATED_EVENT, handleDataUpdated)
     }
   }, [])
 }

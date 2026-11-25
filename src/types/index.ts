@@ -43,6 +43,9 @@ export interface LeadRecord {
   source_file?: string
   registeredAt?: string
   preferredVisitDate?: string
+  externalWindowEstimateAmount?: number | null
+  externalWindowEstimateUpdatedAt?: string
+  externalWindowEstimateVatIncluded?: boolean
   consultationResult?: string
   consultingStatus?: string
   memo?: string

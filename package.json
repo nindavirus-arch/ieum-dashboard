@@ -12,7 +12,8 @@
     "xlsx": "^0.18.5",
     "date-fns": "^3.3.1",
     "lucide-react": "^0.344.0",
-    "clsx": "^2.1.0"
+    "clsx": "^2.1.0",
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
     "@types/react": "^18.2.61",

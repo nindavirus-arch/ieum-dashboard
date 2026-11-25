@@ -24,6 +24,12 @@ export type KpiTarget = {
   updatedAt?: string
 }
 const EXCLUDED_LEAD_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted'])
+type ManagementDataType = 'consultings' | 'consulting-utms' | 'projects'
+const MANAGEMENT_API_ENABLED = String(import.meta.env.VITE_MANAGEMENT_API_ENABLED ?? 'true').toLowerCase() !== 'false'
+const MANAGEMENT_CACHE_TTL_MS = 60_000
+const managementCache = new Map<ManagementDataType, { expires: number; data?: any[]; promise?: Promise<any[]> }>()
+let managementSyncPromise: Promise<void> | null = null
+let managementSyncedAt = 0
 const SHEET_CACHE_TTL_MS = 5 * 60_000
 const PERSISTED_SHEET_CACHE_TTL_MS = 10 * 60_000
 const PERSISTED_SHEET_TYPES = new Set<SheetType>(['leads', 'adSpend', 'mapping', 'kpiTargets', 'projects'])
@@ -40,7 +46,109 @@ function notifyDataUpdated() {
 
 function clearSheetCache() {
   sheetCache.clear()
+  managementCache.clear()
   clearPersistedSheetCache()
+}
+
+async function ensureManagementSynced() {
+  if (!MANAGEMENT_API_ENABLED || Date.now() - managementSyncedAt < MANAGEMENT_CACHE_TTL_MS) return
+  if (managementSyncPromise) return managementSyncPromise
+
+  managementSyncPromise = (async () => {
+    const endpoints: ManagementDataType[] = ['consultings', 'consulting-utms', 'projects']
+    for (const endpoint of endpoints) {
+      let completed = false
+      for (let attempt = 0; attempt < 4 && !completed; attempt += 1) {
+        const response = await fetch(`/api/management-sync?endpoint=${encodeURIComponent(endpoint)}`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${getAuthToken()}` },
+        })
+        const body = await response.json().catch(() => null)
+        if (response.status === 401 || response.status === 403) requestAuthRecheck()
+        if (response.status === 409) {
+          await new Promise(resolve => window.setTimeout(resolve, 2000))
+          continue
+        }
+        if (!response.ok || !body?.success) {
+          throw new Error(body?.message || body?.error || `management sync ${endpoint} ${response.status}`)
+        }
+        completed = true
+      }
+      if (!completed) throw new Error(`management sync ${endpoint} is busy`)
+    }
+    managementSyncedAt = Date.now()
+    managementCache.clear()
+    notifyDataUpdated()
+  })().finally(() => {
+    managementSyncPromise = null
+  })
+
+  return managementSyncPromise
+}
+
+async function getManagementRows(type: ManagementDataType): Promise<any[]> {
+  if (!MANAGEMENT_API_ENABLED) throw new Error('management API disabled')
+  const now = Date.now()
+  const cached = managementCache.get(type)
+  if (cached?.data && cached.expires > now) return cached.data
+  if (cached?.promise) return cached.promise
+
+  const promise = (async () => {
+    const pageSize = 2000
+    const loadPage = async (offset: number) => {
+      const response = await fetch(`/api/management-data?type=${encodeURIComponent(type)}&limit=${pageSize}&offset=${offset}`, {
+        headers: { Authorization: `Bearer ${getAuthToken()}` },
+      })
+      const body = await response.json().catch(() => null)
+      if (response.status === 401) requestAuthRecheck()
+      if (!response.ok || !body?.success || !Array.isArray(body?.data)) {
+        throw new Error(body?.message || body?.error || `management data ${response.status}`)
+      }
+      return body
+    }
+
+    const loadStoredRows = async () => {
+      const first = await loadPage(0)
+      const total = Number(first.page?.total || first.data.length)
+      const offsets: number[] = []
+      for (let offset = pageSize; offset < total; offset += pageSize) offsets.push(offset)
+      const rest = await Promise.all(offsets.map(loadPage))
+      return [first, ...rest].flatMap(page => page.data) as any[]
+    }
+
+    let data = await loadStoredRows()
+    if (!data.length) {
+      // 새 운영 저장소의 최초 진입만 전체 동기화를 기다린다.
+      await ensureManagementSynced()
+      data = await loadStoredRows()
+    } else {
+      // 평상시에는 마지막 정상 저장본을 즉시 표시하고 최신화는 뒤에서 수행한다.
+      void ensureManagementSynced().catch(error => {
+        console.warn(`[management API sync deferred] ${type}:`, error)
+      })
+    }
+    managementCache.set(type, { expires: Date.now() + MANAGEMENT_CACHE_TTL_MS, data })
+    return data
+  })()
+
+  managementCache.set(type, { expires: now + MANAGEMENT_CACHE_TTL_MS, promise })
+  try {
+    return await promise
+  } catch (error) {
+    managementCache.delete(type)
+    throw error
+  }
+}
+
+async function tryManagementRows(type: ManagementDataType): Promise<any[] | null> {
+  if (!MANAGEMENT_API_ENABLED) return null
+  try {
+    const rows = await getManagementRows(type)
+    return rows.length ? rows : null
+  } catch (error) {
+    console.warn(`[management API fallback] ${type}:`, error)
+    return null
+  }
 }
 
 function invalidateSheetCache(...types: SheetType[]) {
@@ -438,6 +546,14 @@ function normalizeLead(row: any, index = 0, mappings: MappingRow[] = []): LeadRe
     source_file: sourceFile,
     registeredAt: String(row.registeredAt ?? row['등록일시'] ?? row['등록 일시'] ?? row.접수일시 ?? row.uploadedAt ?? uploadedAt),
     preferredVisitDate: normalizeOptionalDate(row.preferredVisitDate ?? row.preferred_visit_date ?? row['방문희망날짜'] ?? row['방문 희망 날짜'] ?? row['방문희망일'] ?? row['방문 희망일'] ?? row._parsed_preferredVisitDate),
+    externalWindowEstimateAmount: (() => {
+      const raw = row.externalWindowEstimateAmount ?? row.external_window_estimate_amount
+      if (raw === null || raw === undefined || raw === '') return null
+      const amount = Number(raw)
+      return Number.isFinite(amount) ? amount : null
+    })(),
+    externalWindowEstimateUpdatedAt: String(row.externalWindowEstimateUpdatedAt ?? row.external_window_estimate_updated_at ?? ''),
+    externalWindowEstimateVatIncluded: row.externalWindowEstimateVatIncluded === true || String(row.externalWindowEstimateVatIncluded ?? '').toLowerCase() === 'true',
     consultationResult: String(row.consultationResult ?? row['상담결과'] ?? row['상담 결과'] ?? ''),
     consultingStatus: String(row.consultingStatus ?? row.consulting_status ?? row['컨설팅상태'] ?? row['컨설팅 상태'] ?? row['상담상태'] ?? row['상담 상태'] ?? row._parsed_consultingStatus ?? ''),
     memo: String(row.memo ?? row['메모'] ?? row['특이사항'] ?? row['메모(특이사항)'] ?? ''),
@@ -680,6 +796,25 @@ export async function fetchDataUpdatedAt(): Promise<string> {
   } finally {
     updatedAtPromise = null
   }
+}
+
+export type ManagementSyncState = {
+  endpoint: ManagementDataType
+  last_source_updated_at?: string
+  last_success_at?: string
+  last_row_count?: number
+  last_error?: string
+}
+
+export async function fetchManagementSyncStatus(): Promise<ManagementSyncState[]> {
+  if (!MANAGEMENT_API_ENABLED) return []
+  const response = await fetch('/api/management-data?type=sync-status', {
+    headers: { Authorization: `Bearer ${getAuthToken()}` },
+  })
+  const body = await response.json().catch(() => null)
+  if (response.status === 401) requestAuthRecheck()
+  if (!response.ok || !body?.success || !Array.isArray(body?.data)) return []
+  return body.data as ManagementSyncState[]
 }
 
 export async function fetchMappings(): Promise<MappingRow[]> {
@@ -1020,7 +1155,7 @@ export type ConsultingStatusEvent = {
 }
 
 export async function fetchConsultingStatusEvents(): Promise<ConsultingStatusEvent[]> {
-  const rows = await getSheetRows('secondRaw').catch(() => [])
+  const rows = await tryManagementRows('consultings') || await getSheetRows('secondRaw').catch(() => [])
   return rows.map((row: any, sequence: number) => {
     const phone = normalizePhone(row._parsed_phone ?? row.phone ?? pickCell(row, ['연락처', '전화번호', '휴대폰', '휴대폰번호', '휴대폰 번호', '고객 연락처']) ?? '')
     const registeredAt = pickRegisteredAtFromRaw(row)
@@ -1036,7 +1171,7 @@ export async function fetchConsultingStatusEvents(): Promise<ConsultingStatusEve
       date: normalizeDate(rawDate || registeredAt, new Date()),
       sequence,
     }
-  }).filter((event: ConsultingStatusEvent) => Boolean(event.phone && event.status))
+  }).filter((event: ConsultingStatusEvent) => Boolean(event.phone && /^01[0-9]{8,9}$/.test(event.phone) && event.status))
 }
 
 function directSalesRawLookup(secondRawRows: any[]) {
@@ -1759,6 +1894,110 @@ function chooseRawLeadForOwner(current: LeadRecord | undefined, next: LeadRecord
   return rawLeadSortValue(next).localeCompare(rawLeadSortValue(current)) > 0 ? next : current
 }
 
+function managementStage(row: any): DBTier {
+  const type = String(row.consultingType ?? row.consulting_type ?? '').toLowerCase().replace(/[\s_\-\/]/g, '')
+  if (type.includes('리타겟') || type.includes('retarget')) return 'retarget'
+  if (type.includes('로켓견적확인') || type.includes('견적확인') || type.includes('rocketestimate')) return 'first'
+  // 방문요청만 먼저 들어온 예외도 기존 수동 업로드와 동일하게 2차 기반으로 보존하고,
+  // 실제 3차 표시는 ConsultingStatusEvent에서 별도로 계산한다.
+  return 'second'
+}
+
+function isManagementTestRow(row: any, phone: string) {
+  const name = String(row.customerName ?? row.name ?? '').toLowerCase()
+  const status = String(row.status ?? '').toLowerCase()
+  const testPhones = new Set([
+    '01012341234', '01000000000', '01011111111', '01099999999',
+    '01022222222', '01033333333',
+  ])
+  return Boolean(
+    row.isDeleted || row.isTest || EXCLUDED_LEAD_STATUSES.has(status) ||
+    testPhones.has(phone) || /^0100{6,}$/.test(phone) ||
+    name.includes('test') || name.includes('테스트') || name.includes('이음마케팅') ||
+    name.includes('이음 마케팅') || name.includes('전환테스트') ||
+    name.includes('이동일테스트') || name.includes('함형석')
+  )
+}
+
+function addressRegion(address: unknown) {
+  const parts = String(address ?? '').trim().split(/\s+/)
+  const region = String(parts[0] || '')
+    .replace('서울특별시', '서울').replace('부산광역시', '부산').replace('대구광역시', '대구')
+    .replace('인천광역시', '인천').replace('광주광역시', '광주').replace('대전광역시', '대전')
+    .replace('울산광역시', '울산').replace('세종특별자치시', '세종')
+    .replace('경기도', '경기').replace('강원특별자치도', '강원').replace('강원도', '강원')
+    .replace('충청북도', '충북').replace('충청남도', '충남')
+    .replace('전북특별자치도', '전북').replace('전라북도', '전북').replace('전라남도', '전남')
+    .replace('경상북도', '경북').replace('경상남도', '경남').replace('제주특별자치도', '제주')
+  return { region, district: String(parts[1] || '') }
+}
+
+function buildLeadRowsFromManagementApi(utmRows: any[], consultingRows: any[], mappings: MappingRow[]): LeadRecord[] {
+  const utmByConsulting = new Map<string, any>()
+  const utmByPhoneDate = new Map<string, any>()
+  utmRows.forEach((row: any) => {
+    const consultingNumber = String(row.consultingNumber || '').trim()
+    const phone = normalizePhone(row.phone)
+    const date = normalizeDate(row.registeredAt || row.updatedAt, new Date())
+    if (consultingNumber) utmByConsulting.set(consultingNumber, row)
+    if (phone && date) utmByPhoneDate.set(`${phone}_${date}`, row)
+  })
+
+  const deduped = new Map<string, LeadRecord>()
+  consultingRows
+    .slice()
+    .sort((a: any, b: any) => String(a.registeredAt || '').localeCompare(String(b.registeredAt || '')))
+    .forEach((row: any, index: number) => {
+      const phone = normalizePhone(row.phone)
+      if (!/^01[0-9]{8,9}$/.test(phone) || isManagementTestRow(row, phone)) return
+      const date = normalizeDate(row.registeredAt || row.updatedAt, new Date())
+      const consultingNumber = String(row.consultingNumber || '').trim()
+      const utm = utmByConsulting.get(consultingNumber) || utmByPhoneDate.get(`${phone}_${date}`) || {}
+      const address = String(row.address || utm.address || '')
+      const location = addressRegion(address)
+      const stage = managementStage(row)
+      const estimateAmount = row.externalWindowEstimateAmount ?? utm.externalWindowEstimateAmount ?? null
+      const normalized = normalizeLead({
+        ...utm,
+        ...row,
+        phone,
+        name: row.customerName || utm.customerName || '',
+        date,
+        stage,
+        dbTier: stage,
+        status: stage,
+        consultingStatusTier: stage,
+        sourceKind: 'second_raw',
+        source_file: 'management_api',
+        source_raw: row.sourceRaw || utm.sourceRaw || '',
+        utm_source: utm.utmSource || '',
+        utm_medium: utm.utmMedium || '',
+        utm_campaign: utm.utmCampaign || '',
+        utm_content: utm.utmContent || '',
+        utm_term: utm.utmTerm || '',
+        params: utm.params || '',
+        address,
+        building: row.buildingName || utm.buildingName || '',
+        region: location.region,
+        district: location.district,
+        operator: row.receptionist || '',
+        salesOwner: row.salesOwner || '',
+        preferredVisitDate: row.preferredVisitDate || '',
+        consultingStatus: row.consultingStatus || '',
+        externalWindowEstimateAmount: estimateAmount,
+        externalWindowEstimateUpdatedAt: row.externalWindowEstimateUpdatedAt || '',
+        externalWindowEstimateVatIncluded: row.externalWindowEstimateVatIncluded ?? utm.externalWindowEstimateVatIncluded,
+        uploadedAt: row.updatedAt || row.registeredAt || new Date().toISOString(),
+      }, index, mappings)
+
+      const key = `${normalized.phone}_${baseTier(normalized.dbTier)}_${normalized.date}`
+      const previous = deduped.get(key)
+      if (!previous || rawLeadSortValue(normalized) >= rawLeadSortValue(previous)) deduped.set(key, normalized)
+    })
+
+  return Array.from(deduped.values()).sort((a, b) => rawLeadSortValue(a).localeCompare(rawLeadSortValue(b)))
+}
+
 function buildLeadRowsFromRaw(firstRawRows: any[], secondRawRows: any[], mappings: MappingRow[]): LeadRecord[] {
   const firstLeads = firstRawRows
     .map((row, i) => normalizeLead({
@@ -1872,6 +2111,17 @@ function applyReentryClassification(leads: LeadRecord[]): LeadRecord[] {
 }
 
 export async function fetchConsultingRawLeads(startDate?: string, endDate?: string): Promise<LeadRecord[]> {
+  const [managementConsultings, managementUtms] = await Promise.all([
+    tryManagementRows('consultings'),
+    tryManagementRows('consulting-utms'),
+  ])
+  if (managementConsultings && managementUtms) {
+    const mappings = await fetchMappings()
+    return applyReentryClassification(buildLeadRowsFromManagementApi(managementUtms, managementConsultings, mappings))
+      .filter((row: LeadRecord) => inRange(row.date, startDate, endDate))
+      .sort((a, b) => String(b.registeredAt || b.date).localeCompare(String(a.registeredAt || a.date)))
+  }
+
   const [mappings, firstRawRows, secondRawRows] = await Promise.all([
     fetchMappings(),
     getSheetRows('firstRaw').catch(() => []),
@@ -1889,6 +2139,18 @@ export async function fetchConsultingRawLeads(startDate?: string, endDate?: stri
 }
 
 export async function fetchLeads(startDate?: string, endDate?: string, options: { includeRawMeta?: boolean; includeRawAttribution?: boolean } = {}): Promise<LeadRecord[]> {
+  const [managementConsultings, managementUtms] = await Promise.all([
+    tryManagementRows('consultings'),
+    tryManagementRows('consulting-utms'),
+  ])
+  if (managementConsultings && managementUtms) {
+    const mappings = await fetchMappings()
+    return applyReentryClassification(buildLeadRowsFromManagementApi(managementUtms, managementConsultings, mappings))
+      .filter((row: LeadRecord) => !EXCLUDED_LEAD_STATUSES.has(String(row.status || '').toLowerCase()))
+      .filter((row: LeadRecord) => inRange(row.date, startDate, endDate))
+      .sort((a, b) => String(b.registeredAt || b.date).localeCompare(String(a.registeredAt || a.date)))
+  }
+
   let mappings: MappingRow[] = []
   let leadRows: any[] = []
   let firstRawRows: any[] = []
@@ -2074,6 +2336,20 @@ export async function uploadProjectFile(file: File) {
 }
 
 export async function fetchProjects(startDate?: string, endDate?: string): Promise<ProjectRecord[]> {
+  const managementProjects = await tryManagementRows('projects')
+  if (managementProjects) {
+    const mappings = await fetchMappings()
+    return managementProjects
+      .map((row, index) => normalizeProject({
+        ...row,
+        rawStatus: row.projectStatus || '',
+        status: row.isTest ? 'test' : (row.isCanceled || row.isDeleted ? 'canceled' : (row.depositDate ? 'contracted' : 'pending')),
+        uploadedAt: row.updatedAt || new Date().toISOString(),
+      }, index, mappings))
+      .filter(project => project.contractDate && inRange(project.contractDate, startDate, endDate))
+      .sort((a, b) => b.contractDate.localeCompare(a.contractDate))
+  }
+
   const [mappings, rows] = await Promise.all([fetchMappings(), getSheetRows('projects')])
   return rows
     .map((row, i) => normalizeProject(row, i, mappings))
@@ -2088,6 +2364,23 @@ export type DashboardContractDaily = {
 }
 
 export async function fetchDashboardContracts(): Promise<DashboardContractDaily[]> {
+  if (MANAGEMENT_API_ENABLED) {
+    const projects = await fetchProjects()
+    if (projects.length) {
+      const daily = new Map<string, DashboardContractDaily>()
+      projects
+        .filter(project => project.status === 'contracted' && Boolean(project.depositDate))
+        .forEach(project => {
+          const date = String(project.depositDate)
+          const current = daily.get(date) || { date, contractCount: 0, contractAmount: 0 }
+          current.contractCount += 1
+          current.contractAmount += Number(project.contractAmount) || 0
+          daily.set(date, current)
+        })
+      return Array.from(daily.values()).sort((a, b) => a.date.localeCompare(b.date))
+    }
+  }
+
   const rows = await getSheetRows('dashboardContracts')
   return rows
     .map(row => ({
