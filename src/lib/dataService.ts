@@ -94,7 +94,7 @@ async function getManagementRows(type: ManagementDataType): Promise<any[]> {
   if (cached?.promise) return cached.promise
 
   const promise = (async () => {
-    const pageSize = 2000
+    const pageSize = 1000
     const loadPage = async (offset: number) => {
       const response = await fetch(`/api/management-data?type=${encodeURIComponent(type)}&limit=${pageSize}&offset=${offset}`, {
         headers: { Authorization: `Bearer ${getAuthToken()}` },
@@ -112,7 +112,11 @@ async function getManagementRows(type: ManagementDataType): Promise<any[]> {
       const total = Number(first.page?.total || first.data.length)
       const offsets: number[] = []
       for (let offset = pageSize; offset < total; offset += pageSize) offsets.push(offset)
-      const rest = await Promise.all(offsets.map(loadPage))
+      const rest: any[] = []
+      for (let index = 0; index < offsets.length; index += 3) {
+        const batch = offsets.slice(index, index + 3)
+        rest.push(...await Promise.all(batch.map(loadPage)))
+      }
       return [first, ...rest].flatMap(page => page.data) as any[]
     }
 
@@ -146,7 +150,7 @@ async function tryManagementRows(type: ManagementDataType): Promise<any[] | null
     const rows = await getManagementRows(type)
     return rows.length ? rows : null
   } catch (error) {
-    console.warn(`[management API fallback] ${type}:`, error)
+    console.error(`[management API fallback] ${type}:`, error)
     return null
   }
 }
