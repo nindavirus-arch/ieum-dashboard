@@ -27,9 +27,13 @@ const EXCLUDED_LEAD_STATUSES = new Set(['invalid', 'test', 'duplicate', 'deleted
 type ManagementDataType = 'consultings' | 'consulting-utms' | 'projects'
 const MANAGEMENT_API_ENABLED = String(import.meta.env.VITE_MANAGEMENT_API_ENABLED ?? 'true').toLowerCase() !== 'false'
 const MANAGEMENT_CACHE_TTL_MS = 60_000
+const MANAGEMENT_SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60_000
+const MANAGEMENT_SNAPSHOT_DB = 'ieum-management-cache-v1'
+const MANAGEMENT_SNAPSHOT_STORE = 'snapshots'
 const managementCache = new Map<ManagementDataType, { expires: number; data?: any[]; promise?: Promise<any[]> }>()
 let managementSyncPromise: Promise<void> | null = null
 let managementSyncedAt = 0
+let managementSnapshotDbPromise: Promise<IDBDatabase | null> | null = null
 const SHEET_CACHE_TTL_MS = 5 * 60_000
 const PERSISTED_SHEET_CACHE_TTL_MS = 10 * 60_000
 const PERSISTED_SHEET_TYPES = new Set<SheetType>(['leads', 'adSpend', 'mapping', 'kpiTargets', 'projects'])
@@ -38,6 +42,65 @@ const sheetCache = new Map<SheetType, { expires: number; data?: any[]; promise?:
 export const DATA_UPDATED_EVENT = 'ieum:data-updated'
 let updatedAtCache: { expires: number; value: string } | null = null
 let updatedAtPromise: Promise<string> | null = null
+
+type PersistedManagementSnapshot = {
+  type: ManagementDataType
+  savedAt: number
+  data: any[]
+}
+
+function openManagementSnapshotDb(): Promise<IDBDatabase | null> {
+  if (typeof window === 'undefined' || !window.indexedDB) return Promise.resolve(null)
+  if (managementSnapshotDbPromise) return managementSnapshotDbPromise
+  managementSnapshotDbPromise = new Promise(resolve => {
+    const request = window.indexedDB.open(MANAGEMENT_SNAPSHOT_DB, 1)
+    request.onupgradeneeded = () => {
+      const db = request.result
+      if (!db.objectStoreNames.contains(MANAGEMENT_SNAPSHOT_STORE)) {
+        db.createObjectStore(MANAGEMENT_SNAPSHOT_STORE, { keyPath: 'type' })
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => resolve(null)
+    request.onblocked = () => resolve(null)
+  })
+  return managementSnapshotDbPromise
+}
+
+async function readManagementSnapshot(type: ManagementDataType): Promise<PersistedManagementSnapshot | null> {
+  try {
+    const db = await openManagementSnapshotDb()
+    if (!db) return null
+    return await new Promise(resolve => {
+      const request = db.transaction(MANAGEMENT_SNAPSHOT_STORE, 'readonly').objectStore(MANAGEMENT_SNAPSHOT_STORE).get(type)
+      request.onsuccess = () => {
+        const snapshot = request.result as PersistedManagementSnapshot | undefined
+        if (!snapshot || !Array.isArray(snapshot.data) || Date.now() - Number(snapshot.savedAt || 0) > MANAGEMENT_SNAPSHOT_MAX_AGE_MS) {
+          resolve(null)
+          return
+        }
+        resolve(snapshot)
+      }
+      request.onerror = () => resolve(null)
+    })
+  } catch {
+    return null
+  }
+}
+
+async function writeManagementSnapshot(type: ManagementDataType, data: any[]) {
+  try {
+    const db = await openManagementSnapshotDb()
+    if (!db) return
+    await new Promise<void>(resolve => {
+      const transaction = db.transaction(MANAGEMENT_SNAPSHOT_STORE, 'readwrite')
+      transaction.objectStore(MANAGEMENT_SNAPSHOT_STORE).put({ type, savedAt: Date.now(), data } satisfies PersistedManagementSnapshot)
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => resolve()
+      transaction.onabort = () => resolve()
+    })
+  } catch {}
+}
 
 function notifyDataUpdated() {
   updatedAtCache = null
@@ -94,9 +157,20 @@ async function getManagementRows(type: ManagementDataType): Promise<any[]> {
   if (cached?.promise) return cached.promise
 
   const promise = (async () => {
-    const pageSize = 1000
-    const loadPage = async (offset: number) => {
-      const response = await fetch(`/api/management-data?type=${encodeURIComponent(type)}&limit=${pageSize}&offset=${offset}`, {
+    const persisted = Date.now() - managementSyncedAt > 5_000
+      ? await readManagementSnapshot(type)
+      : null
+    if (persisted?.data.length) {
+      managementCache.set(type, { expires: Date.now() + MANAGEMENT_CACHE_TTL_MS, data: persisted.data })
+      void ensureManagementSynced().catch(error => {
+        console.warn(`[management API sync deferred] ${type}:`, error)
+      })
+      return persisted.data
+    }
+
+    const pageSize = 2000
+    const loadPage = async (offset: number, includeTotal = false) => {
+      const response = await fetch(`/api/management-data?type=${encodeURIComponent(type)}&limit=${pageSize}&offset=${offset}&includeTotal=${includeTotal ? '1' : '0'}`, {
         headers: { Authorization: `Bearer ${getAuthToken()}` },
       })
       const body = await response.json().catch(() => null)
@@ -108,14 +182,14 @@ async function getManagementRows(type: ManagementDataType): Promise<any[]> {
     }
 
     const loadStoredRows = async () => {
-      const first = await loadPage(0)
+      const first = await loadPage(0, true)
       const total = Number(first.page?.total || first.data.length)
       const offsets: number[] = []
       for (let offset = pageSize; offset < total; offset += pageSize) offsets.push(offset)
       const rest: any[] = []
-      for (let index = 0; index < offsets.length; index += 3) {
-        const batch = offsets.slice(index, index + 3)
-        rest.push(...await Promise.all(batch.map(loadPage)))
+      for (let index = 0; index < offsets.length; index += 2) {
+        const batch = offsets.slice(index, index + 2)
+        rest.push(...await Promise.all(batch.map(offset => loadPage(offset))))
       }
       return [first, ...rest].flatMap(page => page.data) as any[]
     }
@@ -132,6 +206,7 @@ async function getManagementRows(type: ManagementDataType): Promise<any[]> {
       })
     }
     managementCache.set(type, { expires: Date.now() + MANAGEMENT_CACHE_TTL_MS, data })
+    void writeManagementSnapshot(type, data)
     return data
   })()
 

@@ -12,7 +12,7 @@ function sendJson(res, status, body) {
 
 module.exports = async function managementData(req, res) {
   if (req.method !== 'GET') return sendJson(res, 405, { success: false, error: 'method not allowed' })
-  if (!(await verifyDashboardSession(req))) return sendJson(res, 401, { success: false, error: 'unauthorized' })
+  if (!(await verifyDashboardSession(req, res))) return sendJson(res, 401, { success: false, error: 'unauthorized' })
 
   try {
     const type = String(req.query?.type || '')
@@ -21,7 +21,11 @@ module.exports = async function managementData(req, res) {
       return sendJson(res, 200, { success: true, data: states })
     }
     if (!ALLOWED.has(type)) return sendJson(res, 400, { success: false, error: 'invalid type' })
-    const result = await listRecords(type, { limit: req.query?.limit, offset: req.query?.offset })
+    const result = await listRecords(type, {
+      limit: req.query?.limit,
+      offset: req.query?.offset,
+      includeTotal: String(req.query?.includeTotal || '') === '1',
+    })
     return sendJson(res, 200, {
       success: true,
       data: result.records,

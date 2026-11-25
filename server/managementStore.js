@@ -139,7 +139,10 @@ async function listRecords(endpoint, options = {}) {
   await ensureSchema()
   const limit = Math.min(2000, Math.max(1, Number(options.limit) || 1000))
   const offset = Math.max(0, Number(options.offset) || 0)
-  const countRows = await getDb()`SELECT count(*)::integer AS total FROM management_api_records_prod WHERE endpoint = ${endpoint}`
+  const includeTotal = options.includeTotal === true
+  const countRows = includeTotal
+    ? await getDb()`SELECT count(*)::integer AS total FROM management_api_records_prod WHERE endpoint = ${endpoint}`
+    : []
   const rows = await getDb()`
     SELECT payload
     FROM management_api_records_prod
@@ -156,7 +159,7 @@ async function listRecords(endpoint, options = {}) {
         return row.payload
       }
     }),
-    total: Number(countRows[0]?.total || 0),
+    total: includeTotal ? Number(countRows[0]?.total || 0) : null,
     limit,
     offset,
   }

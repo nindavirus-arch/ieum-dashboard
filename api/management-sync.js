@@ -18,11 +18,11 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body))
 }
 
-async function isAuthorized(req) {
+async function isAuthorized(req, res) {
   const expected = String(process.env.CRON_SECRET || process.env.SYNC_ADMIN_TOKEN || '').trim()
   const bearer = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')
   if (expected && (bearer === expected || String(req.headers['x-sync-token'] || '') === expected)) return true
-  return verifyDashboardSession(req)
+  return verifyDashboardSession(req, res)
 }
 
 function maxUpdatedAt(current, rows) {
@@ -68,7 +68,7 @@ async function syncEndpoint(endpoint, forceFull) {
 
 module.exports = async function managementSync(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') return sendJson(res, 405, { success: false, error: 'method not allowed' })
-  if (!(await isAuthorized(req))) return sendJson(res, 403, { success: false, error: 'forbidden' })
+  if (!(await isAuthorized(req, res))) return sendJson(res, 403, { success: false, error: 'forbidden' })
 
   const lockToken = await trySyncLock().catch(() => '')
   if (!lockToken) return sendJson(res, 409, { success: false, error: 'sync already running' })

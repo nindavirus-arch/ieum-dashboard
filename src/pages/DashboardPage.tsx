@@ -1,5 +1,5 @@
 // src/pages/DashboardPage.tsx
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, startOfWeek, endOfWeek, parseISO, subDays, subWeeks, subMonths, subYears, eachDayOfInterval } from 'date-fns'
 import { Users, DollarSign, TrendingDown, CalendarDays, RefreshCw, ChevronDown, HelpCircle } from 'lucide-react'
 import { fetchLeads, fetchAdSpend, fetchKpiTargets, fetchDashboardContracts, fetchConsultingStatusEvents, invalidateDataCache, type ConsultingStatusEvent, type DashboardContractDaily, type KpiTarget } from '../lib/dataService'
@@ -286,6 +286,7 @@ export default function DashboardPage() {
     try { return window.sessionStorage.getItem('ieum-dashboard-summary-tab') === 'contracts' ? 'contracts' : 'db' } catch { return 'db' }
   })
   const [loading, setLoading] = useState(true)
+  const hasLoadedRef = useRef(false)
   const [loadError, setLoadError] = useState('')
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null)
   const [openChannelGroups, setOpenChannelGroups] = useState<Record<string, boolean>>({ paid: true, organic: false, external: false, unclassified: true })
@@ -294,7 +295,7 @@ export default function DashboardPage() {
   const range = useMemo(() => rangeByMode(viewMode, selectedDate, periodPreset, customStart, customEnd), [viewMode, selectedDate, periodPreset, customStart, customEnd])
 
   async function load() {
-    setLoading(true)
+    if (!hasLoadedRef.current) setLoading(true)
     setLoadError('')
     try {
       const [leadResult, spendResult, targetResult, projectResult, statusEventResult] = await Promise.allSettled([
@@ -318,6 +319,7 @@ export default function DashboardPage() {
       ].filter(Boolean)
       if (errors.length) setLoadError(errors.join(' / '))
     } finally {
+      hasLoadedRef.current = true
       setLoading(false)
     }
   }
