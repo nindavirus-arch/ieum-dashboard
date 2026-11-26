@@ -15,10 +15,7 @@ import { buildVisitMilestones, latestVisitByPhone } from '../lib/visitMetrics'
 
 const today = format(new Date(), 'yyyy-MM-dd')
 const DASHBOARD_FAST_SUMMARY_KEY = 'ieum:dashboard-fast-summary:v1'
-const DASHBOARD_WARM_CACHE_KEY = 'ieum:dashboard-warm:v2'
-const DASHBOARD_WARM_DB = 'ieum-dashboard-warm-v1'
-const DASHBOARD_WARM_STORE = 'snapshots'
-const DASHBOARD_WARM_CACHE_MAX_AGE_MS = 24 * 60 * 60_000
+const DASHBOARD_FAST_SUMMARY_MAX_AGE_MS = 24 * 60 * 60_000
 const PAID_CHANNEL_LIST = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment','chatgpt'] as const
 const EXTERNAL_CHANNEL_LIST = ['tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','ezpz','inbound_call'] as const
 const CHANNEL_LABELS: Record<string, string> = {
@@ -31,15 +28,6 @@ const CHANNEL_COLORS: Record<string, string> = {
   naver:'#03C75A', google:'#4285F4', meta:'#1877F2', youtube:'#FF0000', viral:'#7C3AED', danggeun:'#FF6F0F', kakao_search:'#FEE500', kakao_moment:'#111827', chatgpt:'#10A37F', direct:'#64748B',
   tu_albarich:'#0EA5E9', tu_youtube:'#EF4444', tu_danggeun:'#F97316',
   hugreen_danggeun:'#22C55E', hugreen_mail:'#14B8A6', ezpz:'#8B5CF6', inbound_call:'#334155', etc:'#94A3B8'
-}
-
-type DashboardWarmSnapshot = {
-  savedAt: number
-  leads: LeadRecord[]
-  spends: AdSpend[]
-  targets: KpiTarget[]
-  contracts: DashboardContractDaily[]
-  statusEvents: ConsultingStatusEvent[]
 }
 
 type DashboardFastSummary = {
@@ -68,7 +56,7 @@ function readDashboardFastSummary(): DashboardFastSummary | null {
   try {
     const raw = window.localStorage.getItem(DASHBOARD_FAST_SUMMARY_KEY)
     const parsed = raw ? JSON.parse(raw) as DashboardFastSummary : null
-    if (!parsed || parsed.date !== today || Date.now() - Number(parsed.savedAt || 0) > DASHBOARD_WARM_CACHE_MAX_AGE_MS) return null
+    if (!parsed || parsed.date !== today || Date.now() - Number(parsed.savedAt || 0) > DASHBOARD_FAST_SUMMARY_MAX_AGE_MS) return null
     return parsed
   } catch {
     return null
@@ -77,126 +65,6 @@ function readDashboardFastSummary(): DashboardFastSummary | null {
 
 function writeDashboardFastSummary(summary: DashboardFastSummary) {
   try { window.localStorage.setItem(DASHBOARD_FAST_SUMMARY_KEY, JSON.stringify(summary)) } catch {}
-}
-
-let dashboardWarmDbPromise: Promise<IDBDatabase | null> | null = null
-
-function openDashboardWarmDb(): Promise<IDBDatabase | null> {
-  if (typeof window === 'undefined' || !window.indexedDB) return Promise.resolve(null)
-  if (dashboardWarmDbPromise) return dashboardWarmDbPromise
-  dashboardWarmDbPromise = new Promise(resolve => {
-    const request = window.indexedDB.open(DASHBOARD_WARM_DB, 1)
-    request.onupgradeneeded = () => {
-      const db = request.result
-      if (!db.objectStoreNames.contains(DASHBOARD_WARM_STORE)) db.createObjectStore(DASHBOARD_WARM_STORE, { keyPath: 'id' })
-    }
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => resolve(null)
-    request.onblocked = () => resolve(null)
-  })
-  return dashboardWarmDbPromise
-}
-
-async function readDashboardWarmBytes(): Promise<Uint8Array | null> {
-  const db = await openDashboardWarmDb()
-  if (db) {
-    const stored = await new Promise<{ savedAt?: number; data?: ArrayBuffer | Uint8Array } | null>(resolve => {
-      const request = db.transaction(DASHBOARD_WARM_STORE, 'readonly').objectStore(DASHBOARD_WARM_STORE).get('latest')
-      request.onsuccess = () => resolve(request.result || null)
-      request.onerror = () => resolve(null)
-    })
-    if (stored?.data && Date.now() - Number(stored.savedAt || 0) <= DASHBOARD_WARM_CACHE_MAX_AGE_MS) {
-      return stored.data instanceof Uint8Array ? stored.data : new Uint8Array(stored.data)
-    }
-  }
-  const encoded = window.localStorage.getItem(DASHBOARD_WARM_CACHE_KEY)
-  return encoded ? base64ToBytes(encoded) : null
-}
-
-async function writeDashboardWarmBytes(bytes: Uint8Array) {
-  const db = await openDashboardWarmDb()
-  if (db) {
-    const saved = await new Promise<boolean>(resolve => {
-      const transaction = db.transaction(DASHBOARD_WARM_STORE, 'readwrite')
-      transaction.objectStore(DASHBOARD_WARM_STORE).put({ id: 'latest', savedAt: Date.now(), data: bytes })
-      transaction.oncomplete = () => resolve(true)
-      transaction.onerror = () => resolve(false)
-      transaction.onabort = () => resolve(false)
-    })
-    if (saved) {
-      try { window.localStorage.removeItem(DASHBOARD_WARM_CACHE_KEY) } catch {}
-      return
-    }
-  }
-  window.localStorage.setItem(DASHBOARD_WARM_CACHE_KEY, bytesToBase64(bytes))
-}
-
-function bytesToBase64(bytes: Uint8Array) {
-  let binary = ''
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
-  }
-  return window.btoa(binary)
-}
-
-function base64ToBytes(value: string) {
-  const binary = window.atob(value)
-  const bytes = new Uint8Array(binary.length)
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
-  return bytes
-}
-
-async function readDashboardWarmSnapshot(): Promise<DashboardWarmSnapshot | null> {
-  try {
-    if (typeof DecompressionStream === 'undefined') return null
-    const bytes = await readDashboardWarmBytes()
-    if (!bytes) return null
-    const compressedBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
-    const stream = new Blob([compressedBuffer]).stream().pipeThrough(new DecompressionStream('gzip'))
-    const parsed = JSON.parse(await new Response(stream).text()) as DashboardWarmSnapshot | null
-    if (!parsed || Date.now() - Number(parsed.savedAt || 0) > DASHBOARD_WARM_CACHE_MAX_AGE_MS) return null
-    if (![parsed.leads, parsed.spends, parsed.targets, parsed.contracts, parsed.statusEvents].every(Array.isArray)) return null
-    return parsed
-  } catch (error) {
-    console.warn('[dashboard warm cache read failed]', error)
-    return null
-  }
-}
-
-function compactDashboardLead(lead: LeadRecord): LeadRecord {
-  return {
-    id: lead.id,
-    date: lead.date,
-    originalDate: lead.originalDate,
-    consultingNumber: lead.consultingNumber,
-    name: lead.name || '',
-    phone: lead.phone,
-    region: lead.region || '',
-    district: lead.district || '',
-    channel: lead.channel,
-    subChannel: lead.subChannel,
-    dbTier: lead.dbTier,
-    status: lead.status,
-    uploadedAt: lead.uploadedAt || '',
-    registeredAt: lead.registeredAt,
-    utm_source: lead.utm_source,
-    utm_medium: lead.utm_medium,
-    source_raw: lead.source_raw,
-    consultingStatus: lead.consultingStatus,
-    ...(lead as any).consultingStatusTier ? { consultingStatusTier: (lead as any).consultingStatusTier } : {},
-  } as LeadRecord
-}
-
-async function writeDashboardWarmSnapshot(snapshot: DashboardWarmSnapshot) {
-  try {
-    if (typeof CompressionStream === 'undefined') return
-    const stream = new Blob([JSON.stringify(snapshot)]).stream().pipeThrough(new CompressionStream('gzip'))
-    const compressed = new Uint8Array(await new Response(stream).arrayBuffer())
-    await writeDashboardWarmBytes(compressed)
-  } catch (error) {
-    console.warn('[dashboard warm cache write failed]', error)
-    try { window.localStorage.removeItem(DASHBOARD_WARM_CACHE_KEY) } catch {}
-  }
 }
 
 function defaultSubChannelForChannel(ch: string) {
