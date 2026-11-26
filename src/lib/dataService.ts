@@ -1266,7 +1266,7 @@ export async function fetchConsultingStatusEvents(): Promise<ConsultingStatusEve
       sequence,
     }
   }).filter((event: ConsultingStatusEvent) => Boolean(event.phone && /^01[0-9]{8,9}$/.test(event.phone) && event.status))
-  if (MANAGEMENT_API_ENABLED) void writeManagementSnapshot('derived:status-events', events)
+  if (MANAGEMENT_API_ENABLED) await writeManagementSnapshot('derived:status-events', events)
   return events
 }
 
@@ -2250,7 +2250,7 @@ export async function fetchLeads(startDate?: string, endDate?: string, options: 
       .filter((row: LeadRecord) => !EXCLUDED_LEAD_STATUSES.has(String(row.status || '').toLowerCase()))
       .filter((row: LeadRecord) => inRange(row.date, startDate, endDate))
       .sort((a, b) => String(b.registeredAt || b.date).localeCompare(String(a.registeredAt || a.date)))
-    if (canUseDerivedSnapshot) void writeManagementSnapshot('derived:leads', result)
+    if (canUseDerivedSnapshot) await writeManagementSnapshot('derived:leads', result)
     return result
   }
 
@@ -2483,7 +2483,7 @@ export async function fetchDashboardContracts(): Promise<DashboardContractDaily[
           daily.set(date, current)
         })
       const result = Array.from(daily.values()).sort((a, b) => a.date.localeCompare(b.date))
-      void writeManagementSnapshot('derived:dashboard-contracts', result)
+      await writeManagementSnapshot('derived:dashboard-contracts', result)
       return result
     }
   }
