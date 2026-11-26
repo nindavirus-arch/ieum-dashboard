@@ -15,6 +15,8 @@ import { buildVisitMilestones, latestVisitByPhone } from '../lib/visitMetrics'
 
 const today = format(new Date(), 'yyyy-MM-dd')
 const DASHBOARD_WARM_CACHE_KEY = 'ieum:dashboard-warm:v2'
+const DASHBOARD_WARM_DB = 'ieum-dashboard-warm-v1'
+const DASHBOARD_WARM_STORE = 'snapshots'
 const DASHBOARD_WARM_CACHE_MAX_AGE_MS = 24 * 60 * 60_000
 const PAID_CHANNEL_LIST = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment','chatgpt'] as const
 const EXTERNAL_CHANNEL_LIST = ['tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','ezpz','inbound_call'] as const
@@ -39,6 +41,58 @@ type DashboardWarmSnapshot = {
   statusEvents: ConsultingStatusEvent[]
 }
 
+let dashboardWarmDbPromise: Promise<IDBDatabase | null> | null = null
+
+function openDashboardWarmDb(): Promise<IDBDatabase | null> {
+  if (typeof window === 'undefined' || !window.indexedDB) return Promise.resolve(null)
+  if (dashboardWarmDbPromise) return dashboardWarmDbPromise
+  dashboardWarmDbPromise = new Promise(resolve => {
+    const request = window.indexedDB.open(DASHBOARD_WARM_DB, 1)
+    request.onupgradeneeded = () => {
+      const db = request.result
+      if (!db.objectStoreNames.contains(DASHBOARD_WARM_STORE)) db.createObjectStore(DASHBOARD_WARM_STORE, { keyPath: 'id' })
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => resolve(null)
+    request.onblocked = () => resolve(null)
+  })
+  return dashboardWarmDbPromise
+}
+
+async function readDashboardWarmBytes(): Promise<Uint8Array | null> {
+  const db = await openDashboardWarmDb()
+  if (db) {
+    const stored = await new Promise<{ savedAt?: number; data?: ArrayBuffer | Uint8Array } | null>(resolve => {
+      const request = db.transaction(DASHBOARD_WARM_STORE, 'readonly').objectStore(DASHBOARD_WARM_STORE).get('latest')
+      request.onsuccess = () => resolve(request.result || null)
+      request.onerror = () => resolve(null)
+    })
+    if (stored?.data && Date.now() - Number(stored.savedAt || 0) <= DASHBOARD_WARM_CACHE_MAX_AGE_MS) {
+      return stored.data instanceof Uint8Array ? stored.data : new Uint8Array(stored.data)
+    }
+  }
+  const encoded = window.localStorage.getItem(DASHBOARD_WARM_CACHE_KEY)
+  return encoded ? base64ToBytes(encoded) : null
+}
+
+async function writeDashboardWarmBytes(bytes: Uint8Array) {
+  const db = await openDashboardWarmDb()
+  if (db) {
+    const saved = await new Promise<boolean>(resolve => {
+      const transaction = db.transaction(DASHBOARD_WARM_STORE, 'readwrite')
+      transaction.objectStore(DASHBOARD_WARM_STORE).put({ id: 'latest', savedAt: Date.now(), data: bytes })
+      transaction.oncomplete = () => resolve(true)
+      transaction.onerror = () => resolve(false)
+      transaction.onabort = () => resolve(false)
+    })
+    if (saved) {
+      try { window.localStorage.removeItem(DASHBOARD_WARM_CACHE_KEY) } catch {}
+      return
+    }
+  }
+  window.localStorage.setItem(DASHBOARD_WARM_CACHE_KEY, bytesToBase64(bytes))
+}
+
 function bytesToBase64(bytes: Uint8Array) {
   let binary = ''
   for (let offset = 0; offset < bytes.length; offset += 0x8000) {
@@ -57,9 +111,10 @@ function base64ToBytes(value: string) {
 async function readDashboardWarmSnapshot(): Promise<DashboardWarmSnapshot | null> {
   try {
     if (typeof DecompressionStream === 'undefined') return null
-    const encoded = window.localStorage.getItem(DASHBOARD_WARM_CACHE_KEY)
-    if (!encoded) return null
-    const stream = new Blob([base64ToBytes(encoded)]).stream().pipeThrough(new DecompressionStream('gzip'))
+    const bytes = await readDashboardWarmBytes()
+    if (!bytes) return null
+    const compressedBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+    const stream = new Blob([compressedBuffer]).stream().pipeThrough(new DecompressionStream('gzip'))
     const parsed = JSON.parse(await new Response(stream).text()) as DashboardWarmSnapshot | null
     if (!parsed || Date.now() - Number(parsed.savedAt || 0) > DASHBOARD_WARM_CACHE_MAX_AGE_MS) return null
     if (![parsed.leads, parsed.spends, parsed.targets, parsed.contracts, parsed.statusEvents].every(Array.isArray)) return null
@@ -98,7 +153,7 @@ async function writeDashboardWarmSnapshot(snapshot: DashboardWarmSnapshot) {
     if (typeof CompressionStream === 'undefined') return
     const stream = new Blob([JSON.stringify(snapshot)]).stream().pipeThrough(new CompressionStream('gzip'))
     const compressed = new Uint8Array(await new Response(stream).arrayBuffer())
-    window.localStorage.setItem(DASHBOARD_WARM_CACHE_KEY, bytesToBase64(compressed))
+    await writeDashboardWarmBytes(compressed)
   } catch {
     try { window.localStorage.removeItem(DASHBOARD_WARM_CACHE_KEY) } catch {}
   }
