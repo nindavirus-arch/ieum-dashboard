@@ -1219,7 +1219,7 @@ function saveKpiTarget(body, user) {
       return nextTarget[header] === undefined ? '' : nextTarget[header];
     })];
     if (rowNumber > 0) sheet.getRange(rowNumber, 1, 1, headers.length).setValues(output);
-    else sheet.getRange(sheet.getLastRow() + 1, 1, headers.length).setValues(output);
+    else sheet.getRange(sheet.getLastRow() + 1, 1, 1, headers.length).setValues(output);
     return json({ success: true, target: {
       month: month,
       minDaily: minDaily,
