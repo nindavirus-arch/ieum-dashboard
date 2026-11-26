@@ -441,6 +441,9 @@ export default function DashboardPage() {
           setStatusEvents(warmSnapshot.statusEvents)
           hasLoadedRef.current = true
           setLoading(false)
+          await new Promise<void>(resolve => {
+            window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
+          })
         }
       }
       const [leadResult, spendResult, targetResult, projectResult, statusEventResult] = await Promise.allSettled([
