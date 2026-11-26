@@ -14,12 +14,16 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AdminUser | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [initialSession] = useState(() => {
+    const cachedUser = getAuthToken() ? getStoredAuthUser() : null
+    return { cachedUser }
+  })
+  const [user, setUser] = useState<AdminUser | null>(initialSession.cachedUser)
+  const [loading, setLoading] = useState(!initialSession.cachedUser)
   const [setupRequired, setSetupRequired] = useState(false)
 
-  async function refresh() {
-    setLoading(true)
+  async function refresh(blocking = true) {
+    if (blocking) setLoading(true)
     try {
       const status = await fetchAuthStatus()
       setSetupRequired(status.setupRequired)
@@ -34,7 +38,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    refresh()
+    void refresh(!initialSession.cachedUser)
     let recheckTimer = 0
     const handleInvalid = () => {
       setUser(null)

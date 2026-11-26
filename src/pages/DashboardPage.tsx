@@ -68,7 +68,6 @@ async function readDashboardWarmBytes(): Promise<Uint8Array | null> {
       request.onerror = () => resolve(null)
     })
     if (stored?.data && Date.now() - Number(stored.savedAt || 0) <= DASHBOARD_WARM_CACHE_MAX_AGE_MS) {
-      console.info('[dashboard warm cache bytes]', stored.data.constructor?.name || typeof stored.data, Number(stored.savedAt || 0))
       return stored.data instanceof Uint8Array ? stored.data : new Uint8Array(stored.data)
     }
   }
@@ -119,7 +118,6 @@ async function readDashboardWarmSnapshot(): Promise<DashboardWarmSnapshot | null
     const parsed = JSON.parse(await new Response(stream).text()) as DashboardWarmSnapshot | null
     if (!parsed || Date.now() - Number(parsed.savedAt || 0) > DASHBOARD_WARM_CACHE_MAX_AGE_MS) return null
     if (![parsed.leads, parsed.spends, parsed.targets, parsed.contracts, parsed.statusEvents].every(Array.isArray)) return null
-    console.info('[dashboard warm cache hit]', parsed.leads.length)
     return parsed
   } catch (error) {
     console.warn('[dashboard warm cache read failed]', error)
@@ -157,7 +155,6 @@ async function writeDashboardWarmSnapshot(snapshot: DashboardWarmSnapshot) {
     const stream = new Blob([JSON.stringify(snapshot)]).stream().pipeThrough(new CompressionStream('gzip'))
     const compressed = new Uint8Array(await new Response(stream).arrayBuffer())
     await writeDashboardWarmBytes(compressed)
-    console.info('[dashboard warm cache saved]', compressed.byteLength)
   } catch (error) {
     console.warn('[dashboard warm cache write failed]', error)
     try { window.localStorage.removeItem(DASHBOARD_WARM_CACHE_KEY) } catch {}
