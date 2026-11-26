@@ -14,6 +14,8 @@ import { DEFAULT_KPI_MIN_DAILY, DEFAULT_KPI_STRETCH_DAILY } from '../lib/kpiDefa
 import { buildVisitMilestones, latestVisitByPhone } from '../lib/visitMetrics'
 
 const today = format(new Date(), 'yyyy-MM-dd')
+const DASHBOARD_WARM_CACHE_KEY = 'ieum:dashboard-warm:v1'
+const DASHBOARD_WARM_CACHE_MAX_AGE_MS = 24 * 60 * 60_000
 const PAID_CHANNEL_LIST = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment','chatgpt'] as const
 const EXTERNAL_CHANNEL_LIST = ['tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','ezpz','inbound_call'] as const
 const CHANNEL_LABELS: Record<string, string> = {
@@ -26,6 +28,60 @@ const CHANNEL_COLORS: Record<string, string> = {
   naver:'#03C75A', google:'#4285F4', meta:'#1877F2', youtube:'#FF0000', viral:'#7C3AED', danggeun:'#FF6F0F', kakao_search:'#FEE500', kakao_moment:'#111827', chatgpt:'#10A37F', direct:'#64748B',
   tu_albarich:'#0EA5E9', tu_youtube:'#EF4444', tu_danggeun:'#F97316',
   hugreen_danggeun:'#22C55E', hugreen_mail:'#14B8A6', ezpz:'#8B5CF6', inbound_call:'#334155', etc:'#94A3B8'
+}
+
+type DashboardWarmSnapshot = {
+  savedAt: number
+  leads: LeadRecord[]
+  spends: AdSpend[]
+  targets: KpiTarget[]
+  contracts: DashboardContractDaily[]
+  statusEvents: ConsultingStatusEvent[]
+}
+
+function readDashboardWarmSnapshot(): DashboardWarmSnapshot | null {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(DASHBOARD_WARM_CACHE_KEY) || 'null') as DashboardWarmSnapshot | null
+    if (!parsed || Date.now() - Number(parsed.savedAt || 0) > DASHBOARD_WARM_CACHE_MAX_AGE_MS) return null
+    if (![parsed.leads, parsed.spends, parsed.targets, parsed.contracts, parsed.statusEvents].every(Array.isArray)) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function compactDashboardLead(lead: LeadRecord): LeadRecord {
+  return {
+    id: lead.id,
+    date: lead.date,
+    originalDate: lead.originalDate,
+    consultingNumber: lead.consultingNumber,
+    name: lead.name || '',
+    phone: lead.phone,
+    region: lead.region || '',
+    district: lead.district || '',
+    channel: lead.channel,
+    subChannel: lead.subChannel,
+    dbTier: lead.dbTier,
+    status: lead.status,
+    uploadedAt: lead.uploadedAt || '',
+    registeredAt: lead.registeredAt,
+    utm_source: lead.utm_source,
+    utm_medium: lead.utm_medium,
+    source_raw: lead.source_raw,
+    consultingStatus: lead.consultingStatus,
+    ...(lead as any).consultingStatusTier ? { consultingStatusTier: (lead as any).consultingStatusTier } : {},
+  } as LeadRecord
+}
+
+function writeDashboardWarmSnapshot(snapshot: DashboardWarmSnapshot) {
+  try {
+    const serialized = JSON.stringify(snapshot)
+    if (serialized.length > 4_000_000) return
+    window.localStorage.setItem(DASHBOARD_WARM_CACHE_KEY, serialized)
+  } catch {
+    try { window.localStorage.removeItem(DASHBOARD_WARM_CACHE_KEY) } catch {}
+  }
 }
 
 function defaultSubChannelForChannel(ch: string) {
@@ -272,21 +328,22 @@ function inRange(date: string, start: string, end: string) {
 }
 
 export default function DashboardPage() {
+  const [warmSnapshot] = useState<DashboardWarmSnapshot | null>(() => readDashboardWarmSnapshot())
   const [viewMode, setViewMode] = useState<ViewMode>('daily')
   const [selectedDate, setSelectedDate] = useState(today)
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('selected')
   const [customStart, setCustomStart] = useState(today)
   const [customEnd, setCustomEnd] = useState(today)
-  const [leads, setLeads] = useState<LeadRecord[]>([])
-  const [spends, setSpends] = useState<AdSpend[]>([])
-  const [targets, setTargets] = useState<KpiTarget[]>([])
-  const [contractDaily, setContractDaily] = useState<DashboardContractDaily[]>([])
-  const [statusEvents, setStatusEvents] = useState<ConsultingStatusEvent[]>([])
+  const [leads, setLeads] = useState<LeadRecord[]>(() => warmSnapshot?.leads || [])
+  const [spends, setSpends] = useState<AdSpend[]>(() => warmSnapshot?.spends || [])
+  const [targets, setTargets] = useState<KpiTarget[]>(() => warmSnapshot?.targets || [])
+  const [contractDaily, setContractDaily] = useState<DashboardContractDaily[]>(() => warmSnapshot?.contracts || [])
+  const [statusEvents, setStatusEvents] = useState<ConsultingStatusEvent[]>(() => warmSnapshot?.statusEvents || [])
   const [summaryTab, setSummaryTab] = useState<'db' | 'contracts'>(() => {
     try { return window.sessionStorage.getItem('ieum-dashboard-summary-tab') === 'contracts' ? 'contracts' : 'db' } catch { return 'db' }
   })
-  const [loading, setLoading] = useState(true)
-  const hasLoadedRef = useRef(false)
+  const [loading, setLoading] = useState(!warmSnapshot)
+  const hasLoadedRef = useRef(Boolean(warmSnapshot))
   const [loadError, setLoadError] = useState('')
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null)
   const [openChannelGroups, setOpenChannelGroups] = useState<Record<string, boolean>>({ paid: true, organic: false, external: false, unclassified: true })
@@ -310,6 +367,22 @@ export default function DashboardPage() {
       if (targetResult.status === 'fulfilled') setTargets(targetResult.value)
       if (projectResult.status === 'fulfilled') setContractDaily(projectResult.value)
       if (statusEventResult.status === 'fulfilled') setStatusEvents(statusEventResult.value)
+      if (
+        leadResult.status === 'fulfilled' &&
+        spendResult.status === 'fulfilled' &&
+        targetResult.status === 'fulfilled' &&
+        projectResult.status === 'fulfilled' &&
+        statusEventResult.status === 'fulfilled'
+      ) {
+        writeDashboardWarmSnapshot({
+          savedAt: Date.now(),
+          leads: leadResult.value.map(compactDashboardLead),
+          spends: spendResult.value,
+          targets: targetResult.value,
+          contracts: projectResult.value,
+          statusEvents: statusEventResult.value.map(event => ({ ...event, name: '' })),
+        })
+      }
       const errors = [
         leadResult.status === 'rejected' ? `DB: ${leadResult.reason instanceof Error ? leadResult.reason.message : String(leadResult.reason)}` : '',
         spendResult.status === 'rejected' ? `광고비: ${spendResult.reason instanceof Error ? spendResult.reason.message : String(spendResult.reason)}` : '',
