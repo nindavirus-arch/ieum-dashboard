@@ -14,7 +14,7 @@ import { DEFAULT_KPI_MIN_DAILY, DEFAULT_KPI_STRETCH_DAILY } from '../lib/kpiDefa
 import { buildVisitMilestones, latestVisitByPhone } from '../lib/visitMetrics'
 
 const today = format(new Date(), 'yyyy-MM-dd')
-const DASHBOARD_WARM_CACHE_KEY = 'ieum:dashboard-warm:v1'
+const DASHBOARD_WARM_CACHE_KEY = 'ieum:dashboard-warm:v2'
 const DASHBOARD_WARM_CACHE_MAX_AGE_MS = 24 * 60 * 60_000
 const PAID_CHANNEL_LIST = ['naver','google','meta','youtube','viral','danggeun','kakao_search','kakao_moment','chatgpt'] as const
 const EXTERNAL_CHANNEL_LIST = ['tu_albarich','tu_youtube','tu_danggeun','hugreen_danggeun','hugreen_mail','ezpz','inbound_call'] as const
@@ -39,9 +39,28 @@ type DashboardWarmSnapshot = {
   statusEvents: ConsultingStatusEvent[]
 }
 
-function readDashboardWarmSnapshot(): DashboardWarmSnapshot | null {
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = ''
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  }
+  return window.btoa(binary)
+}
+
+function base64ToBytes(value: string) {
+  const binary = window.atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+  return bytes
+}
+
+async function readDashboardWarmSnapshot(): Promise<DashboardWarmSnapshot | null> {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(DASHBOARD_WARM_CACHE_KEY) || 'null') as DashboardWarmSnapshot | null
+    if (typeof DecompressionStream === 'undefined') return null
+    const encoded = window.localStorage.getItem(DASHBOARD_WARM_CACHE_KEY)
+    if (!encoded) return null
+    const stream = new Blob([base64ToBytes(encoded)]).stream().pipeThrough(new DecompressionStream('gzip'))
+    const parsed = JSON.parse(await new Response(stream).text()) as DashboardWarmSnapshot | null
     if (!parsed || Date.now() - Number(parsed.savedAt || 0) > DASHBOARD_WARM_CACHE_MAX_AGE_MS) return null
     if (![parsed.leads, parsed.spends, parsed.targets, parsed.contracts, parsed.statusEvents].every(Array.isArray)) return null
     return parsed
@@ -74,11 +93,12 @@ function compactDashboardLead(lead: LeadRecord): LeadRecord {
   } as LeadRecord
 }
 
-function writeDashboardWarmSnapshot(snapshot: DashboardWarmSnapshot) {
+async function writeDashboardWarmSnapshot(snapshot: DashboardWarmSnapshot) {
   try {
-    const serialized = JSON.stringify(snapshot)
-    if (serialized.length > 4_000_000) return
-    window.localStorage.setItem(DASHBOARD_WARM_CACHE_KEY, serialized)
+    if (typeof CompressionStream === 'undefined') return
+    const stream = new Blob([JSON.stringify(snapshot)]).stream().pipeThrough(new CompressionStream('gzip'))
+    const compressed = new Uint8Array(await new Response(stream).arrayBuffer())
+    window.localStorage.setItem(DASHBOARD_WARM_CACHE_KEY, bytesToBase64(compressed))
   } catch {
     try { window.localStorage.removeItem(DASHBOARD_WARM_CACHE_KEY) } catch {}
   }
@@ -328,22 +348,21 @@ function inRange(date: string, start: string, end: string) {
 }
 
 export default function DashboardPage() {
-  const [warmSnapshot] = useState<DashboardWarmSnapshot | null>(() => readDashboardWarmSnapshot())
   const [viewMode, setViewMode] = useState<ViewMode>('daily')
   const [selectedDate, setSelectedDate] = useState(today)
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('selected')
   const [customStart, setCustomStart] = useState(today)
   const [customEnd, setCustomEnd] = useState(today)
-  const [leads, setLeads] = useState<LeadRecord[]>(() => warmSnapshot?.leads || [])
-  const [spends, setSpends] = useState<AdSpend[]>(() => warmSnapshot?.spends || [])
-  const [targets, setTargets] = useState<KpiTarget[]>(() => warmSnapshot?.targets || [])
-  const [contractDaily, setContractDaily] = useState<DashboardContractDaily[]>(() => warmSnapshot?.contracts || [])
-  const [statusEvents, setStatusEvents] = useState<ConsultingStatusEvent[]>(() => warmSnapshot?.statusEvents || [])
+  const [leads, setLeads] = useState<LeadRecord[]>([])
+  const [spends, setSpends] = useState<AdSpend[]>([])
+  const [targets, setTargets] = useState<KpiTarget[]>([])
+  const [contractDaily, setContractDaily] = useState<DashboardContractDaily[]>([])
+  const [statusEvents, setStatusEvents] = useState<ConsultingStatusEvent[]>([])
   const [summaryTab, setSummaryTab] = useState<'db' | 'contracts'>(() => {
     try { return window.sessionStorage.getItem('ieum-dashboard-summary-tab') === 'contracts' ? 'contracts' : 'db' } catch { return 'db' }
   })
-  const [loading, setLoading] = useState(!warmSnapshot)
-  const hasLoadedRef = useRef(Boolean(warmSnapshot))
+  const [loading, setLoading] = useState(true)
+  const hasLoadedRef = useRef(false)
   const [loadError, setLoadError] = useState('')
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null)
   const [openChannelGroups, setOpenChannelGroups] = useState<Record<string, boolean>>({ paid: true, organic: false, external: false, unclassified: true })
@@ -355,6 +374,18 @@ export default function DashboardPage() {
     if (!hasLoadedRef.current) setLoading(true)
     setLoadError('')
     try {
+      if (!hasLoadedRef.current) {
+        const warmSnapshot = await readDashboardWarmSnapshot()
+        if (warmSnapshot) {
+          setLeads(warmSnapshot.leads)
+          setSpends(warmSnapshot.spends)
+          setTargets(warmSnapshot.targets)
+          setContractDaily(warmSnapshot.contracts)
+          setStatusEvents(warmSnapshot.statusEvents)
+          hasLoadedRef.current = true
+          setLoading(false)
+        }
+      }
       const [leadResult, spendResult, targetResult, projectResult, statusEventResult] = await Promise.allSettled([
         fetchLeads(),
         fetchAdSpend(),
@@ -374,7 +405,7 @@ export default function DashboardPage() {
         projectResult.status === 'fulfilled' &&
         statusEventResult.status === 'fulfilled'
       ) {
-        writeDashboardWarmSnapshot({
+        await writeDashboardWarmSnapshot({
           savedAt: Date.now(),
           leads: leadResult.value.map(compactDashboardLead),
           spends: spendResult.value,
