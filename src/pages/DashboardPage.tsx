@@ -14,6 +14,7 @@ import { DEFAULT_KPI_MIN_DAILY, DEFAULT_KPI_STRETCH_DAILY } from '../lib/kpiDefa
 import { buildVisitMilestones, latestVisitByPhone } from '../lib/visitMetrics'
 
 const today = format(new Date(), 'yyyy-MM-dd')
+const DASHBOARD_FAST_SUMMARY_KEY = 'ieum:dashboard-fast-summary:v1'
 const DASHBOARD_WARM_CACHE_KEY = 'ieum:dashboard-warm:v2'
 const DASHBOARD_WARM_DB = 'ieum-dashboard-warm-v1'
 const DASHBOARD_WARM_STORE = 'snapshots'
@@ -39,6 +40,43 @@ type DashboardWarmSnapshot = {
   targets: KpiTarget[]
   contracts: DashboardContractDaily[]
   statusEvents: ConsultingStatusEvent[]
+}
+
+type DashboardFastSummary = {
+  savedAt: number
+  date: string
+  todayDb: number
+  yesterdayDb: number
+  cumulativeDb: number
+  spend: number
+  paidDb: number
+  cpl: number
+  convertedSecond: number
+  estimatePool: number
+  conversionRate: number
+  todayContracts: number
+  todayContractAmount: number
+  yesterdayContracts: number
+  yesterdayContractAmount: number
+  cumulativeContracts: number
+  cumulativeContractAmount: number
+  contractRate: number
+  costPerContract: number
+}
+
+function readDashboardFastSummary(): DashboardFastSummary | null {
+  try {
+    const raw = window.localStorage.getItem(DASHBOARD_FAST_SUMMARY_KEY)
+    const parsed = raw ? JSON.parse(raw) as DashboardFastSummary : null
+    if (!parsed || parsed.date !== today || Date.now() - Number(parsed.savedAt || 0) > DASHBOARD_WARM_CACHE_MAX_AGE_MS) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writeDashboardFastSummary(summary: DashboardFastSummary) {
+  try { window.localStorage.setItem(DASHBOARD_FAST_SUMMARY_KEY, JSON.stringify(summary)) } catch {}
 }
 
 let dashboardWarmDbPromise: Promise<IDBDatabase | null> | null = null
@@ -405,6 +443,7 @@ function inRange(date: string, start: string, end: string) {
 }
 
 export default function DashboardPage() {
+  const [fastSummary] = useState<DashboardFastSummary | null>(() => readDashboardFastSummary())
   const [viewMode, setViewMode] = useState<ViewMode>('daily')
   const [selectedDate, setSelectedDate] = useState(today)
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('selected')
@@ -418,7 +457,8 @@ export default function DashboardPage() {
   const [summaryTab, setSummaryTab] = useState<'db' | 'contracts'>(() => {
     try { return window.sessionStorage.getItem('ieum-dashboard-summary-tab') === 'contracts' ? 'contracts' : 'db' } catch { return 'db' }
   })
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!fastSummary)
+  const [hasExactData, setHasExactData] = useState(false)
   const hasLoadedRef = useRef(false)
   const [loadError, setLoadError] = useState('')
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null)
@@ -428,24 +468,9 @@ export default function DashboardPage() {
   const range = useMemo(() => rangeByMode(viewMode, selectedDate, periodPreset, customStart, customEnd), [viewMode, selectedDate, periodPreset, customStart, customEnd])
 
   async function load() {
-    if (!hasLoadedRef.current) setLoading(true)
+    if (!hasLoadedRef.current && !fastSummary) setLoading(true)
     setLoadError('')
     try {
-      if (!hasLoadedRef.current) {
-        const warmSnapshot = await readDashboardWarmSnapshot()
-        if (warmSnapshot) {
-          setLeads(warmSnapshot.leads)
-          setSpends(warmSnapshot.spends)
-          setTargets(warmSnapshot.targets)
-          setContractDaily(warmSnapshot.contracts)
-          setStatusEvents(warmSnapshot.statusEvents)
-          hasLoadedRef.current = true
-          setLoading(false)
-          await new Promise<void>(resolve => {
-            window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
-          })
-        }
-      }
       const [leadResult, spendResult, targetResult, projectResult, statusEventResult] = await Promise.allSettled([
         fetchLeads(),
         fetchAdSpend(),
@@ -458,22 +483,7 @@ export default function DashboardPage() {
       if (targetResult.status === 'fulfilled') setTargets(targetResult.value)
       if (projectResult.status === 'fulfilled') setContractDaily(projectResult.value)
       if (statusEventResult.status === 'fulfilled') setStatusEvents(statusEventResult.value)
-      if (
-        leadResult.status === 'fulfilled' &&
-        spendResult.status === 'fulfilled' &&
-        targetResult.status === 'fulfilled' &&
-        projectResult.status === 'fulfilled' &&
-        statusEventResult.status === 'fulfilled'
-      ) {
-        await writeDashboardWarmSnapshot({
-          savedAt: Date.now(),
-          leads: leadResult.value.map(compactDashboardLead),
-          spends: spendResult.value,
-          targets: targetResult.value,
-          contracts: projectResult.value,
-          statusEvents: statusEventResult.value.map(event => ({ ...event, name: '' })),
-        })
-      }
+      if (leadResult.status === 'fulfilled' && spendResult.status === 'fulfilled' && projectResult.status === 'fulfilled') setHasExactData(true)
       const errors = [
         leadResult.status === 'rejected' ? `DB: ${leadResult.reason instanceof Error ? leadResult.reason.message : String(leadResult.reason)}` : '',
         spendResult.status === 'rejected' ? `광고비: ${spendResult.reason instanceof Error ? spendResult.reason.message : String(spendResult.reason)}` : '',
@@ -895,7 +905,53 @@ export default function DashboardPage() {
       bg: 'bg-orange-50',
     },
   ]
-  const SUMMARY_CARDS = summaryTab === 'db' ? STAT_CARDS : CONTRACT_CARDS
+  const showFastSummary = Boolean(fastSummary && !hasExactData && viewMode === 'daily' && selectedDate === today)
+  const FAST_DB_CARDS = fastSummary ? [
+    { ...STAT_CARDS[0], label: '오늘 DB', value: fastSummary.todayDb, sub: `어제 DB 대비 ${signedNumber(fastSummary.todayDb, fastSummary.yesterdayDb)} · ${signedPercent(fastSummary.todayDb, fastSummary.yesterdayDb)}` },
+    { ...STAT_CARDS[1], label: '어제 DB', value: fastSummary.yesterdayDb },
+    { ...STAT_CARDS[2], value: fastSummary.cumulativeDb },
+    { ...STAT_CARDS[3], value: fastSummary.spend.toLocaleString() },
+    { ...STAT_CARDS[4], value: fastSummary.cpl.toLocaleString(), sub: `온라인광고 1차+2차 ${fastSummary.paidDb.toLocaleString()}건 기준` },
+    { ...STAT_CARDS[5], value: fastSummary.conversionRate, sub: `견적 후 상담 ${fastSummary.convertedSecond}/${fastSummary.estimatePool}` },
+  ] : STAT_CARDS
+  const FAST_CONTRACT_CARDS = fastSummary ? [
+    { ...CONTRACT_CARDS[0], label: '오늘 계약', value: fastSummary.todayContracts, sub: `계약금액 ${fmtKRW(fastSummary.todayContractAmount)}원` },
+    { ...CONTRACT_CARDS[1], value: fmtKRW(fastSummary.todayContractAmount), sub: `${fastSummary.todayContracts.toLocaleString()}건 합계` },
+    { ...CONTRACT_CARDS[2], label: '어제 계약', value: fastSummary.yesterdayContracts, sub: `계약금액 ${fmtKRW(fastSummary.yesterdayContractAmount)}원` },
+    { ...CONTRACT_CARDS[3], value: fastSummary.cumulativeContracts, sub: `누적 계약금액 ${fmtKRW(fastSummary.cumulativeContractAmount)}원` },
+    { ...CONTRACT_CARDS[4], value: fastSummary.contractRate, sub: `계약 ${fastSummary.todayContracts.toLocaleString()} / 인정 DB ${fastSummary.todayDb.toLocaleString()}` },
+    { ...CONTRACT_CARDS[5], value: fastSummary.costPerContract > 0 ? fmtKRW(fastSummary.costPerContract) : '—', unit: fastSummary.costPerContract > 0 ? '원' : '' },
+  ] : CONTRACT_CARDS
+  const SUMMARY_CARDS = showFastSummary
+    ? (summaryTab === 'db' ? FAST_DB_CARDS : FAST_CONTRACT_CARDS)
+    : (summaryTab === 'db' ? STAT_CARDS : CONTRACT_CARDS)
+  const summaryDbCount = showFastSummary && fastSummary ? fastSummary.todayDb : dbCard.primaryValue
+  const summaryContractCount = showFastSummary && fastSummary ? fastSummary.todayContracts : activeContracts.count
+
+  useEffect(() => {
+    if (!hasExactData || viewMode !== 'daily' || selectedDate !== today) return
+    writeDashboardFastSummary({
+      savedAt: Date.now(),
+      date: today,
+      todayDb: dbCard.primaryValue,
+      yesterdayDb: dbCard.compareValue,
+      cumulativeDb: validLeads.length,
+      spend: periodSpend,
+      paidDb: paidValidLeads.length,
+      cpl: avgCPL,
+      convertedSecond,
+      estimatePool,
+      conversionRate,
+      todayContracts: activeContracts.count,
+      todayContractAmount: activeContractAmount,
+      yesterdayContracts: compareContracts.count,
+      yesterdayContractAmount: compareContractAmount,
+      cumulativeContracts: cumulativeContracts.count,
+      cumulativeContractAmount,
+      contractRate,
+      costPerContract,
+    })
+  }, [activeContractAmount, activeContracts.count, avgCPL, compareContractAmount, compareContracts.count, contractRate, conversionRate, convertedSecond, costPerContract, cumulativeContractAmount, cumulativeContracts.count, dbCard.compareValue, dbCard.primaryValue, estimatePool, hasExactData, paidValidLeads.length, periodSpend, selectedDate, validLeads.length, viewMode])
 
   const inputValue = viewMode === 'daily'
     ? selectedDate
@@ -1006,14 +1062,14 @@ export default function DashboardPage() {
             aria-selected={summaryTab === 'db'}
             onClick={() => setSummaryTab('db')}
             className={clsx('tab-btn gap-1.5', summaryTab === 'db' && 'active')}
-          >DB 현황 <span className="opacity-70">{dbCard.primaryValue.toLocaleString()}건</span></button>
+          >DB 현황 <span className="opacity-70">{summaryDbCount.toLocaleString()}건</span></button>
           <button
             type="button"
             role="tab"
             aria-selected={summaryTab === 'contracts'}
             onClick={() => setSummaryTab('contracts')}
             className={clsx('tab-btn gap-1.5', summaryTab === 'contracts' && 'active')}
-          >계약 현황 <span className="opacity-70">{activeContracts.count.toLocaleString()}건</span></button>
+          >계약 현황 <span className="opacity-70">{summaryContractCount.toLocaleString()}건</span></button>
         </div>
         <p className="text-[11px] font-medium text-slate-400">
           {summaryTab === 'db' ? 'DB 유입·광고 효율 요약' : '계약금입금일 기준 계약 성과 요약'}
