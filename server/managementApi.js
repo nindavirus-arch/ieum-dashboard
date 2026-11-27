@@ -19,9 +19,9 @@ async function fetchManagementPage(endpoint, params = {}) {
   })
 
   let lastError
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 30_000)
+    const timer = setTimeout(() => controller.abort(), 15_000)
     try {
       const response = await fetch(url, {
         headers: { Accept: 'application/json', 'X-API-Key': apiKey },
@@ -37,7 +37,7 @@ async function fetchManagementPage(endpoint, params = {}) {
     } catch (error) {
       lastError = error
       const retryable = error?.name === 'AbortError' || !error?.status || error.status === 429 || error.status >= 500
-      if (!retryable || attempt === 2) break
+      if (!retryable || attempt === 1) break
       await wait(500 * (2 ** attempt))
     } finally {
       clearTimeout(timer)

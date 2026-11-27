@@ -83,13 +83,23 @@ module.exports = async function managementSync(req, res) {
 
   const results = []
   try {
-    for (const endpoint of endpoints) {
+    const settled = await Promise.allSettled(endpoints.map(async endpoint => {
       try {
-        results.push(await syncEndpoint(endpoint, forceFull))
+        return await syncEndpoint(endpoint, forceFull)
       } catch (error) {
         await saveSyncError(endpoint, error)
         throw error
       }
+    }))
+    const failures = []
+    settled.forEach((result, index) => {
+      if (result.status === 'fulfilled') results.push(result.value)
+      else failures.push(`${endpoints[index]}: ${String(result.reason?.message || result.reason)}`)
+    })
+    if (failures.length) {
+      const error = new Error(failures.join(' / '))
+      error.results = results
+      throw error
     }
     return sendJson(res, 200, { success: true, results, syncedAt: new Date().toISOString() })
   } catch (error) {

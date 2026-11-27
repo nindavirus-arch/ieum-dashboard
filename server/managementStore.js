@@ -175,7 +175,7 @@ async function trySyncLock() {
   const token = crypto.randomUUID()
   const rows = await getDb()`
     INSERT INTO management_sync_lock_prod (lock_name, lock_token, expires_at)
-    VALUES ('management-api', ${token}, now() + interval '4 minutes')
+    VALUES ('management-api', ${token}, now() + interval '90 seconds')
     ON CONFLICT (lock_name) DO UPDATE SET
       lock_token = EXCLUDED.lock_token,
       expires_at = EXCLUDED.expires_at

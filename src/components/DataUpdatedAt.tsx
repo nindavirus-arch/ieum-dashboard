@@ -33,9 +33,9 @@ export default function DataUpdatedAt() {
     try {
       const syncStates = await fetchManagementSyncStatus().catch(() => [])
       const syncTimes = syncStates.map(state => String(state.last_success_at || '')).filter(Boolean)
-      if (syncStates.length && syncTimes.length) {
+      if (syncStates.length && syncTimes.length === syncStates.length) {
         syncTimes.sort()
-        setUpdatedAt(syncTimes[syncTimes.length - 1] || '')
+        setUpdatedAt(syncTimes[0] || '')
         setSource('api')
         setSyncError(syncStates.some(state => Boolean(state.last_error)))
         setFailed(false)

@@ -129,27 +129,24 @@ async function ensureManagementSynced() {
   if (managementSyncPromise) return managementSyncPromise
 
   managementSyncPromise = (async () => {
-    const endpoints: ManagementDataType[] = ['consultings', 'consulting-utms', 'projects']
-    for (const endpoint of endpoints) {
-      let completed = false
-      for (let attempt = 0; attempt < 4 && !completed; attempt += 1) {
-        const response = await fetch(`/api/management-sync?endpoint=${encodeURIComponent(endpoint)}`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${getAuthToken()}` },
-        })
-        const body = await response.json().catch(() => null)
-        if (response.status === 401 || response.status === 403) requestAuthRecheck()
-        if (response.status === 409) {
-          await new Promise(resolve => window.setTimeout(resolve, 2000))
-          continue
-        }
-        if (!response.ok || !body?.success) {
-          throw new Error(body?.message || body?.error || `management sync ${endpoint} ${response.status}`)
-        }
-        completed = true
+    let completed = false
+    for (let attempt = 0; attempt < 8 && !completed; attempt += 1) {
+      const response = await fetch('/api/management-sync', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${getAuthToken()}` },
+      })
+      const body = await response.json().catch(() => null)
+      if (response.status === 401 || response.status === 403) requestAuthRecheck()
+      if (response.status === 409) {
+        await new Promise(resolve => window.setTimeout(resolve, 2000))
+        continue
       }
-      if (!completed) throw new Error(`management sync ${endpoint} is busy`)
+      if (!response.ok || !body?.success) {
+        throw new Error(body?.message || body?.error || `management sync ${response.status}`)
+      }
+      completed = true
     }
+    if (!completed) throw new Error('management sync is busy')
     managementSyncedAt = Date.now()
     managementCache.clear()
     notifyDataUpdated()
