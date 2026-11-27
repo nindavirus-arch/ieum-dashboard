@@ -38,9 +38,11 @@ async function syncEndpoint(endpoint, forceFull) {
   const state = await getSyncState(endpoint)
   const stateUpdatedAt = state?.last_source_updated_at
   const stateValue = stateUpdatedAt instanceof Date ? stateUpdatedAt.toISOString() : String(stateUpdatedAt || '')
-  const updatedFrom = forceFull || !stateValue
+  const stateTime = new Date(stateValue).getTime()
+  const overlapFloor = Date.now() - 48 * 60 * 60_000
+  const updatedFrom = forceFull || !Number.isFinite(stateTime)
     ? ''
-    : new Date(new Date(stateValue).getTime() - 60_000).toISOString()
+    : new Date(Math.min(stateTime - 60_000, overlapFloor)).toISOString()
   let cursor = ''
   let count = 0
   let pages = 0
